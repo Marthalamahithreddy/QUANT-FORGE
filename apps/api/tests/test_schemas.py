@@ -23,7 +23,13 @@ from annotated_types import Le, SupportsLe
 from pydantic import BaseModel, ValidationError
 
 from quantforge.models.base import MAX_FISCAL_YEAR, MIN_FISCAL_YEAR
-from quantforge.models.enums import EarningsTiming, IdentifierType, ProviderType, SecurityType
+from quantforge.models.enums import (
+    EarningsTiming,
+    IdentifierType,
+    PriceBasis,
+    ProviderType,
+    SecurityType,
+)
 from quantforge.schemas.benchmark import BenchmarkCreate, BenchmarkPriceBarCreate
 from quantforge.schemas.common import as_utc_aware, blank_to_none
 from quantforge.schemas.company import CompanyCreate
@@ -80,6 +86,7 @@ def _valid_bar(**overrides: object) -> DailyPriceBarCreate:
         "high": Decimal("105.000000"),
         "low": Decimal("99.000000"),
         "close": Decimal("103.250000"),
+        "price_basis": PriceBasis.SPLIT_ADJUSTED,
         "source_id": uuid4(),
     }
     payload.update(overrides)
@@ -605,6 +612,7 @@ def test_the_value_the_removed_ceiling_rejected_is_now_accepted() -> None:
 
 def test_a_very_large_benchmark_level_is_accepted() -> None:
     bar = BenchmarkPriceBarCreate(
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
         benchmark_id=uuid4(),
         trading_date=date(2024, 1, 2),
         close=_NUMERIC_20_6_MAX,
@@ -628,6 +636,7 @@ def test_a_negative_price_is_still_rejected() -> None:
 def test_a_negative_benchmark_level_is_still_rejected() -> None:
     with pytest.raises(ValidationError):
         BenchmarkPriceBarCreate(
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
             benchmark_id=uuid4(),
             trading_date=date(2024, 1, 2),
             close=Decimal("-0.000001"),
@@ -706,6 +715,7 @@ def _read_bar_payload(**overrides: object) -> dict[str, object]:
         "high": Decimal("105.000000"),
         "low": Decimal("99.000000"),
         "close": Decimal("0.1"),
+        "price_basis": PriceBasis.SPLIT_ADJUSTED,
         "adjusted_close": None,
         "volume": 1_000_000,
         "source_id": uuid4(),
@@ -753,6 +763,7 @@ def test_read_schema_hydrates_from_an_orm_instance() -> None:
         high = Decimal("105.000000")
         low = Decimal("99.000000")
         close = Decimal("103.250000")
+        price_basis = PriceBasis.AS_TRADED
         adjusted_close = None
         volume = 1_000_000
         source_id = uuid4()
@@ -762,6 +773,7 @@ def test_read_schema_hydrates_from_an_orm_instance() -> None:
 
     bar = DailyPriceBarRead.model_validate(FakeBar())
     assert bar.close == Decimal("103.250000")
+    assert bar.price_basis is PriceBasis.AS_TRADED
     assert bar.adjusted_close is None
 
 
@@ -786,6 +798,7 @@ def test_benchmark_blank_symbol_is_normalised_to_none() -> None:
 def test_benchmark_price_bar_requires_a_positive_close() -> None:
     with pytest.raises(ValidationError):
         BenchmarkPriceBarCreate(
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
             benchmark_id=uuid4(),
             trading_date=date(2024, 1, 2),
             close=Decimal("-1.000000"),
@@ -796,6 +809,7 @@ def test_benchmark_price_bar_requires_a_positive_close() -> None:
 def test_benchmark_price_bar_rejects_a_naive_timestamp() -> None:
     with pytest.raises(ValidationError, match="timezone-aware"):
         BenchmarkPriceBarCreate(
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
             benchmark_id=uuid4(),
             trading_date=date(2024, 1, 2),
             close=Decimal("4500.000000"),
@@ -952,3 +966,39 @@ def test_a_trading_date_is_not_silently_made_tz_aware() -> None:
     bar = _valid_bar(trading_date="2024-01-02")
     assert bar.trading_date == date(2024, 1, 2)
     assert not isinstance(bar.trading_date, datetime)
+
+
+# ── price basis is required on both bar schemas ─────────────────────────────
+
+
+def test_a_daily_bar_payload_without_a_price_basis_is_rejected() -> None:
+    payload: dict[str, object] = {
+        "listing_id": uuid4(),
+        "trading_date": date(2024, 1, 2),
+        "open": Decimal("1"),
+        "high": Decimal("2"),
+        "low": Decimal("1"),
+        "close": Decimal("2"),
+        "source_id": uuid4(),
+    }
+    with pytest.raises(ValidationError, match="price_basis"):
+        DailyPriceBarCreate(**payload)
+    with pytest.raises(ValidationError, match="price_basis"):
+        _valid_bar(price_basis="RAW")
+
+
+def test_a_benchmark_bar_payload_without_a_price_basis_is_rejected() -> None:
+    with pytest.raises(ValidationError, match="price_basis"):
+        BenchmarkPriceBarCreate(  # type: ignore[call-arg]
+            benchmark_id=uuid4(),
+            trading_date=date(2024, 1, 2),
+            close=Decimal("4500.000000"),
+            source_id=uuid4(),
+        )
+
+
+def test_the_read_schema_carries_the_price_basis_as_a_json_string() -> None:
+    payload = json.loads(
+        DailyPriceBarRead(**_read_bar_payload(price_basis=PriceBasis.AS_TRADED)).model_dump_json()
+    )
+    assert payload["price_basis"] == "AS_TRADED"

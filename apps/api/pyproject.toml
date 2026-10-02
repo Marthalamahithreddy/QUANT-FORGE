@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "alembic>=1.13",
+    "exchange-calendars>=4.13,<5",
     "fastapi>=0.115",
     # httpx2 is the httpx 2.x distribution. It is used for the provider HTTP
     # client *and* by Starlette's TestClient, so the project runs on one HTTP
@@ -131,6 +132,13 @@ plugins = ["pydantic.mypy"]
 # Third-party stubs are not bundled for these; keep the project strict without
 # forcing casts in our own call sites.
 module = ["fakeredis.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# exchange_calendars ships no py.typed marker. It is confined to
+# quantforge/market/calendar.py, whose public API is typed with stdlib
+# datetime/date only (pandas is never imported by QuantForge code).
+module = ["exchange_calendars.*"]
 ignore_missing_imports = true
 
 # ─────────────────────────────── pytest ──────────────────────────────────────

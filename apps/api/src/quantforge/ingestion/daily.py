@@ -3,7 +3,7 @@
 The contract
 ------------
 Re-running the same request must be a no-op, and that is the whole design. The
-uniqueness key is ``(listing_id, trading_date, source_id)``, so for each bar:
+uniqueness key is ``(listing_id, trading_date, source_id, price_basis)``, so for each bar:
 
 * **absent** -- insert it.
 * **present and identical** -- skip it, counted as ``records_skipped``.
@@ -63,6 +63,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from quantforge.ingestion.canonical import CanonicalDailyBar
+from quantforge.models.enums import PriceBasis
 from quantforge.models.ingestion import IngestionRun
 from quantforge.models.market import DailyPriceBar
 
@@ -123,8 +124,9 @@ class ProviderDataConflict(RuntimeError):  # noqa: N818 - name comes from the in
     """A stored bar disagrees with the incoming one for the same key.
 
     Raised when the database already holds a row for ``(listing_id,
-    trading_date, source_id)`` but at least one canonical value differs from
-    what the provider is saying now. The existing row is treated as a source
+    trading_date, source_id, price_basis)`` but at least one canonical value
+    differs from what the provider is saying now. A bar on a *different* price
+    basis is a separate legitimate observation, never a conflict. The existing row is treated as a source
     fact and is never overwritten; a correction arrives as a new run and a new
     ``ingested_at``, not as an in-place mutate. See :mod:`models.market` on why
     ``DailyPriceBar`` has no ``updated_at``.
@@ -136,8 +138,10 @@ class ProviderDataConflict(RuntimeError):  # noqa: N818 - name comes from the in
         ticker: str,
         trading_date: date,
         differences: dict[str, tuple[Decimal | int | None, Decimal | int | None]],
+        price_basis: PriceBasis | None = None,
     ) -> None:
         self.ticker = ticker
+        self.price_basis = price_basis
         self.trading_date = trading_date
         self.differences = differences
         detail = "; ".join(
@@ -145,7 +149,9 @@ class ProviderDataConflict(RuntimeError):  # noqa: N818 - name comes from the in
             for field, (stored, incoming) in sorted(differences.items())
         )
         super().__init__(
-            f"{ticker} {trading_date.isoformat()}: stored bar differs from the "
+            f"{ticker} {trading_date.isoformat()}"
+            f"{f' [{price_basis.value}]' if price_basis is not None else ''}: "
+            "stored bar differs from the "
             f"incoming one ({detail}). The existing row is left untouched. A "
             "vendor revising history is not applied automatically; decide "
             "explicitly whether to keep the stored value or restate the series."
@@ -276,7 +282,8 @@ class DailyBarIngestor:
             if existing is None:  # pragma: no cover - unreachable in READ COMMITTED
                 message = (
                     f"ON CONFLICT DO NOTHING reported the key "
-                    f"({listing_id}, {bar.trading_session_date}, {source_id}) as held, "
+                    f"({listing_id}, {bar.trading_session_date}, {source_id}, "
+                    f"{bar.price_basis.value}) as held, "
                     "but no committed row was visible on re-read"
                 )
                 raise RuntimeError(message)
@@ -289,6 +296,7 @@ class DailyBarIngestor:
                     ticker=ticker or str(listing_id),
                     trading_date=bar.trading_session_date,
                     differences=differences,
+                    price_basis=bar.price_basis,
                 )
             skipped += 1
 
@@ -318,13 +326,14 @@ class DailyBarIngestor:
                 DailyPriceBar.listing_id == listing_id,
                 DailyPriceBar.trading_date == bar.trading_session_date,
                 DailyPriceBar.source_id == source_id,
+                DailyPriceBar.price_basis == bar.price_basis,
             )
         )
 
     def _insert_if_absent(
         self, *, listing_id: uuid.UUID, source_id: uuid.UUID, bar: CanonicalDailyBar
     ) -> bool:
-        """Insert the bar if ``(listing_id, trading_date, source_id)`` is free.
+        """Insert the bar if ``(listing_id, trading_date, source_id, price_basis)`` is free.
 
         The insert is ``ON CONFLICT DO NOTHING``, which makes the uniqueness
         check and the insert one atomic statement. The alternative -- SELECT then
@@ -349,6 +358,7 @@ class DailyBarIngestor:
             high=bar.high,
             low=bar.low,
             close=bar.close,
+            price_basis=bar.price_basis,
             # Deliberately left NULL rather than defaulted to `close`. Adjustment
             # depends on a corporate-action convention, so "this source did not
             # supply an adjusted close" and "adjusted close equals close" must
@@ -367,7 +377,7 @@ class DailyBarIngestor:
             created_at=self._now,
         )
         insert_stmt = statement.on_conflict_do_nothing(
-            index_elements=["listing_id", "trading_date", "source_id"]
+            index_elements=["listing_id", "trading_date", "source_id", "price_basis"]
         ).returning(DailyPriceBar.id)
         result = self._session.execute(insert_stmt)
         return result.scalar_one_or_none() is not None

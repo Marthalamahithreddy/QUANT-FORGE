@@ -56,6 +56,7 @@ to.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -67,6 +68,7 @@ __all__ = [
     "ForwardReturnStatus",
     "compute_forward_returns",
     "no_alignment_forward_returns",
+    "validate_horizons",
 ]
 
 
@@ -180,6 +182,29 @@ def no_alignment_forward_returns(
     )
 
 
+def validate_horizons(horizons: Sequence[int]) -> None:
+    """Reject an unsupported horizon list at the function boundary.
+
+    The contract is: a non-empty sequence of positive ``int`` session counts
+    (``bool`` is not accepted as an int). Called before any business logic so
+    that validation never depends on which ordinary outcome (no alignment,
+    missing price, ...) a call would otherwise have taken. There is no
+    horizon-0 or negative semantics.
+
+    Raises:
+        ValueError: ``horizons`` is empty, or contains a non-integer or a
+            value below 1.
+    """
+    if len(horizons) == 0:
+        message = "horizons must contain at least one positive number of sessions"
+        raise ValueError(message)
+    values: Sequence[object] = horizons  # runtime guard: callers may not honour the annotation
+    for horizon in values:
+        if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon < 1:
+            message = f"horizon must be a positive integer number of sessions, got {horizon!r}"
+            raise ValueError(message)
+
+
 def compute_forward_returns(
     *,
     anchor_session: date,
@@ -199,16 +224,18 @@ def compute_forward_returns(
             sorts its own session list, but duplicate dates are *not*
             deduplicated here -- a coherent single-source series cannot
             contain one date twice, by the database's own
-            ``(listing_id, trading_date, source_id)`` uniqueness constraint,
+            ``(listing_id, trading_date, source_id, price_basis)`` uniqueness constraint,
             so a caller handing in a duplicate has a bug elsewhere, not
             something this function should paper over.
         horizons: The number of sessions after ``anchor_session`` to measure
-            to. Every element of this list, no matter the outcome, produces
+            to; validated by :func:`validate_horizons` before anything else.
+            Every element of this list, no matter the outcome, produces
             exactly one :class:`ForwardReturn`, in the same order.
 
     Returns:
         One :class:`ForwardReturn` per element of ``horizons``, in order.
     """
+    validate_horizons(horizons)
     ordered = sorted(price_series, key=lambda row: row[0])
     price_by_date: dict[date, Decimal] = dict(ordered)
 
@@ -255,10 +282,6 @@ def compute_forward_returns(
 
     results: list[ForwardReturn] = []
     for horizon in horizons:
-        if horizon < 1:
-            message = f"horizon must be a positive number of sessions, got {horizon}"
-            raise ValueError(message)
-
         if len(forward_sessions) < horizon:
             results.append(
                 ForwardReturn(

@@ -29,7 +29,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine import Compiled
 
 from quantforge.models.company import Company
-from quantforge.models.enums import IdentifierType
+from quantforge.models.enums import IdentifierType, PriceBasis
 from quantforge.models.market import DailyPriceBar
 from quantforge.repositories.benchmark import BenchmarkRepository
 from quantforge.repositories.company import CompanyRepository
@@ -147,6 +147,7 @@ def test_market_add_flushes_so_the_caller_gets_an_id() -> None:
     session = RecordingSession()
     repo = MarketDataRepository(session)
     bar = DailyPriceBar(
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
         listing_id=uuid.uuid4(),
         trading_date=dt.date(2024, 1, 2),
         open=Decimal("1"),
@@ -259,7 +260,10 @@ def test_list_for_security_returns_every_period() -> None:
 def test_list_range_uses_inclusive_bounds() -> None:
     session = RecordingSession()
     MarketDataRepository(session).list_range(
-        listing_id=uuid.uuid4(), start=dt.date(2024, 1, 1), end=dt.date(2024, 1, 31)
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=uuid.uuid4(),
+        start=dt.date(2024, 1, 1),
+        end=dt.date(2024, 1, 31),
     )
     sql = sql_of(session.last)
     assert "daily_price_bar.trading_date >= " in sql
@@ -272,7 +276,10 @@ def test_list_range_is_ordered_by_date_then_recency() -> None:
     restated session deterministic when a source ever reports one twice."""
     session = RecordingSession()
     MarketDataRepository(session).list_range(
-        listing_id=uuid.uuid4(), start=dt.date(2024, 1, 1), end=dt.date(2024, 1, 31)
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=uuid.uuid4(),
+        start=dt.date(2024, 1, 1),
+        end=dt.date(2024, 1, 31),
     )
     sql = sql_of(session.last)
     assert "ORDER BY daily_price_bar.trading_date, daily_price_bar.ingested_at DESC" in sql
@@ -281,7 +288,10 @@ def test_list_range_is_ordered_by_date_then_recency() -> None:
 def test_list_range_does_not_filter_by_source_unless_asked() -> None:
     session = RecordingSession()
     MarketDataRepository(session).list_range(
-        listing_id=uuid.uuid4(), start=dt.date(2024, 1, 1), end=dt.date(2024, 1, 31)
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=uuid.uuid4(),
+        start=dt.date(2024, 1, 1),
+        end=dt.date(2024, 1, 31),
     )
     assert "daily_price_bar.source_id = " not in sql_of(session.last)
 
@@ -289,6 +299,7 @@ def test_list_range_does_not_filter_by_source_unless_asked() -> None:
 def test_list_range_filters_by_source_when_given_one() -> None:
     session = RecordingSession()
     MarketDataRepository(session).list_range(
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
         listing_id=uuid.uuid4(),
         start=dt.date(2024, 1, 1),
         end=dt.date(2024, 1, 31),
@@ -302,7 +313,10 @@ def test_sources_for_listing_selects_a_single_distinct_column() -> None:
     bar out of the database to answer a yes/no provenance question."""
     session = RecordingSession()
     MarketDataRepository(session).sources_for_listing(
-        listing_id=uuid.uuid4(), start=dt.date(2024, 1, 1), end=dt.date(2024, 1, 31)
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=uuid.uuid4(),
+        start=dt.date(2024, 1, 1),
+        end=dt.date(2024, 1, 31),
     )
     sql = sql_of(session.last)
     assert "SELECT DISTINCT daily_price_bar.source_id" in sql
@@ -316,7 +330,10 @@ def test_sources_for_listing_selects_a_single_distinct_column() -> None:
 def test_sources_for_listing_applies_the_range() -> None:
     session = RecordingSession()
     MarketDataRepository(session).sources_for_listing(
-        listing_id=uuid.uuid4(), start=dt.date(2024, 1, 1), end=dt.date(2024, 1, 31)
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=uuid.uuid4(),
+        start=dt.date(2024, 1, 1),
+        end=dt.date(2024, 1, 31),
     )
     sql = sql_of(session.last)
     assert "daily_price_bar.trading_date >= " in sql
@@ -328,7 +345,9 @@ def test_get_for_date_without_a_source_takes_the_most_recent_ingest() -> None:
     newest ingestion wins rather than an arbitrary row."""
     session = RecordingSession(scalar_result=None)
     MarketDataRepository(session).get_for_date(
-        listing_id=uuid.uuid4(), trading_date=dt.date(2024, 1, 2)
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=uuid.uuid4(),
+        trading_date=dt.date(2024, 1, 2),
     )
     assert "ORDER BY daily_price_bar.ingested_at DESC" in sql_of(session.last)
 
@@ -339,7 +358,10 @@ def test_get_for_date_with_a_source_still_filters_on_it() -> None:
     kept for a single code path."""
     session = RecordingSession(scalar_result=None)
     MarketDataRepository(session).get_for_date(
-        listing_id=uuid.uuid4(), trading_date=dt.date(2024, 1, 2), source_id=uuid.uuid4()
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=uuid.uuid4(),
+        trading_date=dt.date(2024, 1, 2),
+        source_id=uuid.uuid4(),
     )
     assert "daily_price_bar.source_id = " in sql_of(session.last)
 
@@ -349,6 +371,7 @@ def test_close_series_returns_decimals_in_the_given_order() -> None:
     this layer as ``Decimal`` and never as ``float``."""
     bars = [
         DailyPriceBar(
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
             listing_id=uuid.uuid4(),
             trading_date=dt.date(2024, 1, day),
             open=Decimal("1"),
@@ -510,7 +533,10 @@ def test_identifier_lookup_matches_the_stored_value_exactly() -> None:
 def test_benchmark_price_bars_are_ordered_by_date() -> None:
     session = RecordingSession()
     BenchmarkRepository(session).list_price_bars(
-        benchmark_id=uuid.uuid4(), start=dt.date(2024, 1, 1), end=dt.date(2024, 1, 31)
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        benchmark_id=uuid.uuid4(),
+        start=dt.date(2024, 1, 1),
+        end=dt.date(2024, 1, 31),
     )
     assert "ORDER BY benchmark_price_bar.trading_date" in sql_of(session.last)
 
@@ -523,13 +549,19 @@ def test_benchmark_price_bars_are_ordered_by_date() -> None:
     [
         pytest.param(
             lambda r: r.list_range(
-                listing_id=uuid.uuid4(), start=dt.date(2024, 1, 1), end=dt.date(2024, 12, 31)
+                price_basis=PriceBasis.SPLIT_ADJUSTED,
+                listing_id=uuid.uuid4(),
+                start=dt.date(2024, 1, 1),
+                end=dt.date(2024, 12, 31),
             ),
             id="list_range",
         ),
         pytest.param(
             lambda r: r.sources_for_listing(
-                listing_id=uuid.uuid4(), start=dt.date(2024, 1, 1), end=dt.date(2024, 12, 31)
+                price_basis=PriceBasis.SPLIT_ADJUSTED,
+                listing_id=uuid.uuid4(),
+                start=dt.date(2024, 1, 1),
+                end=dt.date(2024, 12, 31),
             ),
             id="sources_for_listing",
         ),
@@ -546,7 +578,10 @@ def test_every_recorded_statement_is_a_select() -> None:
     would make a read call unpredictable."""
     session = RecordingSession()
     MarketDataRepository(session).list_range(
-        listing_id=uuid.uuid4(), start=dt.date(2024, 1, 1), end=dt.date(2024, 1, 31)
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=uuid.uuid4(),
+        start=dt.date(2024, 1, 1),
+        end=dt.date(2024, 1, 31),
     )
     EarningsRepository(session).list_chronological(company_id=uuid.uuid4())
     assert all(isinstance(stmt, sa.Select) for stmt in session.statements)

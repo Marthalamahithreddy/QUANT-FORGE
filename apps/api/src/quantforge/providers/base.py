@@ -53,6 +53,7 @@ from datetime import date, datetime
 from typing import Protocol, runtime_checkable
 
 from quantforge.ingestion.canonical import CanonicalDailyBar
+from quantforge.models.enums import PriceBasis
 
 __all__ = [
     "DailyBarsResult",
@@ -255,8 +256,15 @@ class MarketDataProvider(Protocol):
         end: date,
         *,
         venue: VenueView,
+        price_basis: PriceBasis,
     ) -> DailyBarsResult:
         """Fetch daily aggregates for ``ticker`` over the inclusive date range.
+
+        ``price_basis`` is required: the adapter translates it to whatever the
+        vendor calls that adjustment mode, stamps it on every returned bar, and
+        must fail explicitly if the response states a different basis than was
+        requested. It is never defaulted here, so no caller can obtain bars
+        whose basis it did not choose.
 
         Implementations must page through the provider's documented pagination
         and return every record, subject to a configured page ceiling.

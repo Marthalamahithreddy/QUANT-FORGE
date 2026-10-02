@@ -10,6 +10,7 @@ database in ``tests/test_research_calendar.py``.
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
 
 import pytest
@@ -96,6 +97,41 @@ def test_resolves_the_single_valid_listing(
     assert result.status is ListingResolutionStatus.RESOLVED
     assert result.listing_id == listing.id
     assert result.security_id == security.id
+    assert result.exchange_mic == "XRES"
+
+
+def test_exchange_mic_is_the_historically_valid_listings_venue_not_the_current_one(
+    company: Company, exchange: Exchange, second_exchange: Exchange, db_session: Session
+) -> None:
+    security = _security(company, db_session)
+    _listing(
+        security,
+        exchange,
+        db_session,
+        ticker="OLD1",
+        valid_from=date(2018, 1, 2),
+        valid_to=date(2022, 1, 3),
+    )
+    _listing(security, second_exchange, db_session, ticker="NEW1", valid_from=date(2022, 1, 3))
+
+    historical = resolve_company_listing_for_date(
+        db_session, company_id=company.id, on_date=date(2020, 6, 1)
+    )
+    current = resolve_company_listing_for_date(
+        db_session, company_id=company.id, on_date=date(2024, 6, 1)
+    )
+
+    assert historical.exchange_mic == "XRES"
+    assert current.exchange_mic == "XRS2"
+
+
+def test_unresolved_listing_carries_no_exchange_mic(company: Company, db_session: Session) -> None:
+    result = resolve_company_listing_for_date(
+        db_session, company_id=company.id, on_date=date(2024, 6, 1)
+    )
+
+    assert result.status is ListingResolutionStatus.NO_LISTING_FOR_DATE
+    assert result.exchange_mic is None
 
 
 # ── listing validity boundaries ─────────────────────────────────────────────
@@ -272,3 +308,43 @@ def test_an_explicit_security_id_disambiguates_a_multi_security_company(
     assert result.status is ListingResolutionStatus.RESOLVED
     assert result.listing_id == common_listing.id
     assert result.security_id == common.id
+
+
+def test_another_companys_security_is_never_used_for_this_company(
+    company: Company, exchange: Exchange, db_session: Session
+) -> None:
+    own = _security(company, db_session)
+    _listing(own, exchange, db_session, ticker="OWN1", valid_from=date(2020, 1, 2))
+    other_company = Company(legal_name="Other Co", display_name="Other")
+    db_session.add(other_company)
+    db_session.commit()
+    foreign = _security(other_company, db_session, name="Foreign Shares")
+    _listing(foreign, exchange, db_session, ticker="FRGN", valid_from=date(2020, 1, 2))
+
+    result = resolve_company_listing_for_date(
+        db_session, company_id=company.id, on_date=date(2024, 6, 1), security_id=foreign.id
+    )
+
+    assert result.status is ListingResolutionStatus.NO_LISTING_FOR_DATE
+    assert result.listing_id is None
+    assert result.security_id is None
+    assert result.exchange_mic is None
+    assert "does not belong" in result.reason
+
+
+def test_a_nonexistent_security_id_resolves_to_no_listing(
+    company: Company, exchange: Exchange, db_session: Session
+) -> None:
+    _listing(
+        _security(company, db_session),
+        exchange,
+        db_session,
+        ticker="OWN2",
+        valid_from=date(2020, 1, 2),
+    )
+
+    result = resolve_company_listing_for_date(
+        db_session, company_id=company.id, on_date=date(2024, 6, 1), security_id=uuid.uuid4()
+    )
+
+    assert result.status is ListingResolutionStatus.NO_LISTING_FOR_DATE

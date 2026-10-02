@@ -39,6 +39,7 @@ Validation therefore happens in three places, deliberately:
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Final
 
 import sqlalchemy as sa
 
@@ -118,6 +119,41 @@ class IngestionStatus(StrEnum):
     PARTIAL = "partial"
 
 
+class PriceBasis(StrEnum):
+    """Which split-adjustment basis one stored price row is expressed in.
+
+    Each ``DailyPriceBar`` / ``BenchmarkPriceBar`` row has exactly ONE basis and
+    every price field on it (open, high, low, close, vwap, ...) belongs to that
+    basis. The same listing/session/source may hold one row per basis. The
+    names describe meaning, not a vendor flag, so they survive a provider
+    change; the vendor translation lives in the provider adapter.
+
+    ``AS_TRADED`` is deliberately not called "raw": ``raw`` already means the
+    untouched provider payload bytes in this codebase's provenance model, and
+    an as-traded *price* is parsed, validated data.
+    """
+
+    #: The provider's OHLC adjusted for stock splits only -- NOT adjusted for
+    #: dividends. Continuous across splits, so a close-to-close return has no
+    #: spurious split jump. This is QuantForge's research basis (Step 8
+    #: returns, abnormal returns, event studies) and the basis of every row
+    #: that existed before price-basis was recorded (Massive ``adjusted=true``).
+    SPLIT_ADJUSTED = "SPLIT_ADJUSTED"
+
+    #: The provider's OHLC NOT adjusted for stock splits: the prices as they
+    #: printed on the day. The candidate basis for historical execution and
+    #: accounting, because a real fill happened at the as-traded price. A split
+    #: inside a holding period still requires a share-count adjustment, which
+    #: QuantForge does not implement yet (no corporate-action engine).
+    AS_TRADED = "AS_TRADED"
+
+
+#: The one basis every research query must select explicitly. A named constant
+#: so "research uses split-adjusted bars" is greppable and cannot drift between
+#: modules; research code never relies on row order or "the only row".
+RESEARCH_PRICE_BASIS: Final = PriceBasis.SPLIT_ADJUSTED
+
+
 class ProviderType(StrEnum):
     """The kind of organisation behind a :class:`DataSource`.
 
@@ -182,5 +218,6 @@ SECURITY_TYPE_LENGTH = 32
 IDENTIFIER_TYPE_LENGTH = 32
 EARNINGS_TIMING_LENGTH = 32
 PROVIDER_TYPE_LENGTH = 32
+PRICE_BASIS_LENGTH = 32
 #: Lifecycle status of an ingestion run; see ``IngestionStatus``.
 INGESTION_STATUS_LENGTH = 16

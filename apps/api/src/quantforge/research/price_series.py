@@ -2,10 +2,14 @@
 
 A listing can legitimately have :class:`~quantforge.models.market.DailyPriceBar`
 rows from more than one :class:`~quantforge.models.provenance.DataSource`:
-the uniqueness key is ``(listing_id, trading_date, source_id)``, not
+the uniqueness key is ``(listing_id, trading_date, source_id, price_basis)``, not
 ``(listing_id, trading_date)`` (see :mod:`quantforge.models.market`'s own
 docstring), specifically so two vendors disagreeing about the same session
 both survive as separate rows rather than one silently overwriting the other.
+The same session may also hold one row per price basis; this module reads only
+``SPLIT_ADJUSTED`` rows (:data:`~quantforge.models.enums.RESEARCH_PRICE_BASIS`),
+so ``AS_TRADED`` rows never enter a research series and never read as a second
+source.
 
 :meth:`~quantforge.repositories.market.MarketDataRepository.list_range` and
 :meth:`~quantforge.repositories.market.MarketDataRepository.get_for_date`
@@ -40,6 +44,7 @@ from enum import StrEnum
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from quantforge.models.enums import RESEARCH_PRICE_BASIS
 from quantforge.models.market import DailyPriceBar
 
 __all__ = ["PriceSeriesResolution", "PriceSeriesStatus", "fetch_coherent_price_series"]
@@ -85,6 +90,7 @@ def _closes_from_source(
         .where(
             DailyPriceBar.listing_id == listing_id,
             DailyPriceBar.source_id == source_id,
+            DailyPriceBar.price_basis == RESEARCH_PRICE_BASIS,
             DailyPriceBar.trading_date >= start,
             DailyPriceBar.trading_date <= end,
         )
@@ -144,6 +150,7 @@ def fetch_coherent_price_series(
             sa.select(DailyPriceBar.source_id)
             .where(
                 DailyPriceBar.listing_id == listing_id,
+                DailyPriceBar.price_basis == RESEARCH_PRICE_BASIS,
                 DailyPriceBar.trading_date >= start,
                 DailyPriceBar.trading_date <= end,
             )

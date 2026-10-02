@@ -13,6 +13,7 @@ import threading
 import uuid
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 import pytest
 import sqlalchemy as sa
@@ -133,30 +134,35 @@ def test_the_database_rejects_a_duplicate_name(db_session: Session) -> None:
     db_session.rollback()
 
 
-def test_a_lost_insert_reuses_the_winners_row(committed: Committed) -> None:
-    """The loser of an insert race reuses the winner's row instead of failing.
+def _stale_first_read(session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the session's first ``scalar`` report "no such row", as a lost race would.
 
-    Reproduced deterministically rather than hoped for: a REPEATABLE READ
-    transaction fixes its snapshot on the first read, so this session is provably
-    looking at a world in which the row does not exist, no matter how the
-    scheduler interleaves. A threaded test with a barrier is probabilistic -- it
-    can pass for months without ever reaching the losing branch, which is exactly
-    the branch worth testing.
+    Under the production isolation level (READ COMMITTED) the loser of the race
+    reads *before* the winner commits, so its initial lookup sees nothing even
+    though the row exists by the time it inserts. Reproduced deterministically
+    by answering that first lookup with ``None``; every later read is real.
     """
+    real = session.scalar
+    calls = {"n": 0}
+
+    def scalar(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        return None if calls["n"] == 1 else real(*args, **kwargs)
+
+    monkeypatch.setattr(session, "scalar", scalar)
+
+
+def test_a_lost_insert_reuses_the_winners_row(
+    committed: Committed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The loser of an insert race reuses the winner's row instead of failing."""
     winner = committed(RACE_NAME)
     loser = committed()
-
-    # Must precede any other statement: this sets the isolation of the
-    # transaction that the following read opens.
-    loser.execute(sa.text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"))
-    assert loser.scalar(sa.select(DataSource).where(DataSource.name == RACE_NAME)) is None, (
-        "the loser's snapshot must predate the winner's insert"
-    )
 
     created = get_or_create_data_source(winner, name=RACE_NAME)
     winner.commit()
 
-    # Sees nothing (stale snapshot), tries to insert, loses, and recovers.
+    _stale_first_read(loser, monkeypatch)
     reused = get_or_create_data_source(loser, name=RACE_NAME)
     loser.commit()
 
@@ -173,6 +179,36 @@ def test_a_lost_insert_reuses_the_winners_row(committed: Committed) -> None:
             == 1
         )
 
+    winner.close()
+    loser.close()
+
+
+def test_a_lost_insert_does_not_discard_the_callers_other_work(
+    committed: Committed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Recovery rolls back only its own SAVEPOINT: pending work in the same transaction survives."""
+    winner = committed(RACE_NAME)
+    loser = committed()
+    marker = "pending-neighbour-source"
+    committed(marker)
+
+    get_or_create_data_source(winner, name=RACE_NAME)
+    winner.commit()
+
+    neighbour = DataSource(name=marker, provider_type=ProviderType.MARKET_DATA_VENDOR)
+    loser.add(neighbour)
+    loser.flush()  # flushed, uncommitted: exactly what a run row looks like mid-block
+    _stale_first_read(loser, monkeypatch)
+    get_or_create_data_source(loser, name=RACE_NAME)
+    loser.commit()
+
+    with Session(committed().bind) as check:
+        names = set(
+            check.scalars(
+                sa.select(DataSource.name).where(DataSource.name.in_([RACE_NAME, marker]))
+            )
+        )
+    assert names == {RACE_NAME, marker}, "the flushed neighbour row must survive the recovery"
     winner.close()
     loser.close()
 

@@ -14,6 +14,7 @@ from quantforge.models.base import (
     NAME_LENGTH,
     SHORT_NAME_LENGTH,
 )
+from quantforge.models.enums import PriceBasis
 from quantforge.schemas.common import (
     CodeValidatingSchema,
     OrmReadSchema,
@@ -81,6 +82,7 @@ class BenchmarkPriceBarCreate(BaseModel):
     benchmark_id: UUID
     trading_date: date
     close: Decimal = Field(ge=_MIN_INDEX_LEVEL)
+    price_basis: PriceBasis
     source_id: UUID
     observed_at: datetime | None = None
     ingested_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -117,6 +119,7 @@ class BenchmarkPriceBarRead(BaseModel):
     benchmark_id: UUID
     trading_date: date
     close: Decimal
+    price_basis: PriceBasis
     source_id: UUID
     observed_at: datetime | None
     ingested_at: datetime

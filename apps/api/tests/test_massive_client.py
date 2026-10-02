@@ -22,6 +22,7 @@ import httpx2 as httpx
 import pytest
 
 from quantforge.ingestion.canonical import ResolvedVenue
+from quantforge.models.enums import PriceBasis
 from quantforge.providers.errors import (
     ProviderAuthenticationError,
     ProviderConfigurationError,
@@ -137,7 +138,13 @@ async def test_prices_are_decimals_not_floats() -> None:
     )
     client = _client(lambda _r: httpx.Response(200, content=body))
 
-    result = await client.get_daily_bars("AAPL", date(2026, 9, 1), date(2026, 9, 5), venue=XNAS)
+    result = await client.get_daily_bars(
+        "AAPL",
+        date(2026, 9, 1),
+        date(2026, 9, 5),
+        venue=XNAS,
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+    )
 
     bar = result.bars[0]
     assert isinstance(bar.open, Decimal)
@@ -165,7 +172,13 @@ async def test_live_wire_shape_parses_with_whole_share_volume() -> None:
     )
     client = _client(lambda _r: httpx.Response(200, content=body))
 
-    result = await client.get_daily_bars("AAPL", date(2026, 9, 14), date(2026, 9, 15), venue=XNAS)
+    result = await client.get_daily_bars(
+        "AAPL",
+        date(2026, 9, 14),
+        date(2026, 9, 15),
+        venue=XNAS,
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+    )
 
     first, second = result.bars
     assert [b.trading_session_date for b in (first, second)] == [
@@ -193,7 +206,13 @@ async def test_session_date_uses_the_venue_timezone() -> None:
     body = b'{"status":"OK","results":[{"t":1756944000000,"o":1,"h":2,"l":0.5,"c":1.5,"v":10}]}'
     client = _client(lambda _r: httpx.Response(200, content=body))
 
-    result = await client.get_daily_bars("AAPL", date(2025, 9, 1), date(2025, 9, 5), venue=XNAS)
+    result = await client.get_daily_bars(
+        "AAPL",
+        date(2025, 9, 1),
+        date(2025, 9, 5),
+        venue=XNAS,
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+    )
     assert result.bars[0].trading_session_date == date(2025, 9, 3)
 
 
@@ -216,7 +235,13 @@ async def test_session_date_flips_at_local_midnight_not_utc_midnight() -> None:
         }
     )
     client = _client(lambda _r: body)
-    result = await client.get_daily_bars("AAPL", date(2025, 9, 3), date(2025, 9, 4), venue=XNAS)
+    result = await client.get_daily_bars(
+        "AAPL",
+        date(2025, 9, 3),
+        date(2025, 9, 4),
+        venue=XNAS,
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+    )
     assert [b.trading_session_date for b in result.bars] == [
         date(2025, 9, 3),
         date(2025, 9, 4),
@@ -243,7 +268,13 @@ async def test_session_date_is_stable_across_the_fall_back_transition() -> None:
         }
     )
     client = _client(lambda _r: body)
-    result = await client.get_daily_bars("AAPL", date(2025, 11, 2), date(2025, 11, 2), venue=XNAS)
+    result = await client.get_daily_bars(
+        "AAPL",
+        date(2025, 11, 2),
+        date(2025, 11, 2),
+        venue=XNAS,
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+    )
     assert [b.trading_session_date for b in result.bars] == [date(2025, 11, 2)] * 2
 
 
@@ -414,7 +445,13 @@ async def test_malformed_success_envelope_is_refused() -> None:
     """
     client = _client(lambda _r: _json({"status": "ERROR", "error": "universe not loaded"}))
     with pytest.raises(ProviderResponseError):
-        await client.get_daily_bars("AAPL", date(2026, 9, 1), date(2026, 9, 5), venue=XNAS)
+        await client.get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+        )
 
 
 @pytest.mark.anyio
@@ -428,7 +465,13 @@ async def test_unparseable_json_is_refused() -> None:
 async def test_results_of_the_wrong_type_is_refused() -> None:
     client = _client(lambda _r: _json({"status": "OK", "results": {"not": "a list"}}))
     with pytest.raises(ProviderResponseError):
-        await client.get_daily_bars("AAPL", date(2026, 9, 1), date(2026, 9, 5), venue=XNAS)
+        await client.get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+        )
 
 
 # ── pagination ──────────────────────────────────────────────────────────────
@@ -461,7 +504,13 @@ async def test_pagination_follows_next_url_and_captures_every_page() -> None:
         return _json(pages[len(seen) - 1])
 
     client = _client(handler)
-    result = await client.get_daily_bars("AAPL", date(2026, 9, 1), date(2026, 9, 5), venue=XNAS)
+    result = await client.get_daily_bars(
+        "AAPL",
+        date(2026, 9, 1),
+        date(2026, 9, 5),
+        venue=XNAS,
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+    )
 
     assert len(result.bars) == 2
     assert len(result.captures) == 2, "each page must be captured"
@@ -487,7 +536,13 @@ async def test_bars_are_sorted_by_session_date() -> None:
         }
     )
     client = _client(lambda _r: body)
-    result = await client.get_daily_bars("AAPL", date(2026, 9, 1), date(2026, 9, 5), venue=XNAS)
+    result = await client.get_daily_bars(
+        "AAPL",
+        date(2026, 9, 1),
+        date(2026, 9, 5),
+        venue=XNAS,
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+    )
     assert [b.trading_session_date for b in result.bars] == sorted(
         b.trading_session_date for b in result.bars
     )
@@ -508,7 +563,13 @@ async def test_pagination_loop_is_refused() -> None:
 
     client = _client(handler)
     with pytest.raises(ProviderResponseError, match=r"pagination loop"):
-        await client.get_daily_bars("AAPL", date(2026, 9, 1), date(2026, 9, 5), venue=XNAS)
+        await client.get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+        )
 
 
 @pytest.mark.anyio
@@ -526,7 +587,13 @@ async def test_page_ceiling_is_enforced() -> None:
 
     client = _client(handler, max_pages=2)
     with pytest.raises(ProviderResponseError, match=r"max_pages|without exhausting"):
-        await client.get_daily_bars("AAPL", date(2026, 9, 1), date(2026, 9, 5), venue=XNAS)
+        await client.get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+        )
 
 
 @pytest.mark.anyio
@@ -550,7 +617,13 @@ async def test_next_url_cannot_redirect_the_api_key_to_another_host() -> None:
         )
 
     client = _client(handler)
-    await client.get_daily_bars("AAPL", date(2026, 9, 1), date(2026, 9, 5), venue=XNAS)
+    await client.get_daily_bars(
+        "AAPL",
+        date(2026, 9, 1),
+        date(2026, 9, 5),
+        venue=XNAS,
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+    )
     assert set(hosts) == {"api.massive.com"}, "the key must never leave the configured host"
 
 
@@ -648,3 +721,172 @@ def test_unmapped_exchange_code_is_refused() -> None:
     """
     with pytest.raises(UnsupportedExchangeError):
         resolve_venue("ZZZZ")
+
+
+# ── price basis: request mapping, stamping, response validation ─────────────
+
+_ONE_BAR = {"t": 1_756_944_000_000, "o": 100, "h": 105, "l": 99, "c": 104, "v": 1000}
+
+
+def _bars_document(**extra: object) -> dict[str, object]:
+    return {"status": "OK", "results": [_ONE_BAR], **extra}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("basis", "expected_parameter"),
+    [(PriceBasis.SPLIT_ADJUSTED, "true"), (PriceBasis.AS_TRADED, "false")],
+)
+async def test_price_basis_maps_to_the_adjusted_request_parameter(
+    basis: PriceBasis, expected_parameter: str
+) -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.params["adjusted"])
+        return _json(_bars_document())
+
+    result = await _client(handler).get_daily_bars(
+        "AAPL", date(2026, 9, 1), date(2026, 9, 5), venue=XNAS, price_basis=basis
+    )
+
+    assert seen == [expected_parameter]
+    assert result.captures[0].request_parameters["adjusted"] == expected_parameter
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("basis", list(PriceBasis))
+async def test_every_returned_bar_carries_the_requested_basis(basis: PriceBasis) -> None:
+    echoed = basis is PriceBasis.SPLIT_ADJUSTED
+    client = _client(lambda _r: _json(_bars_document(adjusted=echoed)))
+
+    result = await client.get_daily_bars(
+        "AAPL", date(2026, 9, 1), date(2026, 9, 5), venue=XNAS, price_basis=basis
+    )
+
+    assert [bar.price_basis for bar in result.bars] == [basis]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("basis", "stated"),
+    [(PriceBasis.SPLIT_ADJUSTED, False), (PriceBasis.AS_TRADED, True)],
+)
+async def test_a_response_basis_that_contradicts_the_request_is_refused(
+    basis: PriceBasis, stated: bool
+) -> None:
+    client = _client(lambda _r: _json(_bars_document(adjusted=stated)))
+
+    with pytest.raises(ProviderResponseError, match="refusing to ingest"):
+        await client.get_daily_bars(
+            "AAPL", date(2026, 9, 1), date(2026, 9, 5), venue=XNAS, price_basis=basis
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("basis", list(PriceBasis))
+@pytest.mark.parametrize("missing_or_odd", ["absent", "string", "null"])
+async def test_an_absent_or_non_boolean_adjusted_field_does_not_block_ingestion(
+    basis: PriceBasis, missing_or_odd: str
+) -> None:
+    extra: dict[str, object] = {}
+    if missing_or_odd == "string":
+        extra["adjusted"] = "true"
+    elif missing_or_odd == "null":
+        extra["adjusted"] = None
+    client = _client(lambda _r: _json(_bars_document(**extra)))
+
+    result = await client.get_daily_bars(
+        "AAPL", date(2026, 9, 1), date(2026, 9, 5), venue=XNAS, price_basis=basis
+    )
+
+    assert len(result.bars) == 1
+
+
+@pytest.mark.anyio
+async def test_a_mismatch_on_a_later_page_is_also_refused() -> None:
+    pages = iter(
+        [
+            _bars_document(adjusted=True, next_url="https://api.massive.com/v2/aggs/next?cursor=a"),
+            _bars_document(adjusted=False),
+        ]
+    )
+    client = _client(lambda _r: _json(next(pages)))
+
+    with pytest.raises(ProviderResponseError, match="refusing to ingest"):
+        await client.get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+        )
+
+
+@pytest.mark.anyio
+async def test_a_next_url_that_drops_the_adjusted_parameter_is_pinned() -> None:
+    """The provider's next_url is not trusted to carry the basis: it is added back."""
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.params.get("adjusted"))
+        if len(seen) == 1:
+            return _json(
+                _bars_document(
+                    next_url="https://api.massive.com/v2/aggs/ticker/AAPL/range/1/day/a/b?cursor=c1"
+                )
+            )
+        return _json(_bars_document())
+
+    result = await _client(handler).get_daily_bars(
+        "AAPL",
+        date(2026, 9, 1),
+        date(2026, 9, 5),
+        venue=XNAS,
+        price_basis=PriceBasis.AS_TRADED,
+    )
+
+    assert seen == ["false", "false"]
+    assert {bar.price_basis for bar in result.bars} == {PriceBasis.AS_TRADED}
+
+
+@pytest.mark.anyio
+async def test_a_next_url_carrying_a_different_basis_is_refused() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return _json(
+            _bars_document(
+                next_url="https://api.massive.com/v2/aggs/ticker/AAPL/range/1/day/a/b?cursor=c&adjusted=true"
+            )
+        )
+
+    with pytest.raises(ProviderResponseError, match="refusing to follow"):
+        await _client(handler).get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.AS_TRADED,
+        )
+
+
+@pytest.mark.anyio
+async def test_a_next_url_with_the_matching_basis_is_followed_unchanged() -> None:
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.params.get("adjusted"))
+        if len(seen) == 1:
+            return _json(
+                _bars_document(next_url="https://api.massive.com/v2/aggs/n?cursor=c1&adjusted=true")
+            )
+        return _json(_bars_document())
+
+    await _client(handler).get_daily_bars(
+        "AAPL",
+        date(2026, 9, 1),
+        date(2026, 9, 5),
+        venue=XNAS,
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+    )
+
+    assert seen == ["true", "true"]

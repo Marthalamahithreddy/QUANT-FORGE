@@ -33,13 +33,14 @@ a crash cannot leave a run pointing at a half-written manifest.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any
+from typing import Any, Final
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, SessionTransaction
 
 from quantforge.ingestion.raw_store import RawResponseStore, StoredCapture
 from quantforge.models.enums import IngestionStatus
@@ -131,6 +132,15 @@ class RunOutcome:
         )
 
 
+#: ``Session.info`` key set when a failed run has been recorded in the session. A
+#: caller that wants the failure to be durable commits only when this is set, so
+#: it never commits arbitrary pending state on the strength of "an exception
+#: happened".
+FAILED_RUN_RECORDED: Final = "quantforge.ingestion.failed_run_recorded"
+
+logger = logging.getLogger("quantforge.ingestion.runs")
+
+
 class RunRecorder:
     """Starts an :class:`IngestionRun`, records its artifacts, finalises it.
 
@@ -138,12 +148,24 @@ class RunRecorder:
     row and the data it describes must land in the same transaction, or a crash
     between them leaves a "succeeded" run with no rows, or rows with no run.
 
-    Use as a context manager. On an unhandled exception the run is finalised as
-    ``failed`` and the exception is re-raised, so a crash still leaves a
-    diagnosable record -- including the left-over ``running`` row this replaces.
+    Use as a context manager. Everything done inside the ``with`` block runs in
+    a SAVEPOINT:
+
+    * **Success:** the savepoint is released and the run row, finalised as
+      succeeded/partial, commits together with the data when the caller commits.
+    * **Failure:** only the savepoint is rolled back, so the domain writes made
+      inside the block disappear while the run row -- created before the
+      savepoint -- survives, finalised as ``failed`` with the redacted
+      exception. The exception is then re-raised unchanged. The caller must
+      still ``commit()`` for the failed run to become durable (rolling back the
+      outer transaction discards the run row too, by design: that is the
+      caller choosing to discard everything).
+
+    A write the block needs to roll back on failure therefore has to happen
+    *inside* the block, not before it.
     """
 
-    __slots__ = ("_now", "_run", "_session", "_store")
+    __slots__ = ("_now", "_run", "_savepoint", "_session", "_store")
 
     def __init__(  # noqa: PLR0913 - every collaborator is a distinct dependency
         self,
@@ -169,6 +191,7 @@ class RunRecorder:
         self._session = session
         self._store = store
         self._now = now
+        self._savepoint: SessionTransaction | None = None
         self._run = IngestionRun(
             provider=provider,
             dataset=dataset,
@@ -180,6 +203,9 @@ class RunRecorder:
             records_skipped=0,
             records_failed=0,
         )
+        # A marker left by an earlier failed run on this session must not be read
+        # as describing this one.
+        session.info.pop(FAILED_RUN_RECORDED, None)
         session.add(self._run)
         # Flushed immediately so ``run_id`` and the manifest key segment are real
         # values rather than None. Both are used while the run is still open --
@@ -187,9 +213,10 @@ class RunRecorder:
         # would write a manifest labelled "run_id": "None" and a path ending
         # "-None", overwriting a different run's manifest on any retry.
         #
-        # This does not commit. If the caller rolls back, the run row disappears
-        # with the data it was describing, which is the intent: a run and its
-        # results are one fact, not two.
+        # This does not commit. If the caller rolls back the *outer* transaction,
+        # the run row disappears with the data it was describing. A failure
+        # inside the ``with`` block is different: it rolls back only the
+        # savepoint opened in ``__enter__``, which is after this flush.
         session.flush()
 
     @property
@@ -209,6 +236,7 @@ class RunRecorder:
         return self._run
 
     def __enter__(self) -> RunRecorder:
+        self._savepoint = self._session.begin_nested()
         return self
 
     def __exit__(
@@ -217,9 +245,67 @@ class RunRecorder:
         exc: BaseException | None,
         tb: object | None,
     ) -> None:
-        if exc is not None:
-            self.fail(exc)
+        savepoint = self._savepoint
+        self._savepoint = None
+        if exc is None:
+            try:
+                self._session.flush()
+            except BaseException as flush_error:
+                self._roll_back_and_record_failure(savepoint, flush_error)
+                raise
+            if savepoint is not None:
+                savepoint.commit()
+            return
+        self._roll_back_and_record_failure(savepoint, exc)
+
+    def _roll_back_and_record_failure(
+        self, savepoint: SessionTransaction | None, exc: BaseException
+    ) -> None:
+        """Discard the block's domain writes, then keep a durable ``failed`` run row.
+
+        Evidence about what was fetched is carried across the rollback: the raw
+        artifacts are already on disk, so the manifest pointer and the
+        received/skipped/failed counts (facts about the fetch) stay on the
+        failed row. ``records_written`` returns to zero, because nothing the
+        block wrote survived.
+        """
+        try:
+            self._record_failure(savepoint, exc)
+        except Exception:
+            # Recording the failure must never replace the error the operator
+            # needs. The session is left for the caller to roll back (the
+            # FAILED_RUN_RECORDED marker is only set on success below).
+            logger.exception("could not record the failed ingestion run; original error follows")
+
+    def _record_failure(self, savepoint: SessionTransaction | None, exc: BaseException) -> None:
+        manifest = (
+            self._run.raw_artifact_path,
+            self._run.raw_content_sha256,
+            self._run.raw_artifact_bytes,
+        )
+        counts = (
+            self._run.records_received,
+            self._run.records_skipped,
+            self._run.records_failed,
+        )
+        if savepoint is not None:
+            # Also required when the flush itself failed: SQLAlchemy leaves the
+            # savepoint inactive-pending-rollback and the session unusable until
+            # it is rolled back.
+            savepoint.rollback()
+        (
+            self._run.raw_artifact_path,
+            self._run.raw_content_sha256,
+            self._run.raw_artifact_bytes,
+        ) = manifest
+        (
+            self._run.records_received,
+            self._run.records_skipped,
+            self._run.records_failed,
+        ) = counts
+        self.fail(exc)
         self._session.flush()
+        self._session.info[FAILED_RUN_RECORDED] = True
 
     # ── Artifacts ──────────────────────────────────────────────────────────
 

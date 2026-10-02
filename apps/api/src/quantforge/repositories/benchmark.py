@@ -9,6 +9,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
+from quantforge.models.enums import PriceBasis
 
 __all__ = ["BenchmarkRepository"]
 
@@ -57,6 +58,7 @@ class BenchmarkRepository:
         benchmark_id: uuid.UUID,
         start: date,
         end: date,
+        price_basis: PriceBasis,
         source_id: uuid.UUID | None = None,
     ) -> list[BenchmarkPriceBar]:
         """Return benchmark levels within an inclusive date range, oldest first.
@@ -68,6 +70,7 @@ class BenchmarkRepository:
             benchmark_id: Series to read.
             start: Inclusive first session date.
             end: Inclusive last session date.
+            price_basis: Required: which split-adjustment basis to read.
             source_id: Restrict to one provider. Optional because the same
                 benchmark can be reported by several vendors, and picking one
                 silently would embed a vendor choice in the query.
@@ -76,6 +79,7 @@ class BenchmarkRepository:
             BenchmarkPriceBar.benchmark_id == benchmark_id,
             BenchmarkPriceBar.trading_date >= start,
             BenchmarkPriceBar.trading_date <= end,
+            BenchmarkPriceBar.price_basis == price_basis,
         ]
         if source_id is not None:
             conditions.append(BenchmarkPriceBar.source_id == source_id)

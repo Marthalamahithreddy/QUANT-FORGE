@@ -46,6 +46,7 @@ from quantforge.ingestion.canonical import (
     CanonicalEquityReference,
     ResolvedVenue,
 )
+from quantforge.models.enums import PriceBasis
 from quantforge.providers.base import VenueView
 from quantforge.providers.errors import ProviderPayloadError
 from quantforge.providers.massive.dto import (
@@ -155,6 +156,7 @@ def to_canonical_daily_bar(
     dto: MassiveDailyBarDTO,
     *,
     venue: VenueView,
+    price_basis: PriceBasis,
     identifier: str | None = None,
 ) -> CanonicalDailyBar:
     """Map one aggregate DTO to a canonical daily bar for a known venue.
@@ -167,6 +169,10 @@ def to_canonical_daily_bar(
     ``observed_at`` is deliberately ``None``. A daily aggregate carries no
     availability timestamp, and inferring one from the session close would assert
     a point-in-time knowledge that was never true.
+
+    ``price_basis`` is the basis the caller *requested* and the client has
+    already confirmed against the response's own ``adjusted`` field; it is
+    stamped on the bar here and never inferred from the payload.
     """
     label = identifier or f"{venue.mic}@{dto.timestamp_ms}"
 
@@ -188,6 +194,7 @@ def to_canonical_daily_bar(
             low=_as_decimal(dto.low, "low", label),
             close=_as_decimal(dto.close, "close", label),
             volume=dto.volume,
+            price_basis=price_basis,
             observed_at=None,
             vwap=_as_optional_decimal(dto.vwap, "vwap", label),
             trades=dto.trades,

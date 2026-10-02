@@ -31,6 +31,7 @@ from quantforge.models.base import (
     timestamptz,
     utcnow,
 )
+from quantforge.models.enums import PRICE_BASIS_LENGTH, PriceBasis, enum_check, enum_type
 
 if TYPE_CHECKING:
     from quantforge.models.provenance import DataSource
@@ -118,9 +119,13 @@ class BenchmarkPriceBar(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     Mirrors :class:`~quantforge.models.market.DailyPriceBar`'s identity and
     provenance design:
 
-    * ``UNIQUE (benchmark_id, trading_date, source_id)`` -- one source-specific
-      level per benchmark per session, so two disagreeing vendors both survive
-      and one source re-reporting a date is rejected.
+    * ``UNIQUE (benchmark_id, trading_date, source_id, price_basis)`` -- one
+      source-specific level per benchmark per session *per price basis*, so two
+      disagreeing vendors both survive, one source re-reporting a date on the
+      same basis is rejected, and a split-adjusted and an as-traded level for
+      the same session coexist (see
+      :class:`~quantforge.models.enums.PriceBasis`; research selects
+      ``SPLIT_ADJUSTED`` explicitly).
     * ``observed_at`` (nullable, source's "as of") stays distinct from
       ``ingested_at`` (always present, when we stored it), for the same
       point-in-time reason.
@@ -141,8 +146,10 @@ class BenchmarkPriceBar(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
             "benchmark_id",
             "trading_date",
             "source_id",
-            name="uq_benchmark_price_bar_benchmark_date_source",
+            "price_basis",
+            name="uq_benchmark_price_bar_benchmark_date_source_basis",
         ),
+        enum_check("price_basis", PriceBasis),
         sa.CheckConstraint("close >= 0", name="close_non_negative"),
         sa.Index("ix_benchmark_price_bar_source_id", "source_id"),
     )
@@ -162,6 +169,14 @@ class BenchmarkPriceBar(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         price_type(),
         nullable=False,
         doc="Index close level for the session, as reported by the source.",
+    )
+    price_basis: Mapped[PriceBasis] = mapped_column(
+        enum_type(PriceBasis, name="price_basis", length=PRICE_BASIS_LENGTH),
+        nullable=False,
+        doc=(
+            "Split-adjustment basis of this level: SPLIT_ADJUSTED (research) or "
+            "AS_TRADED. Required; part of the uniqueness key."
+        ),
     )
     source_id: Mapped[uuid.UUID] = mapped_column(
         sa.Uuid(as_uuid=True),

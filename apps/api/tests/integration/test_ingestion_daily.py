@@ -30,7 +30,7 @@ from quantforge.ingestion.daily import (
 )
 from quantforge.ingestion.reference import ReferenceResolver
 from quantforge.ingestion.sources import get_or_create_data_source
-from quantforge.models.enums import IngestionStatus
+from quantforge.models.enums import IngestionStatus, PriceBasis
 from quantforge.models.ingestion import IngestionRun
 from quantforge.models.market import DailyPriceBar
 
@@ -76,6 +76,7 @@ def _bar(**overrides: object) -> CanonicalDailyBar:
         "low": Decimal("99.00"),
         "close": Decimal("104.00"),
         "volume": 1_000_000,
+        "price_basis": PriceBasis.SPLIT_ADJUSTED,
     }
     fields.update(overrides)
     return CanonicalDailyBar(**fields)  # type: ignore[arg-type]
@@ -470,3 +471,99 @@ def test_two_listings_may_hold_the_same_session(db_session: Session, source_id: 
     assert db_session.query(DailyPriceBar).count() == 2
     assert str(_stored(db_session, listings[0]).close) == "104.000000"
     assert str(_stored(db_session, listings[1]).close) == "103.500000"
+
+
+# ── price basis ─────────────────────────────────────────────────────────────
+
+_AS_TRADED = PriceBasis.AS_TRADED
+#: A split-affected session: the as-traded print is a multiple of the adjusted one.
+_AS_TRADED_BAR = {
+    "open": Decimal("1000.00"),
+    "high": Decimal("1050.00"),
+    "low": Decimal("990.00"),
+    "close": Decimal("1040.00"),
+    "price_basis": PriceBasis.AS_TRADED,
+}
+
+
+def _rows(session: Session, listing: uuid.UUID) -> dict[PriceBasis, DailyPriceBar]:
+    rows = session.scalars(sa.select(DailyPriceBar).where(DailyPriceBar.listing_id == listing))
+    return {row.price_basis: row for row in rows}
+
+
+def test_the_same_session_on_two_bases_is_two_rows_not_a_conflict(
+    db_session: Session, listing_id: uuid.UUID, source_id: uuid.UUID
+) -> None:
+    _ingest(db_session, listing_id, source_id, _bar())
+    db_session.commit()
+
+    counts = _ingest(db_session, listing_id, source_id, _bar(**_AS_TRADED_BAR))
+    db_session.commit()
+
+    assert (counts.written, counts.skipped, counts.failed) == (1, 0, 0)
+    rows = _rows(db_session, listing_id)
+    assert set(rows) == {PriceBasis.SPLIT_ADJUSTED, PriceBasis.AS_TRADED}
+    assert rows[PriceBasis.SPLIT_ADJUSTED].close == Decimal("104.000000")
+    assert rows[PriceBasis.AS_TRADED].close == Decimal("1040.000000")
+
+
+def test_both_bases_in_one_batch_are_both_written(
+    db_session: Session, listing_id: uuid.UUID, source_id: uuid.UUID
+) -> None:
+    counts = _ingest(db_session, listing_id, source_id, _bar(), _bar(**_AS_TRADED_BAR))
+    db_session.commit()
+
+    assert counts.written == 2
+    assert len(_rows(db_session, listing_id)) == 2
+
+
+def test_same_basis_identical_values_are_skipped(
+    db_session: Session, listing_id: uuid.UUID, source_id: uuid.UUID
+) -> None:
+    _ingest(db_session, listing_id, source_id, _bar(**_AS_TRADED_BAR))
+    db_session.commit()
+
+    counts = _ingest(db_session, listing_id, source_id, _bar(**_AS_TRADED_BAR))
+
+    assert (counts.written, counts.skipped) == (0, 1)
+
+
+def test_same_basis_changed_values_conflict_and_name_the_basis(
+    db_session: Session, listing_id: uuid.UUID, source_id: uuid.UUID
+) -> None:
+    _ingest(db_session, listing_id, source_id, _bar(**_AS_TRADED_BAR))
+    db_session.commit()
+    revised = {**_AS_TRADED_BAR, "close": Decimal("1045.00")}
+
+    with pytest.raises(BarConflictError, match=r"\[AS_TRADED\]") as caught:
+        _ingest(db_session, listing_id, source_id, _bar(**revised))
+    db_session.rollback()
+
+    assert caught.value.price_basis is PriceBasis.AS_TRADED
+    assert _rows(db_session, listing_id)[PriceBasis.AS_TRADED].close == Decimal("1040.000000")
+
+
+def test_a_revised_split_adjusted_bar_does_not_conflict_with_the_as_traded_row(
+    db_session: Session, listing_id: uuid.UUID, source_id: uuid.UUID
+) -> None:
+    """The as-traded row differs wildly from the adjusted one; that is not a revision."""
+    _ingest(db_session, listing_id, source_id, _bar(**_AS_TRADED_BAR))
+    db_session.commit()
+
+    counts = _ingest(db_session, listing_id, source_id, _bar())
+
+    assert counts.written == 1
+
+
+def test_the_persistence_layer_cannot_forget_a_basis() -> None:
+    with pytest.raises(TypeError, match="price_basis"):
+        CanonicalDailyBar(  # type: ignore[call-arg]
+            trading_session_date=SESSION,
+            open=Decimal("1"),
+            high=Decimal("2"),
+            low=Decimal("1"),
+            close=Decimal("2"),
+            volume=None,
+        )
+    with pytest.raises(ValueError, match="PriceBasis"):
+        _bar(price_basis="SPLIT_ADJUSTED")  # a bare string is not a PriceBasis

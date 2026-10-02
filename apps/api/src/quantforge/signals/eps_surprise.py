@@ -26,23 +26,20 @@ so it is never earlier than the next session. ``DURING_MARKET`` and
 :class:`~quantforge.research.calendar.AlignmentStatus`).
 
 An event being dated ``BEFORE_MARKET`` does not, by itself, prove the
-information was actually available before that session's open -- but this
-codebase deliberately has no market-calendar/session-clock contract (see
-:mod:`quantforge.research.calendar`'s own "do not fabricate a clock time"
-discipline), so there is no session-open instant to compare ``observed_at``
-against, and inventing one here would be exactly the fabrication Step 8
-already refused. The only availability evidence this schema carries is
-``observed_at`` itself, and the only question it can honestly answer is
-whether that evidence exists at all -- which is precisely what
-``PointInTimeEligibility`` already represents. This module does not claim a
-finer-grained, sub-day proof than that; where Step 8 would withhold a result
-as ``NOT_POINT_IN_TIME_ELIGIBLE``, this module does the same, rather than
-asserting a precision the data cannot support.
+information was available before that session's open, and this module does
+not claim it does: ``effective_session`` stays a research alignment. What it
+adds for the backtest layer is the raw evidence -- the selected observation's
+``observed_at`` and the historical listing's ``exchange_mic`` -- so
+:mod:`quantforge.backtest.execution` can compare ``observed_at`` against a
+real session-open instant from :mod:`quantforge.market`. This module itself
+compares nothing and invents no clock time.
 
-No future outcome ever enters this module. It does not import
-:mod:`quantforge.research.event_study`, :mod:`quantforge.research.returns`,
-:mod:`quantforge.research.benchmark_returns`, or
-:mod:`quantforge.research.abnormal_returns`.
+No future outcome ever enters this module. It does not import, and loading it
+does not load, :mod:`quantforge.research.event_study`,
+:mod:`quantforge.research.returns`, :mod:`quantforge.research.benchmark_returns`,
+:mod:`quantforge.research.abnormal_returns`, :mod:`quantforge.signals.evaluation`
+or :mod:`quantforge.signals.analytics` (``tests/test_module_isolation.py``
+checks this in a clean interpreter).
 
 The continuous feature is the raw surprise ratio, nothing else (yet)
 ----------------------------------------------------------------------
@@ -71,7 +68,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
@@ -194,6 +191,16 @@ class EpsSurpriseSignal:
     point_in_time_eligibility: PointInTimeEligibility
     event_date: date
     timing: EarningsTiming
+    #: The selected observation's own ``observed_at`` (the same instant, in UTC): the
+    #: source's "as of" evidence for when this information became public, or
+    #: ``None`` when the source gave none. Never ``ingested_at`` (our
+    #: bookkeeping clock, which says nothing about public availability) and
+    #: never reconstructed from ``timing``. Immutable provenance of the
+    #: revision this signal was built from.
+    observed_at: datetime | None
+    #: MIC of the historically resolved listing's exchange (``None`` when no
+    #: listing resolved). Identifies which market's session clock applies.
+    exchange_mic: str | None
     effective_session: date | None
     status: EpsSurpriseSignalStatus
     direction: EpsSurpriseDirection | None
@@ -301,6 +308,20 @@ def _effective_session_from_alignment(
     return None, EpsSurpriseSignalStatus.NO_EFFECTIVE_SESSION, alignment.session_alignment.reason
 
 
+def _observed_at_utc(event: EarningsEvent) -> datetime | None:
+    """The event's ``observed_at`` as the same instant in UTC (a driver may hand back another offset).
+
+    A naive value is a programming error, not data: ``astimezone`` would
+    silently reinterpret it as host-local time.
+    """
+    if event.observed_at is None:
+        return None
+    if event.observed_at.tzinfo is None:
+        message = f"EarningsEvent {event.id} has a naive observed_at {event.observed_at!r}"
+        raise ValueError(message)
+    return event.observed_at.astimezone(UTC)
+
+
 def generate_eps_surprise_signal(
     session: Session,
     event: EarningsEvent,
@@ -338,6 +359,7 @@ def generate_eps_surprise_signal(
         :class:`EpsSurpriseSignalStatus` for the full set of honest refusals.
     """
     eligibility = classify_point_in_time_eligibility(mode, observed_at=event.observed_at)
+    observed_at = _observed_at_utc(event)
     alignment = align_earnings_event(session, event, mode=mode, security_id=security_id)
 
     effective_session, override_status, override_reason = _effective_session_from_alignment(
@@ -355,6 +377,8 @@ def generate_eps_surprise_signal(
             point_in_time_eligibility=eligibility,
             event_date=event.event_date,
             timing=event.timing,
+            observed_at=observed_at,
+            exchange_mic=alignment.listing_resolution.exchange_mic,
             effective_session=None,
             status=override_status,
             direction=None,
@@ -384,6 +408,8 @@ def generate_eps_surprise_signal(
         point_in_time_eligibility=eligibility,
         event_date=event.event_date,
         timing=event.timing,
+        observed_at=observed_at,
+        exchange_mic=alignment.listing_resolution.exchange_mic,
         effective_session=effective_session,
         status=status,
         direction=direction,

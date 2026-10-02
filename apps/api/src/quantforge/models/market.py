@@ -22,6 +22,7 @@ from quantforge.models.base import (
     timestamptz,
     utcnow,
 )
+from quantforge.models.enums import PRICE_BASIS_LENGTH, PriceBasis, enum_check, enum_type
 
 if TYPE_CHECKING:
     from quantforge.models.ingestion import IngestionRun
@@ -42,11 +43,22 @@ class DailyPriceBar(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     Grain and identity
     ------------------
     The row is "what *this source* reported about *this listing* on *this
-    trading date*", which is why the uniqueness key is
-    ``(listing_id, trading_date, source_id)`` and not ``(listing_id,
-    trading_date)``.
+    trading date*, expressed in *this price basis*", which is why the
+    uniqueness key is ``(listing_id, trading_date, source_id, price_basis)``
+    and not ``(listing_id, trading_date)``.
 
-    Two consequences follow, and both are intended:
+    Price basis
+    -----------
+    ``price_basis`` (:class:`~quantforge.models.enums.PriceBasis`) says whether
+    the row's prices are ``SPLIT_ADJUSTED`` (the research basis) or
+    ``AS_TRADED`` (the execution/accounting candidate). A row has exactly one
+    basis and *all* of its price fields belong to it, so the same session can
+    hold one row per basis without either redefining the other. It is NOT NULL
+    with no default: a writer must state the basis. Any query that does not
+    care about the distinction is therefore a bug -- research selects
+    ``SPLIT_ADJUSTED`` explicitly.
+
+    Two consequences of the source-aware key follow, and both are intended:
 
     * Two vendors disagreeing about the same session produce two rows rather
       than a silent overwrite. Preserving the disagreement is what lets a later
@@ -69,12 +81,12 @@ class DailyPriceBar(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     sub-cent instruments as well as un-adjusted magnitudes.
 
     ``adjusted_close`` is nullable and is deliberately **not** treated as
-    equivalent to ``close``. Adjustment factors depend on a corporate-action
-    convention (split/dividend handling, adjustment date, vendor
-    methodology), and conflating the two makes it impossible to tell a
-    vendor-adjusted series from a raw one. Corporate actions become their own
-    model; until then, a NULL here unambiguously means "this source did not
-    supply an adjusted close", never "adjusted close equals close".
+    equivalent to ``close``. It is not populated by QuantForge's ingestion
+    (it is always NULL today) and its adjustment methodology is not defined by
+    any current provider contract. It must not be used to carry a second
+    price basis -- that is what ``price_basis`` rows are for. A NULL here
+    unambiguously means "no adjusted close was supplied", never "adjusted
+    close equals close".
 
     Observation time vs. ingestion time
     ----------------------------------
@@ -107,8 +119,10 @@ class DailyPriceBar(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
             "listing_id",
             "trading_date",
             "source_id",
-            name="uq_daily_price_bar_listing_date_source",
+            "price_basis",
+            name="uq_daily_price_bar_listing_date_source_basis",
         ),
+        enum_check("price_basis", PriceBasis),
         # Prices are non-negative. A negative "price" is always a sign or unit
         # error in the feed; zero is retained because a placeholder/halted
         # session legitimately reports 0.00.
@@ -157,8 +171,19 @@ class DailyPriceBar(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         price_type(),
         nullable=True,
         doc=(
-            "Source's split/dividend-adjusted close, if it supplied one. NULL means "
+            "Reserved; not populated by QuantForge ingestion (always NULL). Its "
+            "adjustment methodology is not defined by any provider contract and "
+            "it never carries a second price basis -- see price_basis. NULL means "
             "'not provided' and is never equivalent to close."
+        ),
+    )
+    price_basis: Mapped[PriceBasis] = mapped_column(
+        enum_type(PriceBasis, name="price_basis", length=PRICE_BASIS_LENGTH),
+        nullable=False,
+        doc=(
+            "Split-adjustment basis of every price field on this row: "
+            "SPLIT_ADJUSTED (research) or AS_TRADED (execution/accounting "
+            "candidate). Required; part of the uniqueness key."
         ),
     )
     volume: Mapped[int | None] = mapped_column(

@@ -45,29 +45,72 @@ has no database table and this milestone adds no migration.
 
 from __future__ import annotations
 
-from quantforge.signals.analytics import (
-    CorrelationStatus,
-    CoverageCounts,
-    DecimalSummary,
-    HitRateResult,
-    SignalCohortSummary,
-    SignalDirectionCohort,
-    SignalValueAbnormalReturnCorrelation,
-    summarize_signal_evaluations,
-)
-from quantforge.signals.eps_surprise import (
-    EpsSurpriseDirection,
-    EpsSurpriseSignal,
-    EpsSurpriseSignalStatus,
-    SignalType,
-    classify_eps_surprise_direction,
-    generate_eps_surprise_signal,
-)
-from quantforge.signals.evaluation import (
-    SignalEvaluation,
-    SignalEvaluationStatus,
-    evaluate_eps_surprise_signal,
-)
+import importlib
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from quantforge.signals.analytics import (
+        CorrelationStatus,
+        CoverageCounts,
+        DecimalSummary,
+        HitRateResult,
+        SignalCohortSummary,
+        SignalDirectionCohort,
+        SignalValueAbnormalReturnCorrelation,
+        summarize_signal_evaluations,
+    )
+    from quantforge.signals.eps_surprise import (
+        EpsSurpriseDirection,
+        EpsSurpriseSignal,
+        EpsSurpriseSignalStatus,
+        SignalType,
+        classify_eps_surprise_direction,
+        generate_eps_surprise_signal,
+    )
+    from quantforge.signals.evaluation import (
+        SignalEvaluation,
+        SignalEvaluationStatus,
+        evaluate_eps_surprise_signal,
+    )
+
+# Exports are resolved lazily (PEP 562) for the same reason as in
+# ``quantforge.research``: importing ``quantforge.signals.eps_surprise`` must
+# not load ``evaluation`` or ``analytics`` (which consume outcomes).
+
+_EXPORTS: dict[str, str] = {
+    "CorrelationStatus": "quantforge.signals.analytics",
+    "CoverageCounts": "quantforge.signals.analytics",
+    "DecimalSummary": "quantforge.signals.analytics",
+    "EpsSurpriseDirection": "quantforge.signals.eps_surprise",
+    "EpsSurpriseSignal": "quantforge.signals.eps_surprise",
+    "EpsSurpriseSignalStatus": "quantforge.signals.eps_surprise",
+    "HitRateResult": "quantforge.signals.analytics",
+    "SignalCohortSummary": "quantforge.signals.analytics",
+    "SignalDirectionCohort": "quantforge.signals.analytics",
+    "SignalEvaluation": "quantforge.signals.evaluation",
+    "SignalEvaluationStatus": "quantforge.signals.evaluation",
+    "SignalType": "quantforge.signals.eps_surprise",
+    "SignalValueAbnormalReturnCorrelation": "quantforge.signals.analytics",
+    "classify_eps_surprise_direction": "quantforge.signals.eps_surprise",
+    "evaluate_eps_surprise_signal": "quantforge.signals.evaluation",
+    "generate_eps_surprise_signal": "quantforge.signals.eps_surprise",
+    "summarize_signal_evaluations": "quantforge.signals.analytics",
+}
+
+
+def __getattr__(name: str) -> Any:
+    module_name = _EXPORTS.get(name)
+    if module_name is None:
+        message = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(message)
+    value = getattr(importlib.import_module(module_name), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted([*globals(), *_EXPORTS])
+
 
 __all__ = [
     "CorrelationStatus",

@@ -15,6 +15,7 @@ from decimal import Decimal
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from quantforge.models.enums import PriceBasis
 from quantforge.models.market import DailyPriceBar
 
 __all__ = ["MarketDataRepository"]
@@ -46,9 +47,13 @@ class MarketDataRepository:
         *,
         listing_id: uuid.UUID,
         trading_date: date,
+        price_basis: PriceBasis,
         source_id: uuid.UUID | None = None,
     ) -> DailyPriceBar | None:
         """Return the observation for one listing/session, or ``None``.
+
+        ``price_basis`` is required: a session can hold a split-adjusted and an
+        as-traded row, and no caller should inherit one by accident.
 
         ``source_id`` selects which vendor's opinion is wanted. It is optional
         because "the" price for a session is genuinely ambiguous when several
@@ -69,6 +74,7 @@ class MarketDataRepository:
         conditions = [
             DailyPriceBar.listing_id == listing_id,
             DailyPriceBar.trading_date == trading_date,
+            DailyPriceBar.price_basis == price_basis,
         ]
         if source_id is not None:
             conditions.append(DailyPriceBar.source_id == source_id)
@@ -82,9 +88,14 @@ class MarketDataRepository:
         listing_id: uuid.UUID,
         start: date,
         end: date,
+        price_basis: PriceBasis,
         source_id: uuid.UUID | None = None,
     ) -> list[DailyPriceBar]:
         """Return observations for a listing within an inclusive date range.
+
+        ``price_basis`` is required (see :meth:`get_for_date`). This is also
+        the narrow retrieval primitive a future execution slice would call with
+        ``AS_TRADED``; nothing in this repository is connected to fills or P&L.
 
         ``start`` and ``end`` are both **inclusive**, unlike the half-open
         validity intervals used by listings. Session ranges are naturally
@@ -100,6 +111,7 @@ class MarketDataRepository:
             DailyPriceBar.listing_id == listing_id,
             DailyPriceBar.trading_date >= start,
             DailyPriceBar.trading_date <= end,
+            DailyPriceBar.price_basis == price_basis,
         ]
         if source_id is not None:
             conditions.append(DailyPriceBar.source_id == source_id)
@@ -116,6 +128,7 @@ class MarketDataRepository:
         listing_id: uuid.UUID,
         start: date,
         end: date,
+        price_basis: PriceBasis,
     ) -> list[uuid.UUID]:
         """Return the distinct source ids contributing observations in a range.
 
@@ -128,6 +141,7 @@ class MarketDataRepository:
                 DailyPriceBar.listing_id == listing_id,
                 DailyPriceBar.trading_date >= start,
                 DailyPriceBar.trading_date <= end,
+                DailyPriceBar.price_basis == price_basis,
             )
             .distinct()
         )

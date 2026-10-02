@@ -36,14 +36,16 @@ from pathlib import Path
 from typing import Any
 
 import sqlalchemy as sa
+from sqlalchemy.orm import Session
 
 from quantforge.core.config import Settings, get_settings
 from quantforge.db.session import get_session_factory
 from quantforge.ingestion.benchmark import BenchmarkBarConflictError, BenchmarkIdentityConflict
 from quantforge.ingestion.daily import ProviderDataConflict
 from quantforge.ingestion.raw_store import RawResponseStore
-from quantforge.ingestion.runs import RunOutcome
+from quantforge.ingestion.runs import FAILED_RUN_RECORDED, RunOutcome
 from quantforge.ingestion.service import IngestionService, UnknownListingError
+from quantforge.models.enums import PriceBasis
 from quantforge.models.ingestion import IngestionRun
 from quantforge.providers.errors import (
     ProviderAuthenticationError,
@@ -68,6 +70,26 @@ def _iso_date(value: str) -> date:
     except ValueError as exc:
         message = f"{value!r} is not a date; use YYYY-MM-DD"
         raise argparse.ArgumentTypeError(message) from exc
+
+
+_PRICE_BASIS_CHOICES: dict[str, PriceBasis] = {
+    "split-adjusted": PriceBasis.SPLIT_ADJUSTED,
+    "as-traded": PriceBasis.AS_TRADED,
+}
+
+
+def _add_price_basis_argument(command: argparse.ArgumentParser) -> None:
+    command.add_argument(
+        "--price-basis",
+        dest="price_basis",
+        choices=sorted(_PRICE_BASIS_CHOICES),
+        default="split-adjusted",
+        help=(
+            "split-adjusted (default; Massive adjusted=true -- splits only, dividends "
+            "excluded -- the research basis) or as-traded (adjusted=false; the "
+            "execution/accounting candidate). Each basis is stored as its own rows."
+        ),
+    )
 
 
 def _ticker(value: str) -> str:
@@ -139,6 +161,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="exchange_mic",
         help="ISO 10383 MIC, required only if the symbol is listed on several venues",
     )
+    _add_price_basis_argument(daily)
     daily.set_defaults(handler=_cmd_daily)
 
     benchmark = commands.add_parser(
@@ -171,6 +194,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="USD",
         help="ISO 4217 code, recorded only if this creates the Benchmark row (default: USD)",
     )
+    _add_price_basis_argument(benchmark)
     benchmark.set_defaults(handler=_cmd_benchmark)
 
     runs = commands.add_parser(
@@ -198,6 +222,9 @@ class DailyRequest:
     start: date
     end: date
     exchange_mic: str | None = None
+    #: CLI default only: the documented research basis. The service layer has
+    #: no default and requires the basis explicitly.
+    price_basis: PriceBasis = PriceBasis.SPLIT_ADJUSTED
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,6 +236,7 @@ class BenchmarkRequest:
     end: date
     name: str
     currency: str | None = None
+    price_basis: PriceBasis = PriceBasis.SPLIT_ADJUSTED
 
 
 # ── Command handlers ────────────────────────────────────────────────────────
@@ -240,6 +268,7 @@ def _cmd_daily(args: argparse.Namespace, settings: Settings) -> int:
         start=args.start,
         end=args.end,
         exchange_mic=args.exchange_mic,
+        price_basis=_PRICE_BASIS_CHOICES[args.price_basis],
     )
 
     async def run() -> RunOutcome:
@@ -269,6 +298,7 @@ def _cmd_benchmark(args: argparse.Namespace, settings: Settings) -> int:
         end=args.end,
         name=args.name,
         currency=args.currency,
+        price_basis=_PRICE_BASIS_CHOICES[args.price_basis],
     )
 
     async def run() -> RunOutcome:
@@ -349,7 +379,7 @@ async def _ingest(
         try:
             outcome, results = await service.ingest_reference(tickers)
         except BaseException:
-            session.rollback()
+            _commit_failed_run(session)
             raise
         session.commit()
         return outcome, results
@@ -375,10 +405,11 @@ async def _ingest_daily(
                 request.ticker,
                 request.start,
                 request.end,
+                price_basis=request.price_basis,
                 exchange_mic=request.exchange_mic,
             )
         except BaseException:
-            session.rollback()
+            _commit_failed_run(session)
             raise
         session.commit()
         return outcome
@@ -405,13 +436,34 @@ async def _ingest_benchmark(
                 request.start,
                 request.end,
                 name=request.name,
+                price_basis=request.price_basis,
                 currency=request.currency,
             )
         except BaseException:
-            session.rollback()
+            _commit_failed_run(session)
             raise
         session.commit()
         return outcome
+
+
+def _commit_failed_run(session: Session) -> None:
+    """After a failed ingestion, commit the ``failed`` run row -- and only if it was recorded.
+
+    The run recorder rolled the run's domain writes back to a savepoint and set
+    ``FAILED_RUN_RECORDED`` once the failed row was in place. Without that
+    marker (the failure happened before a run existed, or recording itself
+    failed) nothing is committed: the session is rolled back, so an exception can
+    never cause arbitrary pending state to be persisted. A failure while
+    committing is logged and rolled back rather than replacing the original error.
+    """
+    if not session.info.pop(FAILED_RUN_RECORDED, False):
+        session.rollback()
+        return
+    try:
+        session.commit()
+    except Exception:
+        logger.exception("could not persist the failed ingestion run record")
+        session.rollback()
 
 
 def _store(settings: Settings) -> RawResponseStore:

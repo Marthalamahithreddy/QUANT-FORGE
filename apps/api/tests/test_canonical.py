@@ -20,7 +20,7 @@ from quantforge.ingestion.canonical import (
     CanonicalEquityReference,
     ResolvedVenue,
 )
-from quantforge.models.enums import EarningsTiming
+from quantforge.models.enums import EarningsTiming, PriceBasis
 
 XNAS = ResolvedVenue(mic="XNAS", name="NasdaqGS", timezone_name="America/New_York")
 
@@ -54,6 +54,7 @@ def _bar(**overrides: object) -> CanonicalDailyBar:
         "low": Decimal("99.00"),
         "close": Decimal("104.00"),
         "volume": 1_000_000,
+        "price_basis": PriceBasis.SPLIT_ADJUSTED,
     }
     fields.update(overrides)
     return CanonicalDailyBar(**fields)  # type: ignore[arg-type]

@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from quantforge.models.company import Company
-from quantforge.models.enums import ProviderType, SecurityType
+from quantforge.models.enums import PriceBasis, ProviderType, SecurityType
 from quantforge.models.market import DailyPriceBar
 from quantforge.models.provenance import DataSource
 from quantforge.models.security import Exchange, Listing, Security
@@ -73,6 +73,7 @@ def listing(db_session: Session) -> Listing:
 
 def _bar(listing: Listing, source: DataSource, day: date, close: Decimal) -> DailyPriceBar:
     return DailyPriceBar(
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
         listing_id=listing.id,
         trading_date=day,
         open=close,
@@ -206,3 +207,74 @@ def test_a_second_source_outside_the_window_does_not_create_ambiguity(
 
     assert result.status is PriceSeriesStatus.AVAILABLE
     assert result.source_id == source_a.id
+
+
+# ── price basis: research reads SPLIT_ADJUSTED only ─────────────────────────
+
+
+def _as_traded_bar(
+    listing: Listing, source: DataSource, day: date, close: Decimal
+) -> DailyPriceBar:
+    bar = _bar(listing, source, day, close)
+    bar.price_basis = PriceBasis.AS_TRADED
+    return bar
+
+
+def test_the_series_ignores_as_traded_rows_from_the_same_source(
+    listing: Listing, source_a: DataSource, db_session: Session
+) -> None:
+    db_session.add_all(
+        [
+            _bar(listing, source_a, date(2026, 1, 8), Decimal("100.00")),
+            _bar(listing, source_a, date(2026, 1, 9), Decimal("101.00")),
+            _as_traded_bar(listing, source_a, date(2026, 1, 8), Decimal("1000.00")),
+            _as_traded_bar(listing, source_a, date(2026, 1, 9), Decimal("9999.00")),
+        ]
+    )
+    db_session.commit()
+
+    result = fetch_coherent_price_series(
+        db_session, listing_id=listing.id, start=date(2026, 1, 1), end=date(2026, 1, 31)
+    )
+
+    assert result.status is PriceSeriesStatus.AVAILABLE
+    assert result.series == [
+        (date(2026, 1, 8), Decimal("100.00")),
+        (date(2026, 1, 9), Decimal("101.00")),
+    ]
+
+
+def test_an_explicit_source_still_reads_only_split_adjusted(
+    listing: Listing, source_a: DataSource, db_session: Session
+) -> None:
+    db_session.add_all(
+        [
+            _bar(listing, source_a, date(2026, 1, 8), Decimal("100.00")),
+            _as_traded_bar(listing, source_a, date(2026, 1, 8), Decimal("1000.00")),
+        ]
+    )
+    db_session.commit()
+
+    result = fetch_coherent_price_series(
+        db_session,
+        listing_id=listing.id,
+        start=date(2026, 1, 1),
+        end=date(2026, 1, 31),
+        source_id=source_a.id,
+    )
+
+    assert result.series == [(date(2026, 1, 8), Decimal("100.00"))]
+
+
+def test_a_listing_with_only_as_traded_bars_has_no_research_price_data(
+    listing: Listing, source_a: DataSource, db_session: Session
+) -> None:
+    db_session.add(_as_traded_bar(listing, source_a, date(2026, 1, 8), Decimal("1000.00")))
+    db_session.commit()
+
+    result = fetch_coherent_price_series(
+        db_session, listing_id=listing.id, start=date(2026, 1, 1), end=date(2026, 1, 31)
+    )
+
+    assert result.status is PriceSeriesStatus.NO_PRICE_DATA
+    assert result.series == []

@@ -11,15 +11,20 @@ import hashlib
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from quantforge.ingestion.raw_store import RawResponseStore
-from quantforge.ingestion.runs import RunRecorder
-from quantforge.models.enums import IngestionStatus
+from quantforge.ingestion.runs import FAILED_RUN_RECORDED, RunRecorder
+from quantforge.ingestion.sources import get_or_create_data_source
+from quantforge.models.company import Company
+from quantforge.models.enums import IngestionStatus, ProviderType
 from quantforge.models.ingestion import IngestionRun
+from quantforge.models.provenance import DataSource
+from quantforge.models.security import Exchange
 from quantforge.providers.base import RawCapture
 
 pytestmark = pytest.mark.integration
@@ -273,6 +278,60 @@ def test_the_row_and_its_data_roll_back_together(
     assert db_session.scalar(sa.select(IngestionRun).filter_by(id=run.run_id)) is None
 
 
+def test_a_failed_block_rolls_back_its_writes_but_keeps_the_failed_run(
+    db_session: Session, store: RawResponseStore
+) -> None:
+    """The run row outlives the failure; the domain row written inside the block does not."""
+    company_count = db_session.query(Company).count()
+    with pytest.raises(RuntimeError, match="boom"), _recorder(db_session, store) as run:
+        db_session.add(Company(legal_name="Rolled Back Co", display_name="Rolled Back"))
+        db_session.flush()
+        run.count_written(1)
+        raise RuntimeError("boom")
+    db_session.commit()
+
+    assert db_session.query(Company).count() == company_count
+    row = _one(db_session, status=IngestionStatus.FAILED)
+    assert row.records_written == 0
+    assert row.error_message == "boom"
+
+
+def test_a_failed_block_keeps_the_manifest_pointer(
+    db_session: Session, store: RawResponseStore
+) -> None:
+    with pytest.raises(RuntimeError), _recorder(db_session, store) as run:
+        run.record_captures(store.store_all([_capture()]))
+        raise RuntimeError("after fetch")
+    db_session.commit()
+
+    row = _one(db_session, status=IngestionStatus.FAILED)
+    assert row.raw_artifact_path
+    assert row.raw_content_sha256
+
+
+def test_rolling_back_the_outer_transaction_still_discards_a_failed_run(
+    db_session: Session, store: RawResponseStore
+) -> None:
+    """Durability needs the caller's commit; a caller that rolls back discards everything."""
+    with pytest.raises(RuntimeError), _recorder(db_session, store) as run:
+        raise RuntimeError("x")
+    db_session.rollback()
+
+    assert db_session.scalar(sa.select(IngestionRun).filter_by(id=run.run_id)) is None
+
+
+def test_a_failure_at_the_final_flush_is_recorded_and_the_original_error_surfaces(
+    db_session: Session, store: RawResponseStore
+) -> None:
+    """A constraint violation found only when the block's writes flush is still a failed run."""
+    with pytest.raises(Exception, match="mic"), _recorder(db_session, store):
+        db_session.add(Exchange(mic="bad", name="Bad MIC", timezone="UTC"))  # CHECK fails on flush
+    db_session.commit()
+
+    row = _one(db_session, status=IngestionStatus.FAILED)
+    assert row.error_type
+
+
 # ── what the recorder stores about the request ──────────────────────────────
 
 
@@ -327,3 +386,61 @@ def test_a_long_error_message_is_truncated_to_fit_the_column(
     row = _one(db_session, status=IngestionStatus.FAILED)
     assert len(str(row.error_message)) <= 1000
     assert str(row.error_message).endswith("...")
+
+
+def test_the_failed_run_marker_is_set_only_when_the_failure_was_recorded(
+    db_session: Session, store: RawResponseStore
+) -> None:
+    with pytest.raises(RuntimeError), _recorder(db_session, store):
+        raise RuntimeError("x")
+
+    assert db_session.info[FAILED_RUN_RECORDED] is True
+
+
+def test_no_marker_is_set_for_a_successful_run(
+    db_session: Session, store: RawResponseStore
+) -> None:
+    with _recorder(db_session, store) as run:
+        run.succeed(LATER)
+
+    assert FAILED_RUN_RECORDED not in db_session.info
+
+
+def test_a_failure_while_recording_never_replaces_the_original_error(
+    db_session: Session, store: RawResponseStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorder = _recorder(db_session, store)
+
+    def broken_fail(_self: RunRecorder, _exc: BaseException) -> None:
+        raise OSError("connection dropped while recording")
+
+    monkeypatch.setattr(RunRecorder, "fail", broken_fail)
+    with pytest.raises(RuntimeError, match="the real provider error"), recorder:
+        raise RuntimeError("the real provider error")
+
+    assert FAILED_RUN_RECORDED not in db_session.info
+
+
+def test_a_data_source_race_inside_the_block_does_not_lose_the_run(
+    db_session: Session, store: RawResponseStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """get_or_create_data_source runs inside the recorder's SAVEPOINT; its lost-race
+    recovery must not roll back the run row or close the recorder's savepoint."""
+    db_session.add(DataSource(name="raced-source", provider_type=ProviderType.MARKET_DATA_VENDOR))
+    db_session.flush()
+    real = db_session.scalar
+    calls = {"n": 0}
+
+    def stale_first(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        return None if calls["n"] == 1 else real(*args, **kwargs)
+
+    monkeypatch.setattr(db_session, "scalar", stale_first)
+    with _recorder(db_session, store) as run:
+        source = get_or_create_data_source(db_session, name="raced-source")
+        run.succeed(LATER)
+    db_session.commit()
+
+    assert source.name == "raced-source"
+    row = _one(db_session, id=run.run_id)
+    assert row.status is IngestionStatus.SUCCEEDED

@@ -106,6 +106,7 @@ def test_baseline_revision_exists_and_is_empty() -> None:
         "0003_ingestion_runs_and_issuer_cik.py",
         "0004_earnings_ingestion.py",
         "0005_earnings_event_date.py",
+        "0006_price_basis.py",
     ]
 
     source = revisions[0].read_text(encoding="utf-8")

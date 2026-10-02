@@ -30,7 +30,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from quantforge.models.earnings import EarningsEvent
-from quantforge.models.enums import EarningsTiming
+from quantforge.models.enums import RESEARCH_PRICE_BASIS, EarningsTiming
 from quantforge.models.market import DailyPriceBar
 from quantforge.research.availability import (
     PointInTimeEligibility,
@@ -95,12 +95,14 @@ def _available_sessions(
     has over introducing an exchange-calendar dependency: "available session"
     here means "a session we have a price observation for", not "a session the
     venue was open", which is the conservative reading this milestone commits
-    to.
+    to. Only ``SPLIT_ADJUSTED`` rows count: the sessions an event aligns to come
+    from the same basis the returns are then measured on.
     """
     statement = (
         sa.select(DailyPriceBar.trading_date)
         .where(
             DailyPriceBar.listing_id == listing_id,
+            DailyPriceBar.price_basis == RESEARCH_PRICE_BASIS,
             DailyPriceBar.trading_date >= start,
             DailyPriceBar.trading_date <= end,
         )

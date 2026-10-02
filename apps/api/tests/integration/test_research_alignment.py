@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from quantforge.models.company import Company
 from quantforge.models.earnings import EarningsEvent
-from quantforge.models.enums import EarningsTiming, ProviderType, SecurityType
+from quantforge.models.enums import EarningsTiming, PriceBasis, ProviderType, SecurityType
 from quantforge.models.market import DailyPriceBar
 from quantforge.models.provenance import DataSource
 from quantforge.models.security import Exchange, Listing, Security
@@ -87,6 +87,7 @@ def listing(security: Security, exchange: Exchange, db_session: Session) -> List
 
 def _bar(listing: Listing, source: DataSource, day: date) -> DailyPriceBar:
     return DailyPriceBar(
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
         listing_id=listing.id,
         trading_date=day,
         open=Decimal("100.000000"),

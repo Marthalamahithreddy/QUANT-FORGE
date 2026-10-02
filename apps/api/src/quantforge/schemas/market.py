@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from quantforge.models.enums import PriceBasis
 from quantforge.schemas.common import as_utc_aware
 
 __all__ = ["DailyPriceBarCreate", "DailyPriceBarRead"]
@@ -30,9 +31,14 @@ class DailyPriceBarCreate(BaseModel):
     no publication timestamp. ``ingested_at`` defaults to now, which is the
     honest earliest-moment-known value when the source said nothing.
 
+    ``price_basis`` is required with no default: every price on the row is in
+    exactly that basis (``SPLIT_ADJUSTED`` research prices or ``AS_TRADED``),
+    and a payload must say which.
+
     ``adjusted_close`` is nullable and never defaulted to ``close``: a NULL
     means "this source published no adjusted close", which is materially
-    different from "the adjusted close equals the close".
+    different from "the adjusted close equals the close". It is reserved and
+    not populated by QuantForge ingestion; it never carries a second basis.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -43,6 +49,7 @@ class DailyPriceBarCreate(BaseModel):
     high: Decimal = Field(ge=_MIN_PRICE)
     low: Decimal = Field(ge=_MIN_PRICE)
     close: Decimal = Field(ge=_MIN_PRICE)
+    price_basis: PriceBasis
     adjusted_close: Decimal | None = Field(default=None, ge=_MIN_PRICE)
     volume: int | None = Field(default=None, ge=0)
     source_id: UUID
@@ -104,6 +111,7 @@ class DailyPriceBarRead(BaseModel):
     high: Decimal
     low: Decimal
     close: Decimal
+    price_basis: PriceBasis
     adjusted_close: Decimal | None
     volume: int | None
     source_id: UUID

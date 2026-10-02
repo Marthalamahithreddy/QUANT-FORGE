@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
 from quantforge.models.company import Company
 from quantforge.models.earnings import EarningsEvent
-from quantforge.models.enums import EarningsTiming, ProviderType, SecurityType
+from quantforge.models.enums import EarningsTiming, PriceBasis, ProviderType, SecurityType
 from quantforge.models.market import DailyPriceBar
 from quantforge.models.provenance import DataSource
 from quantforge.models.security import Exchange, Listing, Security
@@ -115,6 +115,7 @@ def _bar(listing: Listing, source: DataSource, day: date, **overrides: object) -
         "close": Decimal("103.250000"),
         "volume": 1_000_000,
         "source_id": source.id,
+        "price_basis": PriceBasis.SPLIT_ADJUSTED,
     }
     return DailyPriceBar(**{**defaults, **overrides})
 
@@ -247,6 +248,7 @@ def test_a_very_large_benchmark_level_persists_exactly(
     db_session.flush()
     db_session.add(
         BenchmarkPriceBar(
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
             benchmark_id=benchmark.id,
             trading_date=date(2024, 1, 2),
             close=_NUMERIC_20_6_MAX,
@@ -443,7 +445,10 @@ def test_get_for_date_can_select_a_source(
 
     repo = MarketDataRepository(db_session)
     chosen = repo.get_for_date(
-        listing_id=listing.id, trading_date=date(2024, 4, 3), source_id=other_source.id
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=listing.id,
+        trading_date=date(2024, 4, 3),
+        source_id=other_source.id,
     )
     assert chosen is not None
     assert chosen.close == Decimal("10.500000")
@@ -461,7 +466,10 @@ def test_sources_for_listing_reports_distinct_provenance(
     db_session.commit()
 
     found = MarketDataRepository(db_session).sources_for_listing(
-        listing_id=listing.id, start=date(2024, 4, 1), end=date(2024, 4, 30)
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=listing.id,
+        start=date(2024, 4, 1),
+        end=date(2024, 4, 30),
     )
     assert set(found) == {source.id, other_source.id}
 
@@ -554,7 +562,10 @@ def test_price_bars_are_returned_in_chronological_order(
 ) -> None:
     """Insertion order was 04, 03, 05; the read must still be ascending."""
     rows = MarketDataRepository(db_session).list_range(
-        listing_id=listing.id, start=date(2024, 1, 1), end=date(2024, 1, 31)
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=listing.id,
+        start=date(2024, 1, 1),
+        end=date(2024, 1, 31),
     )
     assert [row.trading_date for row in rows] == [
         date(2024, 1, 3),
@@ -567,10 +578,20 @@ def test_price_range_bounds_are_inclusive_on_both_ends(
     listing: Listing, three_bars: list[DailyPriceBar], db_session: Session
 ) -> None:
     repo = MarketDataRepository(db_session)
-    exact = repo.list_range(listing_id=listing.id, start=date(2024, 1, 3), end=date(2024, 1, 5))
+    exact = repo.list_range(
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=listing.id,
+        start=date(2024, 1, 3),
+        end=date(2024, 1, 5),
+    )
     assert len(exact) == 3
 
-    narrow = repo.list_range(listing_id=listing.id, start=date(2024, 1, 4), end=date(2024, 1, 4))
+    narrow = repo.list_range(
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=listing.id,
+        start=date(2024, 1, 4),
+        end=date(2024, 1, 4),
+    )
     assert [row.trading_date for row in narrow] == [date(2024, 1, 4)]
 
 
@@ -586,7 +607,11 @@ def test_price_range_can_be_narrowed_to_one_source(
     db_session.commit()
 
     rows = MarketDataRepository(db_session).list_range(
-        listing_id=listing.id, start=date(2024, 6, 1), end=date(2024, 6, 30), source_id=source.id
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=listing.id,
+        start=date(2024, 6, 1),
+        end=date(2024, 6, 30),
+        source_id=source.id,
     )
     assert [row.source_id for row in rows] == [source.id]
 
@@ -596,7 +621,10 @@ def test_close_series_helper_returns_decimals(
 ) -> None:
     """The helper exists to keep prices from ever leaving as floats."""
     rows = MarketDataRepository(db_session).list_range(
-        listing_id=listing.id, start=date(2024, 1, 1), end=date(2024, 1, 31)
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        listing_id=listing.id,
+        start=date(2024, 1, 1),
+        end=date(2024, 1, 31),
     )
     # Bars were created for 01-04, 01-03, 01-05 with closes 100, 101, 102 in that
     # insertion order, so chronological order is 01-03 -> 101, 01-04 -> 100, 01-05 -> 102.
@@ -627,6 +655,7 @@ def test_benchmark_price_bar_persists(
     repo = BenchmarkRepository(db_session)
     created = repo.add_price_bar(
         BenchmarkPriceBar(
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
             benchmark_id=benchmark.id,
             trading_date=date(2024, 1, 3),
             close=Decimal("4500.123456"),
@@ -648,12 +677,14 @@ def test_duplicate_benchmark_level_from_same_source_is_rejected(
     db_session.add_all(
         [
             BenchmarkPriceBar(
+                price_basis=PriceBasis.SPLIT_ADJUSTED,
                 benchmark_id=benchmark.id,
                 trading_date=date(2024, 1, 4),
                 close=Decimal("4500.000000"),
                 source_id=source.id,
             ),
             BenchmarkPriceBar(
+                price_basis=PriceBasis.SPLIT_ADJUSTED,
                 benchmark_id=benchmark.id,
                 trading_date=date(2024, 1, 4),
                 close=Decimal("4501.000000"),
@@ -672,12 +703,14 @@ def test_two_sources_may_report_the_same_benchmark_session(
     db_session.add_all(
         [
             BenchmarkPriceBar(
+                price_basis=PriceBasis.SPLIT_ADJUSTED,
                 benchmark_id=benchmark.id,
                 trading_date=date(2024, 1, 5),
                 close=Decimal("4500.000000"),
                 source_id=source.id,
             ),
             BenchmarkPriceBar(
+                price_basis=PriceBasis.SPLIT_ADJUSTED,
                 benchmark_id=benchmark.id,
                 trading_date=date(2024, 1, 5),
                 close=Decimal("4500.500000"),
@@ -688,7 +721,10 @@ def test_two_sources_may_report_the_same_benchmark_session(
     db_session.commit()
 
     rows = BenchmarkRepository(db_session).list_price_bars(
-        benchmark_id=benchmark.id, start=date(2024, 1, 1), end=date(2024, 1, 31)
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        benchmark_id=benchmark.id,
+        start=date(2024, 1, 1),
+        end=date(2024, 1, 31),
     )
     assert len(rows) == 2
 
@@ -699,12 +735,14 @@ def test_benchmark_levels_are_returned_in_date_order(
     db_session.add_all(
         [
             BenchmarkPriceBar(
+                price_basis=PriceBasis.SPLIT_ADJUSTED,
                 benchmark_id=benchmark.id,
                 trading_date=date(2024, 1, 9),
                 close=Decimal("4502.000000"),
                 source_id=source.id,
             ),
             BenchmarkPriceBar(
+                price_basis=PriceBasis.SPLIT_ADJUSTED,
                 benchmark_id=benchmark.id,
                 trading_date=date(2024, 1, 8),
                 close=Decimal("4501.000000"),
@@ -715,7 +753,10 @@ def test_benchmark_levels_are_returned_in_date_order(
     db_session.commit()
 
     rows = BenchmarkRepository(db_session).list_price_bars(
-        benchmark_id=benchmark.id, start=date(2024, 1, 1), end=date(2024, 1, 31)
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        benchmark_id=benchmark.id,
+        start=date(2024, 1, 1),
+        end=date(2024, 1, 31),
     )
     assert [row.trading_date for row in rows] == [date(2024, 1, 8), date(2024, 1, 9)]
 
@@ -725,6 +766,7 @@ def test_negative_benchmark_level_is_rejected(
 ) -> None:
     db_session.add(
         BenchmarkPriceBar(
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
             benchmark_id=benchmark.id,
             trading_date=date(2024, 1, 10),
             close=Decimal("-1.000000"),
@@ -1184,6 +1226,7 @@ def test_price_bar_requires_a_known_listing(source: DataSource, db_session: Sess
     """No orphan observations: a bar is meaningless without its listing."""
     db_session.add(
         DailyPriceBar(
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
             listing_id=uuid.uuid4(),
             trading_date=date(2024, 7, 2),
             open=Decimal("1.000000"),
@@ -1196,3 +1239,63 @@ def test_price_bar_requires_a_known_listing(source: DataSource, db_session: Sess
     with pytest.raises(IntegrityError):
         db_session.commit()
     db_session.rollback()
+
+
+# ── price basis in the repositories ─────────────────────────────────────────
+
+
+def test_repository_reads_only_the_requested_price_basis(
+    listing: Listing, source: DataSource, db_session: Session
+) -> None:
+    day = date(2024, 5, 1)
+    db_session.add_all(
+        [
+            _bar(listing, source, day, close=Decimal("100.000000")),
+            _bar(
+                listing,
+                source,
+                day,
+                price_basis=PriceBasis.AS_TRADED,
+                open=Decimal("1000.000000"),
+                high=Decimal("1050.000000"),
+                low=Decimal("990.000000"),
+                close=Decimal("1030.000000"),
+            ),
+        ]
+    )
+    db_session.commit()
+    repo = MarketDataRepository(db_session)
+    adjusted = repo.list_range(
+        price_basis=PriceBasis.SPLIT_ADJUSTED, listing_id=listing.id, start=day, end=day
+    )
+    traded = repo.list_range(
+        price_basis=PriceBasis.AS_TRADED, listing_id=listing.id, start=day, end=day
+    )
+
+    assert [bar.close for bar in adjusted] == [Decimal("100.000000")]
+    assert [bar.close for bar in traded] == [Decimal("1030.000000")]
+    got = repo.get_for_date(
+        price_basis=PriceBasis.AS_TRADED, listing_id=listing.id, trading_date=day
+    )
+    assert got is not None and got.close == Decimal("1030.000000")
+    assert repo.sources_for_listing(
+        price_basis=PriceBasis.AS_TRADED, listing_id=listing.id, start=day, end=day
+    ) == [source.id]
+
+
+def test_repository_reports_nothing_for_a_basis_that_was_never_ingested(
+    listing: Listing, source: DataSource, db_session: Session
+) -> None:
+    day = date(2024, 5, 2)
+    db_session.add(_bar(listing, source, day))
+    db_session.commit()
+    repo = MarketDataRepository(db_session)
+
+    assert (
+        repo.list_range(price_basis=PriceBasis.AS_TRADED, listing_id=listing.id, start=day, end=day)
+        == []
+    )
+    assert (
+        repo.get_for_date(price_basis=PriceBasis.AS_TRADED, listing_id=listing.id, trading_date=day)
+        is None
+    )

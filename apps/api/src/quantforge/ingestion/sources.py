@@ -80,14 +80,16 @@ def get_or_create_data_source(
         base_url=base_url,
         is_active=is_active,
     )
-    session.add(created)
     try:
-        # Flushed rather than left pending so the id is available to callers, and
-        # so a concurrent insert surfaces here as a catchable IntegrityError
-        # instead of at some later commit far from the cause.
-        session.flush()
+        # Flushed inside a SAVEPOINT, rather than left pending, so the id is
+        # available to callers and a concurrent insert surfaces here as a
+        # catchable IntegrityError. Only the savepoint is rolled back on that
+        # error -- never the caller's whole transaction, which may already hold
+        # the run row (and other work) this function must not discard.
+        with session.begin_nested():
+            session.add(created)
+            session.flush()
     except IntegrityError:
-        session.rollback()
         # Lost the race: the other transaction's row is the one to use. If it is
         # somehow still absent, the constraint fired for a different reason and
         # re-raising is the honest outcome.

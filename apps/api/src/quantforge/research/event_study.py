@@ -82,7 +82,11 @@ from quantforge.research.benchmark_returns import (
 from quantforge.research.eps_surprise import EpsSurpriseResult, compute_eps_surprise_for_observation
 from quantforge.research.event_returns import DEFAULT_HORIZONS, compute_event_forward_returns
 from quantforge.research.price_series import PriceSeriesStatus
-from quantforge.research.returns import EventForwardReturns, ForwardReturnStatus
+from quantforge.research.returns import (
+    EventForwardReturns,
+    ForwardReturnStatus,
+    validate_horizons,
+)
 
 __all__ = ["PRICE_BASIS_NOTE", "EventStudyResult", "analyze_earnings_event"]
 
@@ -94,10 +98,12 @@ __all__ = ["PRICE_BASIS_NOTE", "EventStudyResult", "analyze_earnings_event"]
 #: for the full reasoning this summarises.
 PRICE_BASIS_NOTE: Final[str] = (
     "Stock returns use DailyPriceBar.close; benchmark returns use "
-    "BenchmarkPriceBar.close. Massive's daily-aggregate request sets "
+    "BenchmarkPriceBar.close -- in both cases only rows whose price_basis is "
+    "SPLIT_ADJUSTED (AS_TRADED rows are never read by research). The "
+    "SPLIT_ADJUSTED rows come from Massive's daily-aggregate request with "
     "adjusted=true, which (per Polygon's own aggregates contract, which "
     "Massive -- formerly Polygon.io -- uses as-is) means split-adjusted, not "
-    "dividend-adjusted and not total-return. So both series are already "
+    "dividend-adjusted and not total-return. So both series are "
     "split-adjusted price series; cash dividends are excluded from both. "
     "DailyPriceBar.adjusted_close stays unconditionally NULL under the "
     "current ingestion path and must not be read as a further adjustment on "
@@ -241,6 +247,7 @@ def analyze_earnings_event(  # noqa: PLR0913 - one explicit knob per independent
         ``benchmark_returns`` and ``abnormal_returns``, carrying its own
         status.
     """
+    validate_horizons(horizons)
     horizons_list = list(horizons)
 
     eligibility = classify_point_in_time_eligibility(mode, observed_at=event.observed_at)

@@ -198,18 +198,32 @@ errors on `408/429/500/502/503/504` (honouring `Retry-After` up to a cap),
 treats `401/403` as configuration errors, and decodes every price as
 `Decimal` so `199.99` never becomes `199.99000000000000284`.
 
-**Price basis.** Massive is "formerly Polygon.io" and its daily-aggregate
-request is sent with `adjusted=true`, which (per Polygon's own aggregates
-contract) means **split-adjusted**, not dividend-adjusted and not total
-return. `DailyPriceBar.close` is therefore already a split-adjusted price,
-never a raw as-traded one — verified live against the real Massive API, not
-assumed. `DailyPriceBar.adjusted_close` stays `NULL`: it is a distinct column
-reserved for a further adjustment (e.g. dividend/total-return) this project
-does not yet compute, and populating it with a copy of `close` would make
-"not supplied" indistinguishable from "equals close". Every return QuantForge
-computes from `close` (see `research/returns.py`) is consequently a
-**split-adjusted price return, dividends excluded** — not a total return —
-and is documented as such everywhere it is reported.
+**Price basis.** Every `daily_price_bar` and `benchmark_price_bar` row carries
+an explicit, required `price_basis` (`PriceBasis`, stored `VARCHAR(32)` + `CHECK`,
+no default), and the uniqueness keys include it, so one session can hold both:
+
+- `SPLIT_ADJUSTED` — Massive `adjusted=true`: adjusted for stock splits,
+  **not** for dividends, not total return. This is the research basis; every
+  Step 8 query selects it explicitly (`RESEARCH_PRICE_BASIS`), never relying on
+  row order or "the only row". It is also the CLI default
+  (`--price-basis split-adjusted`) and what every row that existed before
+  migration `0006` was backfilled as.
+- `AS_TRADED` — Massive `adjusted=false`: prices as they printed, the candidate
+  basis for historical execution/accounting
+  (`--price-basis as-traded`). Not called "raw", which already means the
+  untouched provider payload bytes. A stock split inside a holding period
+  still needs a share-count adjustment; QuantForge has no corporate-action
+  engine, so `AS_TRADED` rows do **not** by themselves authorise multi-session
+  position accounting across a split.
+
+The Massive client translates the basis to the `adjusted` request parameter and
+refuses a response whose own `adjusted` field contradicts the request.
+`DailyPriceBar.adjusted_close` is reserved and stays `NULL`; it never carries a
+second basis. Every return QuantForge computes from `close` (see
+`research/returns.py`) is a **split-adjusted price return, dividends
+excluded**. Whether Massive's `volume` is itself split-adjusted under
+`adjusted=true` has not been verified live (no key was available when the
+as-traded path was built) and nothing relies on it.
 
 **Benchmark.** `quantforge ingestion benchmark` reuses the same
 daily-aggregate endpoint, adapter and provenance machinery as

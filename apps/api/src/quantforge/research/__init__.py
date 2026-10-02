@@ -45,55 +45,126 @@ database-facing modules contain financial arithmetic.
 
 from __future__ import annotations
 
-from quantforge.research.abnormal_returns import (
-    AbnormalReturn,
-    AbnormalReturnStatus,
-    compute_abnormal_return,
-)
-from quantforge.research.alignment import EventStudyAlignment, align_earnings_event
-from quantforge.research.availability import (
-    PointInTimeEligibility,
-    ResearchMode,
-    classify_point_in_time_eligibility,
-    select_known_as_of,
-)
-from quantforge.research.benchmark_price_series import fetch_coherent_benchmark_price_series
-from quantforge.research.benchmark_returns import (
-    BenchmarkReturn,
-    BenchmarkReturnStatus,
-    compute_benchmark_return_for_stock_return,
-    no_benchmark_selected,
-)
-from quantforge.research.calendar import AlignmentStatus, SessionAlignment, align_event_to_sessions
-from quantforge.research.eps_surprise import (
-    EpsSurpriseResult,
-    EpsSurpriseStatus,
-    compute_eps_surprise,
-    compute_eps_surprise_for_observation,
-)
-from quantforge.research.event_returns import DEFAULT_HORIZONS, compute_event_forward_returns
-from quantforge.research.event_study import (
-    PRICE_BASIS_NOTE,
-    EventStudyResult,
-    analyze_earnings_event,
-)
-from quantforge.research.listing_resolution import (
-    ListingResolution,
-    ListingResolutionStatus,
-    resolve_company_listing_for_date,
-)
-from quantforge.research.price_series import (
-    PriceSeriesResolution,
-    PriceSeriesStatus,
-    fetch_coherent_price_series,
-)
-from quantforge.research.returns import (
-    EventForwardReturns,
-    ForwardReturn,
-    ForwardReturnStatus,
-    compute_forward_returns,
-    no_alignment_forward_returns,
-)
+import importlib
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from quantforge.research.abnormal_returns import (
+        AbnormalReturn,
+        AbnormalReturnStatus,
+        compute_abnormal_return,
+    )
+    from quantforge.research.alignment import EventStudyAlignment, align_earnings_event
+    from quantforge.research.availability import (
+        PointInTimeEligibility,
+        ResearchMode,
+        classify_point_in_time_eligibility,
+        select_known_as_of,
+    )
+    from quantforge.research.benchmark_price_series import fetch_coherent_benchmark_price_series
+    from quantforge.research.benchmark_returns import (
+        BenchmarkReturn,
+        BenchmarkReturnStatus,
+        compute_benchmark_return_for_stock_return,
+        no_benchmark_selected,
+    )
+    from quantforge.research.calendar import (
+        AlignmentStatus,
+        SessionAlignment,
+        align_event_to_sessions,
+    )
+    from quantforge.research.eps_surprise import (
+        EpsSurpriseResult,
+        EpsSurpriseStatus,
+        compute_eps_surprise,
+        compute_eps_surprise_for_observation,
+    )
+    from quantforge.research.event_returns import DEFAULT_HORIZONS, compute_event_forward_returns
+    from quantforge.research.event_study import (
+        PRICE_BASIS_NOTE,
+        EventStudyResult,
+        analyze_earnings_event,
+    )
+    from quantforge.research.listing_resolution import (
+        ListingResolution,
+        ListingResolutionStatus,
+        resolve_company_listing_for_date,
+    )
+    from quantforge.research.price_series import (
+        PriceSeriesResolution,
+        PriceSeriesStatus,
+        fetch_coherent_price_series,
+    )
+    from quantforge.research.returns import (
+        EventForwardReturns,
+        ForwardReturn,
+        ForwardReturnStatus,
+        compute_forward_returns,
+        no_alignment_forward_returns,
+    )
+
+# Exports are resolved lazily (PEP 562), so importing one submodule -- e.g.
+# ``quantforge.research.alignment`` or ``quantforge.research.availability`` --
+# does not execute this file's other imports. That is what keeps outcome
+# modules (returns, benchmark/abnormal returns, event study) from being loaded
+# by code that must not depend on them: see ``quantforge.signals.eps_surprise``
+# and ``quantforge.backtest``. ``from quantforge.research import X`` and
+# ``quantforge.research.X`` keep working unchanged.
+
+_EXPORTS: dict[str, str] = {
+    "AbnormalReturn": "quantforge.research.abnormal_returns",
+    "AbnormalReturnStatus": "quantforge.research.abnormal_returns",
+    "AlignmentStatus": "quantforge.research.calendar",
+    "BenchmarkReturn": "quantforge.research.benchmark_returns",
+    "BenchmarkReturnStatus": "quantforge.research.benchmark_returns",
+    "DEFAULT_HORIZONS": "quantforge.research.event_returns",
+    "EpsSurpriseResult": "quantforge.research.eps_surprise",
+    "EpsSurpriseStatus": "quantforge.research.eps_surprise",
+    "EventForwardReturns": "quantforge.research.returns",
+    "EventStudyAlignment": "quantforge.research.alignment",
+    "EventStudyResult": "quantforge.research.event_study",
+    "ForwardReturn": "quantforge.research.returns",
+    "ForwardReturnStatus": "quantforge.research.returns",
+    "ListingResolution": "quantforge.research.listing_resolution",
+    "ListingResolutionStatus": "quantforge.research.listing_resolution",
+    "PRICE_BASIS_NOTE": "quantforge.research.event_study",
+    "PointInTimeEligibility": "quantforge.research.availability",
+    "PriceSeriesResolution": "quantforge.research.price_series",
+    "PriceSeriesStatus": "quantforge.research.price_series",
+    "ResearchMode": "quantforge.research.availability",
+    "SessionAlignment": "quantforge.research.calendar",
+    "align_earnings_event": "quantforge.research.alignment",
+    "align_event_to_sessions": "quantforge.research.calendar",
+    "analyze_earnings_event": "quantforge.research.event_study",
+    "classify_point_in_time_eligibility": "quantforge.research.availability",
+    "compute_abnormal_return": "quantforge.research.abnormal_returns",
+    "compute_benchmark_return_for_stock_return": "quantforge.research.benchmark_returns",
+    "compute_eps_surprise": "quantforge.research.eps_surprise",
+    "compute_eps_surprise_for_observation": "quantforge.research.eps_surprise",
+    "compute_event_forward_returns": "quantforge.research.event_returns",
+    "compute_forward_returns": "quantforge.research.returns",
+    "fetch_coherent_benchmark_price_series": "quantforge.research.benchmark_price_series",
+    "fetch_coherent_price_series": "quantforge.research.price_series",
+    "no_alignment_forward_returns": "quantforge.research.returns",
+    "no_benchmark_selected": "quantforge.research.benchmark_returns",
+    "resolve_company_listing_for_date": "quantforge.research.listing_resolution",
+    "select_known_as_of": "quantforge.research.availability",
+}
+
+
+def __getattr__(name: str) -> Any:
+    module_name = _EXPORTS.get(name)
+    if module_name is None:
+        message = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(message)
+    value = getattr(importlib.import_module(module_name), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted([*globals(), *_EXPORTS])
+
 
 __all__ = [
     "DEFAULT_HORIZONS",

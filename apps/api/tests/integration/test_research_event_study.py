@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
 from quantforge.models.company import Company
 from quantforge.models.earnings import EarningsEvent
-from quantforge.models.enums import EarningsTiming, ProviderType, SecurityType
+from quantforge.models.enums import EarningsTiming, PriceBasis, ProviderType, SecurityType
 from quantforge.models.market import DailyPriceBar
 from quantforge.models.provenance import DataSource
 from quantforge.models.security import Exchange, Listing, Security
@@ -105,6 +105,7 @@ def benchmark(db_session: Session) -> Benchmark:
 
 def _bar(listing: Listing, source: DataSource, day: date, close: Decimal) -> DailyPriceBar:
     return DailyPriceBar(
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
         listing_id=listing.id,
         trading_date=day,
         open=close,
@@ -119,7 +120,11 @@ def _level(
     benchmark: Benchmark, source: DataSource, day: date, close: Decimal
 ) -> BenchmarkPriceBar:
     return BenchmarkPriceBar(
-        benchmark_id=benchmark.id, trading_date=day, close=close, source_id=source.id
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+        benchmark_id=benchmark.id,
+        trading_date=day,
+        close=close,
+        source_id=source.id,
     )
 
 
@@ -674,3 +679,148 @@ def test_the_study_respects_the_externally_selected_revision_not_a_future_one(
     assert result.event_id != restatement.id
     # The preliminary figure (zero surprise) is used, never the restatement's.
     assert result.eps_surprise.absolute_surprise == Decimal("0.00")
+
+
+# ── Step 10.5: research reads SPLIT_ADJUSTED only, whatever else exists ─────
+
+
+def _as_traded_bar(
+    listing: Listing, source: DataSource, day: date, close: Decimal
+) -> DailyPriceBar:
+    bar = _bar(listing, source, day, close)
+    bar.price_basis = PriceBasis.AS_TRADED
+    return bar
+
+
+def _as_traded_level(
+    benchmark: Benchmark, source: DataSource, day: date, close: Decimal
+) -> BenchmarkPriceBar:
+    level = _level(benchmark, source, day, close)
+    level.price_basis = PriceBasis.AS_TRADED
+    return level
+
+
+def test_wildly_different_as_traded_prices_never_change_the_event_study(
+    company: Company,
+    source: DataSource,
+    listing: Listing,
+    benchmark: Benchmark,
+    benchmark_source: DataSource,
+    db_session: Session,
+) -> None:
+    """Same numbers as the deterministic example, plus absurd AS_TRADED rows.
+
+    Stock/benchmark/abnormal returns, the alignment and the study as a whole
+    must be identical with and without them: research selects SPLIT_ADJUSTED
+    explicitly and never relies on row order or "the only row".
+    """
+    sessions = _weekday_sessions(date(2026, 3, 2), 3)
+    db_session.add_all(
+        [
+            _bar(listing, source, sessions[0], Decimal("100")),
+            _bar(listing, source, sessions[1], Decimal("110")),
+            _bar(listing, source, sessions[2], Decimal("121")),
+            _level(benchmark, benchmark_source, sessions[0], Decimal("200")),
+            _level(benchmark, benchmark_source, sessions[1], Decimal("210")),
+            _level(benchmark, benchmark_source, sessions[2], Decimal("220.50")),
+        ]
+    )
+    db_session.commit()
+    event = _event(
+        company, source, db_session, timing=EarningsTiming.BEFORE_MARKET, event_date=sessions[0]
+    )
+
+    def study() -> object:
+        return analyze_earnings_event(
+            db_session,
+            event,
+            mode=ResearchMode.DESCRIPTIVE,
+            horizons=[1, 2],
+            benchmark_id=benchmark.id,
+        )
+
+    baseline = study()
+
+    # AS_TRADED rows, inserted *first in id order is irrelevant*: values are
+    # chosen so any accidental read would visibly change every return.
+    db_session.add_all(
+        [
+            _as_traded_bar(listing, source, sessions[0], Decimal("1")),
+            _as_traded_bar(listing, source, sessions[1], Decimal("9999")),
+            _as_traded_bar(listing, source, sessions[2], Decimal("5")),
+            _as_traded_level(benchmark, benchmark_source, sessions[0], Decimal("7")),
+            _as_traded_level(benchmark, benchmark_source, sessions[1], Decimal("70000")),
+            _as_traded_level(benchmark, benchmark_source, sessions[2], Decimal("3")),
+        ]
+    )
+    db_session.commit()
+
+    with_both_bases = study()
+
+    assert with_both_bases == baseline
+
+
+def test_a_session_present_only_as_traded_is_not_a_research_session(
+    company: Company,
+    source: DataSource,
+    listing: Listing,
+    benchmark: Benchmark,
+    benchmark_source: DataSource,
+    db_session: Session,
+) -> None:
+    """An AS_TRADED-only bar must not create a session the split-adjusted series lacks."""
+    sessions = _weekday_sessions(date(2026, 3, 2), 3)
+    db_session.add_all(
+        [
+            _bar(listing, source, sessions[0], Decimal("100")),
+            _as_traded_bar(listing, source, sessions[1], Decimal("110")),
+        ]
+    )
+    db_session.commit()
+    event = _event(
+        company, source, db_session, timing=EarningsTiming.BEFORE_MARKET, event_date=sessions[0]
+    )
+
+    result = analyze_earnings_event(
+        db_session, event, mode=ResearchMode.DESCRIPTIVE, horizons=[1], benchmark_id=None
+    )
+
+    assert result.stock_returns.forward_returns[0].status is (
+        ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    )
+
+
+def test_a_second_basis_does_not_create_source_ambiguity(
+    company: Company,
+    source: DataSource,
+    listing: Listing,
+    benchmark: Benchmark,
+    benchmark_source: DataSource,
+    db_session: Session,
+) -> None:
+    """Both bases from the *same* source must not look like several sources, or several rows."""
+    sessions = _weekday_sessions(date(2026, 3, 2), 2)
+    db_session.add_all(
+        [
+            _bar(listing, source, sessions[0], Decimal("100")),
+            _bar(listing, source, sessions[1], Decimal("110")),
+            _as_traded_bar(listing, source, sessions[0], Decimal("1000")),
+            _as_traded_bar(listing, source, sessions[1], Decimal("1100")),
+            _level(benchmark, benchmark_source, sessions[0], Decimal("200")),
+            _level(benchmark, benchmark_source, sessions[1], Decimal("210")),
+            _as_traded_level(benchmark, benchmark_source, sessions[0], Decimal("2000")),
+            _as_traded_level(benchmark, benchmark_source, sessions[1], Decimal("2100")),
+        ]
+    )
+    db_session.commit()
+    event = _event(
+        company, source, db_session, timing=EarningsTiming.BEFORE_MARKET, event_date=sessions[0]
+    )
+
+    result = analyze_earnings_event(
+        db_session, event, mode=ResearchMode.DESCRIPTIVE, horizons=[1], benchmark_id=benchmark.id
+    )
+
+    assert result.stock_returns.forward_returns[0].return_value == Decimal("0.10")
+    assert result.benchmark_returns[0].benchmark_return == Decimal("0.05")
+    assert result.abnormal_returns[0].status is AbnormalReturnStatus.AVAILABLE

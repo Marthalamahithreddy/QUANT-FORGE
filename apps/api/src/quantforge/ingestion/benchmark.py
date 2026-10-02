@@ -63,6 +63,7 @@ from sqlalchemy.orm import Session
 from quantforge.ingestion.canonical import CanonicalDailyBar, ResolvedVenue
 from quantforge.ingestion.daily import IngestCounts
 from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
+from quantforge.models.enums import PriceBasis
 from quantforge.models.ingestion import IngestionRun
 
 __all__ = [
@@ -134,17 +135,24 @@ class BenchmarkBarConflictError(RuntimeError):
     """A stored benchmark level disagrees with the incoming one for the same key.
 
     Raised when the database already holds a row for ``(benchmark_id,
-    trading_date, source_id)`` but its ``close`` differs from what the
-    provider is saying now. The existing row is never overwritten; a
+    trading_date, source_id, price_basis)`` but its ``close`` differs from what
+    the provider is saying now. A level on a different price basis is a
+    separate legitimate observation, never a conflict. The existing row is never overwritten; a
     correction arrives as a new run under a new ``ingested_at``, exactly as
     :class:`quantforge.ingestion.daily.ProviderDataConflict` already
     establishes for stock bars.
     """
 
     def __init__(
-        self, *, symbol: str, trading_date: date, differences: dict[str, tuple[Decimal, Decimal]]
+        self,
+        *,
+        symbol: str,
+        trading_date: date,
+        differences: dict[str, tuple[Decimal, Decimal]],
+        price_basis: PriceBasis | None = None,
     ) -> None:
         self.symbol = symbol
+        self.price_basis = price_basis
         self.trading_date = trading_date
         self.differences = differences
         detail = "; ".join(
@@ -152,7 +160,9 @@ class BenchmarkBarConflictError(RuntimeError):
             for field, (stored, incoming) in sorted(differences.items())
         )
         super().__init__(
-            f"{symbol} {trading_date.isoformat()}: stored benchmark level differs from "
+            f"{symbol} {trading_date.isoformat()}"
+            f"{f' [{price_basis.value}]' if price_basis is not None else ''}: "
+            "stored benchmark level differs from "
             f"the incoming one ({detail}). The existing row is left untouched. A vendor "
             "revising history is not applied automatically; decide explicitly whether to "
             "keep the stored value or restate the series."
@@ -292,7 +302,8 @@ class BenchmarkBarIngestor:
             if existing is None:  # pragma: no cover - unreachable in READ COMMITTED
                 message = (
                     f"ON CONFLICT DO NOTHING reported the key "
-                    f"({benchmark_id}, {bar.trading_session_date}, {source_id}) as held, "
+                    f"({benchmark_id}, {bar.trading_session_date}, {source_id}, "
+                    f"{bar.price_basis.value}) as held, "
                     "but no committed row was visible on re-read"
                 )
                 raise RuntimeError(message)
@@ -303,6 +314,7 @@ class BenchmarkBarIngestor:
                     symbol=symbol or str(benchmark_id),
                     trading_date=bar.trading_session_date,
                     differences=differences,
+                    price_basis=bar.price_basis,
                 )
             skipped += 1
 
@@ -332,13 +344,14 @@ class BenchmarkBarIngestor:
                 BenchmarkPriceBar.benchmark_id == benchmark_id,
                 BenchmarkPriceBar.trading_date == bar.trading_session_date,
                 BenchmarkPriceBar.source_id == source_id,
+                BenchmarkPriceBar.price_basis == bar.price_basis,
             )
         )
 
     def _insert_if_absent(
         self, *, benchmark_id: uuid.UUID, source_id: uuid.UUID, bar: CanonicalDailyBar
     ) -> bool:
-        """Insert the level if ``(benchmark_id, trading_date, source_id)`` is free.
+        """Insert the level if ``(benchmark_id, trading_date, source_id, price_basis)`` is free.
 
         Same atomic ``ON CONFLICT DO NOTHING`` pattern as
         :meth:`quantforge.ingestion.daily.DailyBarIngestor._insert_if_absent`,
@@ -350,13 +363,14 @@ class BenchmarkBarIngestor:
             benchmark_id=benchmark_id,
             trading_date=bar.trading_session_date,
             close=bar.close,
+            price_basis=bar.price_basis,
             source_id=source_id,
             observed_at=bar.observed_at,
             ingested_at=self._now,
             created_at=self._now,
         )
         insert_stmt = statement.on_conflict_do_nothing(
-            index_elements=["benchmark_id", "trading_date", "source_id"]
+            index_elements=["benchmark_id", "trading_date", "source_id", "price_basis"]
         ).returning(BenchmarkPriceBar.id)
         result = self._session.execute(insert_stmt)
         return result.scalar_one_or_none() is not None

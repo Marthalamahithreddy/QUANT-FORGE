@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from quantforge.models.company import Company
 from quantforge.models.earnings import EarningsEvent
-from quantforge.models.enums import EarningsTiming, ProviderType, SecurityType
+from quantforge.models.enums import EarningsTiming, PriceBasis, ProviderType, SecurityType
 from quantforge.models.market import DailyPriceBar
 from quantforge.models.provenance import DataSource
 from quantforge.models.security import Exchange, Listing, Security
@@ -85,6 +85,7 @@ def listing(security: Security, exchange: Exchange, db_session: Session) -> List
 
 def _bar(listing: Listing, source: DataSource, day: date, close: Decimal) -> DailyPriceBar:
     return DailyPriceBar(
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
         listing_id=listing.id,
         trading_date=day,
         open=close,
@@ -209,6 +210,26 @@ def test_unresolved_timing_produces_no_fabricated_return(
     for forward_return in result.forward_returns:
         assert forward_return.status is ForwardReturnStatus.NO_ALIGNMENT
         assert forward_return.return_value is None
+
+
+@pytest.mark.parametrize("bad_horizons", [[], [0], [1, -3]])
+def test_invalid_horizons_are_rejected_even_when_the_event_does_not_align(
+    company: Company,
+    source: DataSource,
+    listing: Listing,
+    db_session: Session,
+    bad_horizons: list[int],
+) -> None:
+    """An UNKNOWN-timing event never aligns; validation must still fire first."""
+    sessions = _weekday_sessions(date(2026, 3, 2), 10)
+    _put_bars(listing, source, db_session, sessions, Decimal("50.00"))
+    event = _event(
+        company, source, db_session, timing=EarningsTiming.UNKNOWN, event_date=sessions[2]
+    )
+    alignment = align_earnings_event(db_session, event, mode=ResearchMode.DESCRIPTIVE)
+
+    with pytest.raises(ValueError, match="horizon"):
+        compute_event_forward_returns(db_session, alignment, horizons=bad_horizons)
 
 
 def test_no_listing_produces_no_fabricated_return(

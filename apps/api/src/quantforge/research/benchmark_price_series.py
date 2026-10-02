@@ -1,7 +1,7 @@
 """Fetch a single, coherent close-level series for one benchmark.
 
 ``BenchmarkPriceBar`` carries exactly the same provenance shape as
-``DailyPriceBar`` -- uniqueness on ``(benchmark_id, trading_date, source_id)``,
+``DailyPriceBar`` -- uniqueness on ``(benchmark_id, trading_date, source_id, price_basis)``,
 a nullable ``observed_at``, an always-present ``ingested_at`` -- for the same
 reason: two vendors can disagree about the same index level on the same date,
 and both rows should survive rather than one overwriting the other. That means
@@ -31,6 +31,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from quantforge.models.benchmark import BenchmarkPriceBar
+from quantforge.models.enums import RESEARCH_PRICE_BASIS
 from quantforge.research.price_series import PriceSeriesResolution, PriceSeriesStatus
 
 __all__ = ["fetch_coherent_benchmark_price_series"]
@@ -49,6 +50,7 @@ def _closes_from_source(
         .where(
             BenchmarkPriceBar.benchmark_id == benchmark_id,
             BenchmarkPriceBar.source_id == source_id,
+            BenchmarkPriceBar.price_basis == RESEARCH_PRICE_BASIS,
             BenchmarkPriceBar.trading_date >= start,
             BenchmarkPriceBar.trading_date <= end,
         )
@@ -106,6 +108,7 @@ def fetch_coherent_benchmark_price_series(
             sa.select(BenchmarkPriceBar.source_id)
             .where(
                 BenchmarkPriceBar.benchmark_id == benchmark_id,
+                BenchmarkPriceBar.price_basis == RESEARCH_PRICE_BASIS,
                 BenchmarkPriceBar.trading_date >= start,
                 BenchmarkPriceBar.trading_date <= end,
             )

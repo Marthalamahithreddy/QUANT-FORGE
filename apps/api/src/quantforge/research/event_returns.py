@@ -42,6 +42,7 @@ from quantforge.research.returns import (
     ForwardReturnStatus,
     compute_forward_returns,
     no_alignment_forward_returns,
+    validate_horizons,
 )
 
 __all__ = ["DEFAULT_HORIZONS", "compute_event_forward_returns"]
@@ -121,6 +122,7 @@ def compute_event_forward_returns(
         :class:`~quantforge.research.returns.ForwardReturn` per requested
         horizon.
     """
+    validate_horizons(horizons)
     horizons_list = list(horizons)
     listing_id = alignment.listing_resolution.listing_id
     session_alignment = alignment.session_alignment

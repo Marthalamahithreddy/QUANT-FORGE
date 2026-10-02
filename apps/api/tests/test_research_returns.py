@@ -20,6 +20,7 @@ from quantforge.research.returns import (
     ForwardReturnStatus,
     compute_forward_returns,
     no_alignment_forward_returns,
+    validate_horizons,
 )
 
 _S0 = date(2026, 1, 8)  # anchor session (a Thursday)
@@ -246,6 +247,40 @@ def test_sessions_are_searched_in_order_not_computed_from_calendar_days() -> Non
 def test_a_non_positive_horizon_is_rejected(bad_horizon: int) -> None:
     with pytest.raises(ValueError, match="positive"):
         compute_forward_returns(anchor_session=_S0, price_series=_SERIES, horizons=[bad_horizon])
+
+
+@pytest.mark.parametrize("bad_horizon", [0, -1])
+def test_an_invalid_horizon_is_rejected_even_when_the_anchor_price_is_missing(
+    bad_horizon: int,
+) -> None:
+    """Validation is not path-dependent: no MISSING_ANCHOR_PRICE/INVALID_PRICE early return hides it."""
+    no_anchor = [(d, p) for d, p in _SERIES if d != _S0]
+    with pytest.raises(ValueError, match="positive"):
+        compute_forward_returns(
+            anchor_session=_S0, price_series=no_anchor, horizons=[1, bad_horizon]
+        )
+    with pytest.raises(ValueError, match="positive"):
+        compute_forward_returns(
+            anchor_session=_S0, price_series=[(_S0, Decimal("0"))], horizons=[bad_horizon]
+        )
+
+
+def test_empty_horizons_are_a_clear_validation_error() -> None:
+    with pytest.raises(ValueError, match="at least one"):
+        compute_forward_returns(anchor_session=_S0, price_series=_SERIES, horizons=[])
+    with pytest.raises(ValueError, match="at least one"):
+        validate_horizons(())
+
+
+@pytest.mark.parametrize("bad", [1.5, "5", None, True])
+def test_non_integer_horizons_are_rejected(bad: object) -> None:
+    with pytest.raises(ValueError, match="positive integer"):
+        validate_horizons([1, bad])  # type: ignore[list-item]
+
+
+def test_valid_horizons_pass_validation() -> None:
+    validate_horizons([1, 5, 20])
+    validate_horizons((3,))
 
 
 # ── no-alignment shortcut never fabricates a return ─────────────────────────

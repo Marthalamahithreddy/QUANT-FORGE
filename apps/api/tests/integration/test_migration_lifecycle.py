@@ -2,10 +2,10 @@
 
 The schema conformance tests exercise ingestion against a database brought to
 ``head`` automatically. What they do not prove is the *migration chain itself*:
-that ``0001 -> 0002 -> 0003 -> 0004 -> 0005`` is one coherent scripted history,
-that ``0005`` is really the head, that ``alembic check`` finds nothing pending
-against the models, and -- most easily broken -- that ``0005`` can be downgraded
-back to ``0004`` and then re-applied. A downgrade bug is invisible until an
+that ``0001 -> ... -> 0006`` is one coherent scripted history, that ``0006`` is
+really the head, that ``alembic check`` finds nothing pending against the
+models, and -- most easily broken -- that the latest revisions can be downgraded
+and then re-applied. A downgrade bug is invisible until an
 operator needs one, which is exactly when it is cheapest to ship one.
 
 This test uses its own scratch database so that downgrading it cannot disturb the
@@ -32,8 +32,10 @@ pytestmark = pytest.mark.integration
 API_ROOT = Path(__file__).resolve().parents[2]
 
 SCRATCH_DB_NAME = "quantforge_migrations_test"
-HEAD = "0005"
-PRIOR = "0004"
+HEAD = "0006"
+PRIOR = "0005"
+#: Revision before 0005 -- the 0005 tests below downgrade past 0006 to reach it.
+PRE_0005 = "0004"
 
 
 def _scratch_url(admin_url: str) -> str:
@@ -119,7 +121,7 @@ def test_upgrade_to_head_produces_the_expected_chain(
 
     scripts = ScriptDirectory.from_config(config)
     chain = [script.revision for script in scripts.walk_revisions()]
-    assert chain == [HEAD, PRIOR, "0003", "0002", "0001"], f"unexpected chain {chain}"
+    assert chain == [HEAD, PRIOR, PRE_0005, "0003", "0002", "0001"], f"unexpected chain {chain}"
     assert scripts.get_current_head() == HEAD
 
 
@@ -166,8 +168,8 @@ def test_existing_0004_rows_backfill_event_date_from_event_timestamp(
     cast could get wrong.
     """
     config = _alembic_config(_scratch_url(postgres_admin_url))
-    command.downgrade(config, PRIOR)
-    assert _current_version(scratch_database) == PRIOR
+    command.downgrade(config, PRE_0005)
+    assert _current_version(scratch_database) == PRE_0005
     assert "event_date" not in _column_names(scratch_database, "earnings_event")
 
     company_id = uuid.uuid4()
@@ -281,7 +283,7 @@ def test_downgrade_refuses_when_a_row_has_no_event_timestamp(
 
     try:
         with pytest.raises(Exception, match="event_timestamp"):
-            command.downgrade(config, PRIOR)
+            command.downgrade(config, PRE_0005)
         # The refusal must not have left the schema half-migrated.
         assert _current_version(scratch_database) == HEAD
     finally:
@@ -299,8 +301,8 @@ def test_downgrade_to_previous_revision_removes_the_new_schema(
 ) -> None:
     """A working ``downgrade`` is the only way to learn a migration is reversible."""
     config = _alembic_config(_scratch_url(postgres_admin_url))
-    command.downgrade(config, PRIOR)
-    assert _current_version(scratch_database) == PRIOR
+    command.downgrade(config, PRE_0005)
+    assert _current_version(scratch_database) == PRE_0005
 
     assert "ingestion_run" in _table_names(scratch_database)  # 0003 survives
     assert "vwap" in _column_names(scratch_database, "daily_price_bar")
@@ -322,3 +324,210 @@ def test_reupgrade_restores_head_from_previous_revision(
     assert "cik" in _column_names(scratch_database, "company")
     assert {"fingerprint", "ingestion_run_id"} <= _column_names(scratch_database, "earnings_event")
     assert "event_date" in _column_names(scratch_database, "earnings_event")
+
+
+# ── 0006: explicit price basis ──────────────────────────────────────────────
+
+_SEED_ENTITIES = (
+    (
+        "INSERT INTO company (id, legal_name, display_name, created_at, updated_at) "
+        "VALUES (:company_id, 'Basis Co', 'Basis Co', :now, :now)"
+    ),
+    (
+        "INSERT INTO data_source (id, name, provider_type, is_active, created_at) "
+        "VALUES (:source_id, 'basis-source', 'MARKET_DATA_VENDOR', true, :now)"
+    ),
+    (
+        "INSERT INTO exchange (id, mic, name, timezone, is_active, created_at, updated_at) "
+        "VALUES (:exchange_id, 'XBAS', 'Basis Exchange', 'America/New_York', true, :now, :now)"
+    ),
+    (
+        "INSERT INTO security (id, company_id, security_type, name, currency, is_active, "
+        "created_at, updated_at) VALUES (:security_id, :company_id, 'EQUITY', 'Shares', "
+        "'USD', true, :now, :now)"
+    ),
+    (
+        "INSERT INTO listing (id, security_id, exchange_id, ticker, valid_from, is_primary, "
+        "created_at, updated_at) VALUES (:listing_id, :security_id, :exchange_id, 'BAS', "
+        "'2018-01-02', true, :now, :now)"
+    ),
+    (
+        "INSERT INTO benchmark (id, name, symbol, is_active, created_at, updated_at) "
+        "VALUES (:benchmark_id, 'Basis Benchmark', 'BAS', true, :now, :now)"
+    ),
+)
+
+_PRE_0006_BARS = (
+    (
+        "INSERT INTO daily_price_bar (id, listing_id, trading_date, open, high, low, close, "
+        "source_id, ingested_at, created_at) VALUES (gen_random_uuid(), :listing_id, "
+        "'2024-03-15', 100, 105, 99, 104, :source_id, :now, :now)"
+    ),
+    (
+        "INSERT INTO benchmark_price_bar (id, benchmark_id, trading_date, close, source_id, "
+        "ingested_at, created_at) VALUES (gen_random_uuid(), :benchmark_id, '2024-03-15', "
+        "500, :source_id, :now, :now)"
+    ),
+)
+
+
+def _seed_entities(engine: Engine, *, with_pre_0006_bars: bool = False) -> dict[str, uuid.UUID]:
+    """Insert one listing and one benchmark (and optionally pre-0006 bars) via raw SQL."""
+    ids = {
+        name: uuid.uuid4()
+        for name in ("company", "security", "exchange", "listing", "source", "benchmark")
+    }
+    params = {**{f"{key}_id": value for key, value in ids.items()}, "now": datetime.now(UTC)}
+    statements = (*_SEED_ENTITIES, *(_PRE_0006_BARS if with_pre_0006_bars else ()))
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(sa.text(statement), params)
+    return ids
+
+
+def _purge_seed(engine: Engine, ids: dict[str, uuid.UUID]) -> None:
+    with engine.begin() as connection:
+        for statement in (
+            "DELETE FROM daily_price_bar WHERE listing_id = :listing",
+            "DELETE FROM benchmark_price_bar WHERE benchmark_id = :benchmark",
+            "DELETE FROM benchmark WHERE id = :benchmark",
+            "DELETE FROM listing WHERE id = :listing",
+            "DELETE FROM security WHERE id = :security",
+            "DELETE FROM exchange WHERE id = :exchange",
+            "DELETE FROM company WHERE id = :company",
+            "DELETE FROM data_source WHERE id = :source",
+        ):
+            connection.execute(sa.text(statement), ids)
+
+
+def _insert_daily_bar(
+    engine: Engine, ids: dict[str, uuid.UUID], basis: str | None, *, close: int = 104
+) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO daily_price_bar (id, listing_id, trading_date, open, high, low, "
+                "close, source_id, price_basis, ingested_at, created_at) VALUES "
+                "(gen_random_uuid(), :listing, '2024-03-15', 100, 2000, 1, :close, :source, "
+                ":basis, now(), now())"
+            ),
+            {**ids, "basis": basis, "close": close},
+        )
+
+
+def _insert_benchmark_level(
+    engine: Engine, ids: dict[str, uuid.UUID], basis: str, *, close: int = 500
+) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO benchmark_price_bar (id, benchmark_id, trading_date, close, "
+                "source_id, price_basis, ingested_at, created_at) VALUES "
+                "(gen_random_uuid(), :benchmark, '2024-03-15', :close, :source, :basis, "
+                "now(), now())"
+            ),
+            {**ids, "basis": basis, "close": close},
+        )
+
+
+def test_0006_backfills_existing_bars_as_split_adjusted(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    """Every pre-0006 row (both tables) is labelled SPLIT_ADJUSTED, and the column is NOT NULL."""
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, HEAD)
+    command.downgrade(config, PRIOR)
+    assert _current_version(scratch_database) == PRIOR
+    assert "price_basis" not in _column_names(scratch_database, "daily_price_bar")
+    ids = _seed_entities(scratch_database, with_pre_0006_bars=True)
+    try:
+        command.upgrade(config, HEAD)
+
+        with scratch_database.connect() as connection:
+            daily: list[object] = list(
+                connection.execute(
+                    sa.text("SELECT price_basis FROM daily_price_bar WHERE listing_id = :listing"),
+                    ids,
+                ).scalars()
+            )
+            bench: list[object] = list(
+                connection.execute(
+                    sa.text(
+                        "SELECT price_basis FROM benchmark_price_bar "
+                        "WHERE benchmark_id = :benchmark"
+                    ),
+                    ids,
+                ).scalars()
+            )
+        assert daily == ["SPLIT_ADJUSTED"]
+        assert bench == ["SPLIT_ADJUSTED"]
+
+        inspector = sa.inspect(scratch_database)
+        for table in ("daily_price_bar", "benchmark_price_bar"):
+            column = {c["name"]: c for c in inspector.get_columns(table)}["price_basis"]
+            assert column["nullable"] is False
+            assert column["default"] is None, "the database must never invent a basis"
+    finally:
+        _purge_seed(scratch_database, ids)
+
+
+def test_0006_constraints_enforce_basis_and_allow_two_bases_per_session(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    command.upgrade(_alembic_config(_scratch_url(postgres_admin_url)), HEAD)
+    ids = _seed_entities(scratch_database)
+    try:
+        # Two bases for one listing/date/source coexist...
+        _insert_daily_bar(scratch_database, ids, "SPLIT_ADJUSTED")
+        _insert_daily_bar(scratch_database, ids, "AS_TRADED", close=1040)
+        # ...a duplicate of the same basis does not...
+        with pytest.raises(sa.exc.IntegrityError, match="uq_daily_price_bar_listing_date"):
+            _insert_daily_bar(scratch_database, ids, "AS_TRADED", close=999)
+        # ...an unknown basis does not...
+        with pytest.raises(sa.exc.IntegrityError, match="price_basis_enum_values"):
+            _insert_daily_bar(scratch_database, ids, "RAW")
+        # ...and NULL does not.
+        with pytest.raises(sa.exc.IntegrityError, match="price_basis"):
+            _insert_daily_bar(scratch_database, ids, None)
+
+        # The benchmark table behaves identically.
+        _insert_benchmark_level(scratch_database, ids, "SPLIT_ADJUSTED")
+        _insert_benchmark_level(scratch_database, ids, "AS_TRADED", close=5000)
+        with pytest.raises(sa.exc.IntegrityError, match="uq_benchmark_price_bar_benchmark_date"):
+            _insert_benchmark_level(scratch_database, ids, "SPLIT_ADJUSTED", close=1)
+        with pytest.raises(sa.exc.IntegrityError, match="price_basis_enum_values"):
+            _insert_benchmark_level(scratch_database, ids, "RAW")
+    finally:
+        _purge_seed(scratch_database, ids)
+
+
+def test_0006_downgrade_refuses_while_as_traded_rows_exist_then_restores_old_keys(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, HEAD)
+    ids = _seed_entities(scratch_database)
+    try:
+        _insert_daily_bar(scratch_database, ids, "AS_TRADED")
+        with pytest.raises(Exception, match="AS_TRADED"):
+            command.downgrade(config, PRIOR)
+        assert _current_version(scratch_database) == HEAD
+
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text("DELETE FROM daily_price_bar WHERE listing_id = :listing"), ids
+            )
+        command.downgrade(config, PRIOR)
+        assert _current_version(scratch_database) == PRIOR
+        assert "price_basis" not in _column_names(scratch_database, "daily_price_bar")
+        assert "price_basis" not in _column_names(scratch_database, "benchmark_price_bar")
+        inspector = sa.inspect(scratch_database)
+        for table, owner in (
+            ("daily_price_bar", "listing_id"),
+            ("benchmark_price_bar", "benchmark_id"),
+        ):
+            uniques = {tuple(u["column_names"]) for u in inspector.get_unique_constraints(table)}
+            assert (owner, "trading_date", "source_id") in uniques
+    finally:
+        command.upgrade(config, HEAD)
+        _purge_seed(scratch_database, ids)

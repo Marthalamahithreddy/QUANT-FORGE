@@ -29,7 +29,7 @@ from quantforge.ingestion.canonical import CanonicalDailyBar
 from quantforge.ingestion.daily import IngestCounts
 from quantforge.ingestion.sources import get_or_create_data_source
 from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
-from quantforge.models.enums import IngestionStatus
+from quantforge.models.enums import IngestionStatus, PriceBasis
 from quantforge.models.ingestion import IngestionRun
 
 pytestmark = pytest.mark.integration
@@ -76,6 +76,7 @@ def _bar(**overrides: object) -> CanonicalDailyBar:
         "low": close - Decimal("5.00"),
         "close": close,
         "volume": 70_000_000,
+        "price_basis": PriceBasis.SPLIT_ADJUSTED,
     }
     fields.update(overrides)
     return CanonicalDailyBar(**fields)  # type: ignore[arg-type]
@@ -347,3 +348,52 @@ def test_counts_are_applied_to_the_run(
 
     assert run.records_written == 1
     assert run.status is IngestionStatus.SUCCEEDED
+
+
+# ── price basis ─────────────────────────────────────────────────────────────
+
+_AS_TRADED_LEVEL = {"close": Decimal("6850.00"), "price_basis": PriceBasis.AS_TRADED}
+
+
+def _levels(session: Session, benchmark: uuid.UUID) -> dict[PriceBasis, BenchmarkPriceBar]:
+    rows = session.scalars(
+        sa.select(BenchmarkPriceBar).where(BenchmarkPriceBar.benchmark_id == benchmark)
+    )
+    return {row.price_basis: row for row in rows}
+
+
+def test_the_same_session_on_two_bases_is_two_levels_not_a_conflict(
+    db_session: Session, benchmark_id: uuid.UUID, source_id: uuid.UUID
+) -> None:
+    _ingest(db_session, benchmark_id, source_id, _bar())
+    db_session.commit()
+
+    counts = _ingest(db_session, benchmark_id, source_id, _bar(**_AS_TRADED_LEVEL))
+    db_session.commit()
+
+    assert (counts.written, counts.skipped, counts.failed) == (1, 0, 0)
+    levels = _levels(db_session, benchmark_id)
+    assert levels[PriceBasis.SPLIT_ADJUSTED].close == Decimal("685.000000")
+    assert levels[PriceBasis.AS_TRADED].close == Decimal("6850.000000")
+
+
+def test_same_basis_identical_level_is_skipped_and_changed_level_conflicts(
+    db_session: Session, benchmark_id: uuid.UUID, source_id: uuid.UUID
+) -> None:
+    _ingest(db_session, benchmark_id, source_id, _bar(**_AS_TRADED_LEVEL))
+    db_session.commit()
+
+    skipped = _ingest(db_session, benchmark_id, source_id, _bar(**_AS_TRADED_LEVEL))
+    assert (skipped.written, skipped.skipped) == (0, 1)
+
+    with pytest.raises(BenchmarkBarConflictError, match=r"\[AS_TRADED\]") as caught:
+        _ingest(
+            db_session,
+            benchmark_id,
+            source_id,
+            _bar(close=Decimal("7000.00"), price_basis=PriceBasis.AS_TRADED),
+        )
+    db_session.rollback()
+
+    assert caught.value.price_basis is PriceBasis.AS_TRADED
+    assert _levels(db_session, benchmark_id)[PriceBasis.AS_TRADED].close == Decimal("6850.000000")

@@ -233,7 +233,9 @@ def evaluate_eps_surprise_signal(
 
     Raises:
         ValueError: ``signal.event_id`` does not match ``outcomes.event_id``,
-            or both sides resolved a listing and those listings disagree.
+            the research modes differ (a DESCRIPTIVE signal is never evaluated
+            against POINT_IN_TIME outcomes, or vice versa), or both sides
+            resolved a listing and those listings disagree.
             Either is a caller bug -- pairing a signal with a different
             earnings observation's outcomes -- never a normal missing-data
             state, so it is not folded into :class:`SignalEvaluationStatus`.
@@ -247,6 +249,14 @@ def evaluate_eps_surprise_signal(
             f"signal event_id {signal.event_id} does not match EventStudyResult "
             f"event_id {outcomes.event_id}; refusing to evaluate a signal against "
             "a different earnings observation"
+        )
+        raise ValueError(message)
+
+    if signal.research_mode is not outcomes.research_mode:
+        message = (
+            f"signal research_mode {signal.research_mode.value} does not match "
+            f"EventStudyResult research_mode {outcomes.research_mode.value}; refusing to "
+            "evaluate a signal against outcomes produced under a different research mode"
         )
         raise ValueError(message)
 

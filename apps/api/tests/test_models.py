@@ -47,6 +47,7 @@ from quantforge.models.earnings import EarningsEvent
 from quantforge.models.enums import (
     EarningsTiming,
     IdentifierType,
+    PriceBasis,
     ProviderType,
     SecurityType,
     enum_check,
@@ -585,15 +586,16 @@ def test_company_identity_is_the_uuid_alone() -> None:
 
 
 def test_a_source_cannot_report_the_same_session_twice() -> None:
-    """``(entity, trading_date, source)`` is the natural key of an observation.
-    A vendor restating a session is a *new* source row, not a second row from
-    the same source."""
-    assert frozenset({"listing_id", "trading_date", "source_id"}) in _unique_column_sets(
-        "daily_price_bar"
-    )
-    assert frozenset({"benchmark_id", "trading_date", "source_id"}) in _unique_column_sets(
-        "benchmark_price_bar"
-    )
+    """``(entity, trading_date, source, price_basis)`` is the natural key of an
+    observation. A vendor restating a session on the same basis is a *new*
+    source row, not a second row from the same source; the same session on a
+    different price basis is a separate legitimate observation."""
+    assert frozenset(
+        {"listing_id", "trading_date", "source_id", "price_basis"}
+    ) in _unique_column_sets("daily_price_bar")
+    assert frozenset(
+        {"benchmark_id", "trading_date", "source_id", "price_basis"}
+    ) in _unique_column_sets("benchmark_price_bar")
 
 
 def test_identifier_is_unique_per_scheme() -> None:
@@ -857,6 +859,7 @@ def test_decimal_defaults_are_not_floats() -> None:
     """Constructing a model in Python must not introduce a binary float that
     only the database's ``NUMERIC`` cast would quietly round."""
     bar = DailyPriceBar(
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
         listing_id=new_uuid(),
         trading_date=dt.date(2024, 1, 2),
         open=Decimal("0.1"),

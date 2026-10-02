@@ -14,6 +14,7 @@ from decimal import Decimal
 
 import pytest
 
+from quantforge.models.enums import PriceBasis
 from quantforge.providers.errors import ProviderPayloadError
 from quantforge.providers.massive.dto import MassiveDailyBarDTO, MassiveTickerDetailsDTO
 from quantforge.providers.massive.exchanges import UnsupportedExchangeError
@@ -132,11 +133,13 @@ def test_an_out_of_range_timestamp_is_refused() -> None:
     """
     dto = _bar_dto(timestamp_ms=99_999_999_999_999_999)
     with pytest.raises(ProviderPayloadError, match="out of range"):
-        to_canonical_daily_bar(dto, venue=_Venue())
+        to_canonical_daily_bar(dto, venue=_Venue(), price_basis=PriceBasis.SPLIT_ADJUSTED)
 
 
 def test_a_valid_bar_maps_every_field() -> None:
-    result = to_canonical_daily_bar(_bar_dto(), venue=_Venue(), identifier="AAPL")
+    result = to_canonical_daily_bar(
+        _bar_dto(), venue=_Venue(), price_basis=PriceBasis.SPLIT_ADJUSTED, identifier="AAPL"
+    )
     assert result.open == Decimal("199.50")
     assert result.close == Decimal("200.25")
     assert result.volume == 1_000_000

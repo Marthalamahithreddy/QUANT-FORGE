@@ -14,8 +14,9 @@ produce realistic sub-objects rather than hand-rolling them.
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -70,6 +71,8 @@ def _signal(**overrides: object) -> EpsSurpriseSignal:
         "point_in_time_eligibility": PointInTimeEligibility.NOT_APPLICABLE,
         "event_date": _EVENT_DATE,
         "timing": EarningsTiming.BEFORE_MARKET,
+        "observed_at": None,
+        "exchange_mic": "XNYS",
         "effective_session": _ANCHOR,
         "status": EpsSurpriseSignalStatus.AVAILABLE,
         "direction": EpsSurpriseDirection.POSITIVE,
@@ -197,6 +200,45 @@ def test_available_signal_with_all_outcomes_available() -> None:
     assert evaluation.benchmark_return.benchmark_return == Decimal("0.04")  # 52/50 - 1
     assert evaluation.abnormal_return is not None
     assert evaluation.abnormal_return.abnormal_return == Decimal("0.06")
+
+
+@pytest.mark.parametrize(
+    ("signal_mode", "outcome_mode"),
+    [
+        (ResearchMode.DESCRIPTIVE, ResearchMode.POINT_IN_TIME),
+        (ResearchMode.POINT_IN_TIME, ResearchMode.DESCRIPTIVE),
+    ],
+)
+def test_mismatched_research_modes_are_rejected(
+    signal_mode: ResearchMode, outcome_mode: ResearchMode
+) -> None:
+    sessions = _sessions(2)
+    outcomes = dataclasses.replace(
+        _outcomes(
+            stock_prices={sessions[0]: Decimal("100"), sessions[1]: Decimal("110")},
+            benchmark_prices={sessions[0]: Decimal("50"), sessions[1]: Decimal("52")},
+        ),
+        research_mode=outcome_mode,
+    )
+
+    with pytest.raises(ValueError, match="research_mode"):
+        evaluate_eps_surprise_signal(_signal(research_mode=signal_mode), outcomes)
+
+
+def test_evaluation_leaves_the_signals_observed_at_untouched() -> None:
+    observed = datetime(2026, 1, 7, 13, 0, tzinfo=UTC)
+    sessions = _sessions(2)
+    outcomes = _outcomes(
+        stock_prices={sessions[0]: Decimal("100"), sessions[1]: Decimal("110")},
+        benchmark_prices={sessions[0]: Decimal("50"), sessions[1]: Decimal("52")},
+    )
+    signal = _signal(observed_at=observed)
+
+    evaluate_eps_surprise_signal(signal, outcomes)
+
+    assert signal.observed_at == observed
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        signal.observed_at = None  # type: ignore[misc]
 
 
 def test_positive_signal_with_positive_abnormal_return() -> None:
@@ -366,7 +408,10 @@ def test_descriptive_signal_evaluates_with_mode_preserved() -> None:
 def test_point_in_time_eligible_signal_can_be_available() -> None:
     sessions = _sessions(2)
     stock_prices = {sessions[0]: Decimal("100"), sessions[1]: Decimal("110")}
-    outcomes = _outcomes(stock_prices=stock_prices, benchmark_prices=stock_prices)
+    outcomes = dataclasses.replace(
+        _outcomes(stock_prices=stock_prices, benchmark_prices=stock_prices),
+        research_mode=ResearchMode.POINT_IN_TIME,
+    )
 
     evaluation = evaluate_eps_surprise_signal(
         _signal(
@@ -384,7 +429,10 @@ def test_point_in_time_ineligible_signal_remains_unavailable() -> None:
     """Future outcomes existing must never upgrade an ineligible signal."""
     sessions = _sessions(2)
     stock_prices = {sessions[0]: Decimal("100"), sessions[1]: Decimal("999")}  # dramatic move
-    outcomes = _outcomes(stock_prices=stock_prices, benchmark_prices=stock_prices)
+    outcomes = dataclasses.replace(
+        _outcomes(stock_prices=stock_prices, benchmark_prices=stock_prices),
+        research_mode=ResearchMode.POINT_IN_TIME,
+    )
 
     evaluation = evaluate_eps_surprise_signal(
         _signal(

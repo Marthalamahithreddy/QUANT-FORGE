@@ -19,12 +19,18 @@ evidence is already on disk, so the failure can be investigated against what the
 provider actually sent instead of being reproduced from memory. The reverse order
 would throw the bytes away on exactly the failures you most want to debug.
 
-One transaction
----------------
+One transaction, and a durable failure record
+----------------------------------------------
 The run row and the data it describes commit together, deliberately. Committing
 the run first would allow a "succeeded" run whose rows were lost; committing the
 rows first would allow rows no run accounts for. Neither is recoverable without
 a repair job, and this milestone does not have one.
+
+Every write a run makes -- including finding or creating the ``DataSource`` and
+the benchmark -- happens inside the :class:`~quantforge.ingestion.runs.RunRecorder`
+block, which runs in a SAVEPOINT. If the block fails, those writes are rolled
+back and only the ``failed`` run row survives, for the caller to commit. Failures
+before the block (e.g. an unknown listing) write nothing and leave no run.
 """
 
 from __future__ import annotations
@@ -52,8 +58,9 @@ from quantforge.ingestion.reference import (
     ReferenceResolutionError,
     ReferenceResolver,
 )
-from quantforge.ingestion.runs import RunOutcome, RunRecorder
+from quantforge.ingestion.runs import FAILED_RUN_RECORDED, RunOutcome, RunRecorder
 from quantforge.ingestion.sources import get_or_create_data_source
+from quantforge.models.enums import PriceBasis
 from quantforge.models.security import Exchange, Listing
 from quantforge.providers.base import MarketDataProvider, RawCapture
 from quantforge.providers.earnings import EarningsProvider
@@ -116,11 +123,7 @@ class IngestionService:
         answer, not an error. A malformed record *is* counted as failed, and makes
         the run ``partial``.
         """
-        source = get_or_create_data_source(
-            self._session,
-            name=self._provider.name,
-            base_url=None,
-        )
+        _begin_attempt(self._session)
         outcomes: list[ReferenceOutcome] = []
         resolved = 0
         written = 0
@@ -134,6 +137,11 @@ class IngestionService:
             request_parameters={"tickers": list(tickers)},
             now=self._now,
         ) as run:
+            source = get_or_create_data_source(
+                self._session,
+                name=self._provider.name,
+                base_url=None,
+            )
             resolver = ReferenceResolver(self._session)
             captures: list[RawCapture] = []
 
@@ -221,7 +229,13 @@ class IngestionService:
     # ── Daily bars ─────────────────────────────────────────────────────────
 
     async def ingest_daily_bars(
-        self, ticker: str, start: date, end: date, *, exchange_mic: str | None = None
+        self,
+        ticker: str,
+        start: date,
+        end: date,
+        *,
+        price_basis: PriceBasis,
+        exchange_mic: str | None = None,
     ) -> RunOutcome:
         """Fetch and store daily bars for one already-resolved listing.
 
@@ -229,8 +243,12 @@ class IngestionService:
         through the venue's timezone and the bars endpoint carries no exchange
         code. Requiring reference ingestion first is what makes that conversion
         possible without a second request or a hard-coded fallback venue.
+
+        ``price_basis`` is required: this layer never chooses one. Research
+        callers pass ``SPLIT_ADJUSTED``; ``AS_TRADED`` is for execution and
+        accounting.
         """
-        source = get_or_create_data_source(self._session, name=self._provider.name)
+        _begin_attempt(self._session)
         listing, venue = self._find_listing(ticker, exchange_mic=exchange_mic)
 
         with RunRecorder(
@@ -243,10 +261,14 @@ class IngestionService:
                 "start": start.isoformat(),
                 "end": end.isoformat(),
                 "exchange": venue.mic,
+                "price_basis": price_basis.value,
             },
             now=self._now,
         ) as run:
-            result = await self._provider.get_daily_bars(ticker, start, end, venue=venue)
+            source = get_or_create_data_source(self._session, name=self._provider.name)
+            result = await self._provider.get_daily_bars(
+                ticker, start, end, venue=venue, price_basis=price_basis
+            )
             self._record(run, result.captures)
 
             ingestor = DailyBarIngestor(self._session, now=self._now, run=run.row)
@@ -272,13 +294,14 @@ class IngestionService:
 
     # ── Benchmark bars ─────────────────────────────────────────────────────
 
-    async def ingest_benchmark_daily_bars(
+    async def ingest_benchmark_daily_bars(  # noqa: PLR0913 - one request, each argument distinct
         self,
         symbol: str,
         start: date,
         end: date,
         *,
         name: str,
+        price_basis: PriceBasis,
         currency: str | None = None,
     ) -> RunOutcome:
         """Fetch and store daily levels for a benchmark instrument (e.g. an ETF proxy).
@@ -305,17 +328,12 @@ class IngestionService:
                 :func:`quantforge.ingestion.benchmark.get_or_create_benchmark`
                 on why benchmark selection stays explicit all the way down to
                 ingestion.
+            price_basis: Required. The split-adjustment basis to request and
+                store; research benchmark levels are ``SPLIT_ADJUSTED``.
             currency: Recorded only if this call creates the ``Benchmark`` row.
         """
+        _begin_attempt(self._session)
         symbol = symbol.upper()
-        source = get_or_create_data_source(self._session, name=self._provider.name)
-        benchmark = get_or_create_benchmark(
-            self._session,
-            name=name,
-            symbol=symbol,
-            currency=currency,
-            source_id=source.id,
-        )
 
         with RunRecorder(
             session=self._session,
@@ -326,10 +344,21 @@ class IngestionService:
                 "symbol": symbol,
                 "start": start.isoformat(),
                 "end": end.isoformat(),
+                "price_basis": price_basis.value,
             },
             now=self._now,
         ) as run:
-            result = await self._provider.get_daily_bars(symbol, start, end, venue=BENCHMARK_VENUE)
+            source = get_or_create_data_source(self._session, name=self._provider.name)
+            benchmark = get_or_create_benchmark(
+                self._session,
+                name=name,
+                symbol=symbol,
+                currency=currency,
+                source_id=source.id,
+            )
+            result = await self._provider.get_daily_bars(
+                symbol, start, end, venue=BENCHMARK_VENUE, price_basis=price_basis
+            )
             self._record(run, result.captures)
 
             ingestor = BenchmarkBarIngestor(self._session, now=self._now)
@@ -423,6 +452,11 @@ class IngestionService:
         return self._now.astimezone(UTC).date()
 
 
+def _begin_attempt(session: Session) -> None:
+    """Forget any failed-run marker an earlier attempt left on a reused session."""
+    session.info.pop(FAILED_RUN_RECORDED, None)
+
+
 def _record_captures(
     run: RunRecorder, store: RawResponseStore, captures: Sequence[RawCapture]
 ) -> None:
@@ -477,7 +511,7 @@ class EarningsIngestionService:
         stamped here with the real time of writing, and the two are never
         conflated.
         """
-        source = get_or_create_data_source(self._session, name=self._provider.name)
+        _begin_attempt(self._session)
         request_parameters = {
             "ticker": ticker.upper(),
             "start": start.isoformat(),
@@ -491,6 +525,7 @@ class EarningsIngestionService:
             request_parameters=request_parameters,
             now=self._now,
         ) as run:
+            source = get_or_create_data_source(self._session, name=self._provider.name)
             result = await self._provider.get_earnings(ticker, start, end)
             _record_captures(run, self._store, result.captures)
 

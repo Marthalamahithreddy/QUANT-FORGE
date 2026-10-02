@@ -33,10 +33,11 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Final
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from quantforge.models.enums import EarningsTiming
+from quantforge.models.enums import EarningsTiming, PriceBasis
 
 __all__ = [
     "CanonicalDailyBar",
@@ -104,7 +105,7 @@ def _require_aware(instant: datetime, field_name: str) -> None:
         raise ValueError(f"{field_name} must be timezone-aware")
 
 
-def _require_member(value: object, enum_cls: type[EarningsTiming], field_name: str) -> None:
+def _require_member(value: object, enum_cls: type[StrEnum], field_name: str) -> None:
     if not isinstance(value, enum_cls):
         message = f"{field_name} must be an {enum_cls.__name__} member, got {value!r}"
         raise ValueError(message)
@@ -262,6 +263,10 @@ class CanonicalDailyBar:
     low: Decimal
     close: Decimal
     volume: int | None
+    #: Which split-adjustment basis every price on this bar is in. Required, with
+    #: no default, so a writer cannot persist a bar without knowing it: the
+    #: persisted row's uniqueness key and conflict comparison both include it.
+    price_basis: PriceBasis
     observed_at: datetime | None = None
     #: Provider-computed volume-weighted average price, when supplied. Carried
     #: through rather than recomputed, so a stored value always matches what the
@@ -271,6 +276,7 @@ class CanonicalDailyBar:
     trades: int | None = None
 
     def __post_init__(self) -> None:
+        _require_member(self.price_basis, PriceBasis, "price_basis")
         for field in ("open", "high", "low", "close"):
             price: Decimal = getattr(self, field)
             if not price.is_finite():
@@ -350,6 +356,13 @@ class CanonicalEarningsEvent:
       manufactured: "we do not know" and "it was observed at X" are different
       facts with different research value. Inventing a value -- say the session's
       close -- would make a point-in-time study quietly wrong.
+      It must be a genuine sub-day instant. A provider that states only a
+      *date* must leave it ``None``: normalising a date to midnight UTC would
+      satisfy ``observed_at < session_open`` in
+      :mod:`quantforge.backtest.execution` without proving any intraday
+      availability. The stored type cannot tell the two apart, so this
+      requirement is enforced here, at the provider mapper, by convention and
+      review -- a mapper that cannot name a real instant returns ``None``.
     * ``ingested_at`` (when QuantForge received the event) is deliberately
       **not** a field here. It is assigned by the ingestion service at write
       time and only then, so a fetch that is validated and re-stored later is

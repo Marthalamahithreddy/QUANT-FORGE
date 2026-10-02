@@ -9,15 +9,17 @@ stays in ``tests/test_signals_eps_surprise.py``.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
 from sqlalchemy.orm import Session
 
+from quantforge.backtest import ExecutionEligibilityStatus, assess_execution_eligibility
+from quantforge.market import ExchangeCalendarsSessionCalendar
 from quantforge.models.company import Company
 from quantforge.models.earnings import EarningsEvent
-from quantforge.models.enums import EarningsTiming, ProviderType, SecurityType
+from quantforge.models.enums import EarningsTiming, PriceBasis, ProviderType, SecurityType
 from quantforge.models.market import DailyPriceBar
 from quantforge.models.provenance import DataSource
 from quantforge.models.security import Exchange, Listing, Security
@@ -86,6 +88,7 @@ def _bar(listing: Listing, source: DataSource, day: date, close: Decimal) -> Dai
     low = close - Decimal("5.000000")
     high = close + Decimal("5.000000")
     return DailyPriceBar(
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
         listing_id=listing.id,
         trading_date=day,
         open=close,
@@ -580,3 +583,242 @@ def test_signal_value_retains_full_decimal_precision(
 
     assert signal.signal_value == Decimal("0.0001")
     assert isinstance(signal.signal_value, Decimal)
+
+
+# ── observed_at provenance and historical exchange MIC (Step 10.4) ──────────
+
+
+def test_signal_carries_the_selected_events_observed_at_in_utc(
+    company: Company, source: DataSource, listing: Listing, db_session: Session
+) -> None:
+    observed = datetime(2026, 1, 7, 21, 5, 30, 123456, tzinfo=UTC)
+    _put_bars(listing, source, db_session, _WEEK)
+    event = _event(company, source, db_session, observed_at=observed)
+
+    signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)
+
+    assert signal.observed_at == observed
+    assert signal.observed_at is not None
+    assert signal.observed_at.utcoffset() == timedelta(0)
+
+
+def test_signal_observed_at_is_normalised_to_utc_from_any_offset(
+    company: Company, source: DataSource, listing: Listing, db_session: Session
+) -> None:
+    eastern = timezone(timedelta(hours=-5))
+    observed = datetime(2026, 1, 7, 16, 5, tzinfo=eastern)
+    _put_bars(listing, source, db_session, _WEEK)
+    event = _event(company, source, db_session, observed_at=observed)
+    event.observed_at = observed  # keep the original offset on the in-memory object
+
+    signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)
+
+    assert signal.observed_at == observed
+    assert signal.observed_at is not None
+    assert signal.observed_at.utcoffset() == timedelta(0)
+
+
+def test_null_observed_at_is_never_replaced_by_ingested_at(
+    company: Company, source: DataSource, listing: Listing, db_session: Session
+) -> None:
+    _put_bars(listing, source, db_session, _WEEK)
+    event = _event(company, source, db_session, observed_at=None)
+    assert event.ingested_at is not None  # our own clock exists and must stay out of it
+
+    signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)
+
+    assert signal.observed_at is None
+    assert (
+        signal.point_in_time_eligibility
+        is PointInTimeEligibility.INELIGIBLE_NO_AVAILABILITY_EVIDENCE
+    )
+
+
+def test_a_future_revision_cannot_change_an_earlier_signals_observed_at(
+    company: Company, source: DataSource, listing: Listing, db_session: Session
+) -> None:
+    _put_bars(listing, source, db_session, _WEEK)
+    early = datetime(2026, 1, 7, 21, 5, tzinfo=UTC)
+    early_event = _event(company, source, db_session, observed_at=early)
+    db_session.add(
+        EarningsEvent(
+            company_id=early_event.company_id,
+            fiscal_year=2026,
+            fiscal_quarter=2,
+            event_date=date(2026, 1, 7),
+            timing=EarningsTiming.AFTER_MARKET,
+            observed_at=datetime(2026, 2, 1, tzinfo=UTC),
+            reported_eps=Decimal("0.5000"),
+            estimated_eps=Decimal("1.0000"),
+            source_id=source.id,
+        )
+    )
+    db_session.commit()
+
+    signal = generate_eps_surprise_signal(db_session, early_event, mode=ResearchMode.POINT_IN_TIME)
+
+    assert signal.observed_at == early
+
+
+def test_descriptive_signal_still_carries_observed_at(
+    company: Company, source: DataSource, listing: Listing, db_session: Session
+) -> None:
+    observed = datetime(2026, 1, 7, 21, 5, tzinfo=UTC)
+    _put_bars(listing, source, db_session, _WEEK)
+    event = _event(company, source, db_session, observed_at=observed)
+
+    signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.DESCRIPTIVE)
+
+    assert signal.observed_at == observed
+
+
+def test_signal_exchange_mic_is_the_resolved_listings_venue(
+    company: Company, source: DataSource, listing: Listing, db_session: Session
+) -> None:
+    _put_bars(listing, source, db_session, _WEEK)
+    event = _event(company, source, db_session, observed_at=datetime(2026, 1, 7, 21, tzinfo=UTC))
+
+    signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)
+
+    assert signal.exchange_mic == "XSIG"
+
+
+def test_signal_with_no_resolved_listing_carries_no_mic(
+    company: Company, source: DataSource, db_session: Session
+) -> None:
+    event = _event(company, source, db_session, observed_at=datetime(2026, 1, 7, 21, tzinfo=UTC))
+
+    signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)
+
+    assert signal.exchange_mic is None
+
+
+def test_historical_event_uses_the_venue_valid_then_not_the_current_listing(
+    company: Company, source: DataSource, security: Security, db_session: Session
+) -> None:
+    old_exchange = Exchange(mic="XOLD", name="Old Venue", timezone="America/New_York")
+    new_exchange = Exchange(mic="XNEW", name="New Venue", timezone="America/New_York")
+    db_session.add_all([old_exchange, new_exchange])
+    db_session.commit()
+    old = Listing(
+        security_id=security.id,
+        exchange_id=old_exchange.id,
+        ticker="MOVE",
+        valid_from=date(2018, 1, 2),
+        valid_to=date(2022, 1, 3),
+        is_primary=False,
+    )
+    new = Listing(
+        security_id=security.id,
+        exchange_id=new_exchange.id,
+        ticker="MOVE",
+        valid_from=date(2022, 1, 3),
+        is_primary=True,
+    )
+    db_session.add_all([old, new])
+    db_session.commit()
+    event = _event(
+        company,
+        source,
+        db_session,
+        event_date=date(2020, 1, 7),
+        observed_at=datetime(2020, 1, 7, 21, tzinfo=UTC),
+    )
+
+    signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)
+
+    assert signal.listing_id == old.id
+    assert signal.exchange_mic == "XOLD"
+
+
+# ── end to end: DB signal -> session clock -> candidate ─────────────────────
+
+
+def _nyse_listing(security: Security, db_session: Session, mic: str = "XNYS") -> Listing:
+    venue = Exchange(mic=mic, name=f"{mic} venue", timezone="America/New_York")
+    db_session.add(venue)
+    db_session.commit()
+    row = Listing(
+        security_id=security.id,
+        exchange_id=venue.id,
+        ticker="E2E",
+        valid_from=date(2018, 1, 2),
+        is_primary=True,
+    )
+    db_session.add(row)
+    db_session.commit()
+    return row
+
+
+_E2E_DAYS = [date(2024, 3, 13), date(2024, 3, 14), date(2024, 3, 15), date(2024, 3, 18)]
+
+
+def test_end_to_end_after_market_friday_event_gets_a_monday_open_candidate(
+    company: Company, source: DataSource, security: Security, db_session: Session
+) -> None:
+    listing = _nyse_listing(security, db_session)
+    _put_bars(listing, source, db_session, _E2E_DAYS)
+    event = _event(
+        company,
+        source,
+        db_session,
+        event_date=date(2024, 3, 15),
+        timing=EarningsTiming.AFTER_MARKET,
+        observed_at=datetime(2024, 3, 15, 20, 30, tzinfo=UTC),
+    )
+
+    signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)
+    result = assess_execution_eligibility(signal, ExchangeCalendarsSessionCalendar())
+
+    assert result.status is ExecutionEligibilityStatus.CANDIDATE_EXECUTION_ELIGIBLE
+    assert result.candidate_execution_session == date(2024, 3, 18)
+    assert result.candidate_execution_open_at == datetime(2024, 3, 18, 13, 30, tzinfo=UTC)
+
+
+def test_end_to_end_null_observed_at_is_never_a_candidate(
+    company: Company, source: DataSource, security: Security, db_session: Session
+) -> None:
+    listing = _nyse_listing(security, db_session)
+    _put_bars(listing, source, db_session, _E2E_DAYS)
+    event = _event(
+        company,
+        source,
+        db_session,
+        event_date=date(2024, 3, 15),
+        timing=EarningsTiming.BEFORE_MARKET,
+        observed_at=None,
+    )
+
+    signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)
+    result = assess_execution_eligibility(signal, ExchangeCalendarsSessionCalendar())
+
+    assert result.status is not ExecutionEligibilityStatus.CANDIDATE_EXECUTION_ELIGIBLE
+
+
+def test_end_to_end_unsupported_venue_is_refused(
+    company: Company, source: DataSource, listing: Listing, db_session: Session
+) -> None:
+    _put_bars(listing, source, db_session, _WEEK)
+    event = _event(
+        company,
+        source,
+        db_session,
+        timing=EarningsTiming.AFTER_MARKET,
+        observed_at=datetime(2026, 1, 7, 21, tzinfo=UTC),
+    )
+
+    signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)
+    result = assess_execution_eligibility(signal, ExchangeCalendarsSessionCalendar())
+
+    assert result.status is ExecutionEligibilityStatus.UNSUPPORTED_MIC
+
+
+def test_a_naive_observed_at_is_rejected_not_reinterpreted_as_local_time(
+    company: Company, source: DataSource, listing: Listing, db_session: Session
+) -> None:
+    _put_bars(listing, source, db_session, _WEEK)
+    event = _event(company, source, db_session, observed_at=datetime(2026, 1, 7, 21, 5, tzinfo=UTC))
+    event.observed_at = datetime(2026, 1, 7, 8, 0)  # noqa: DTZ001 -- deliberately naive
+
+    with pytest.raises(ValueError, match="naive observed_at"):
+        generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)

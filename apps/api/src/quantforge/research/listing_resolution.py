@@ -59,6 +59,11 @@ class ListingResolution:
     listing_id: uuid.UUID | None
     security_id: uuid.UUID | None
     reason: str
+    #: MIC of the *historically resolved* listing's exchange (set only when
+    #: RESOLVED). Read from the same listing row the resolution chose, so it is
+    #: the venue the security traded on at ``on_date`` -- never a current
+    #: listing, a ticker lookup, or a company-level default.
+    exchange_mic: str | None = None
 
 
 def _valid_listings_for_security(
@@ -101,8 +106,10 @@ def resolve_company_listing_for_date(
         security_id: Restrict resolution to one of the company's securities,
             for a caller that already knows which instrument it means (e.g. a
             dual-class issuer where the study is explicitly about the common
-            shares). When omitted, every security the company has issued is a
-            candidate.
+            shares). It must belong to ``company_id``; a security of any other
+            company (or a nonexistent one) resolves to ``NO_LISTING_FOR_DATE``
+            with an ownership reason rather than being used. When omitted,
+            every security the company has issued is a candidate.
 
     Resolution order, matching the existing primary-listing semantics in
     :class:`~quantforge.models.security.Listing` rather than inventing a new
@@ -129,11 +136,19 @@ def resolve_company_listing_for_date(
         the result, not as exceptions, so a caller can log and skip one event
         without aborting a batch.
     """
+    # An explicit ``security_id`` only narrows the company's own securities: it
+    # is never trusted on its own, so another company's security cannot be
+    # paired with this company's event.
+    ownership = sa.select(Security.id).where(Security.company_id == company_id)
     if security_id is not None:
-        security_ids = [security_id]
-    else:
-        security_ids = list(
-            session.scalars(sa.select(Security.id).where(Security.company_id == company_id))
+        ownership = ownership.where(Security.id == security_id)
+    security_ids = list(session.scalars(ownership))
+    if security_id is not None and not security_ids:
+        return ListingResolution(
+            status=ListingResolutionStatus.NO_LISTING_FOR_DATE,
+            listing_id=None,
+            security_id=None,
+            reason=f"security {security_id} does not belong to company {company_id}",
         )
 
     candidates: list[Listing] = []
@@ -180,4 +195,5 @@ def resolve_company_listing_for_date(
         listing_id=chosen.id,
         security_id=chosen.security_id,
         reason="exactly one listing was valid on this date",
+        exchange_mic=chosen.exchange.mic,
     )

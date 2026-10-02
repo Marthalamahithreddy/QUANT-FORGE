@@ -42,6 +42,7 @@ from typing import Any, Final, NamedTuple, Self
 import httpx2 as httpx
 from pydantic import SecretStr
 
+from quantforge.models.enums import PriceBasis
 from quantforge.providers.base import (
     DailyBarsResult,
     RawCapture,
@@ -322,8 +323,16 @@ class MassiveClient:
         end: date,
         *,
         venue: VenueView,
+        price_basis: PriceBasis,
     ) -> DailyBarsResult:
         """Fetch daily aggregates for the inclusive range ``[start, end]``.
+
+        ``price_basis`` maps to Massive's ``adjusted`` request parameter:
+        ``SPLIT_ADJUSTED`` -> ``adjusted=true`` (splits only, dividends
+        excluded) and ``AS_TRADED`` -> ``adjusted=false``. When a response
+        states its own ``adjusted`` value and it disagrees with the request,
+        the call fails with :class:`ProviderResponseError` rather than
+        ingesting bars under the wrong basis.
 
         Pages through ``next_url`` when the provider uses it. The returned bars
         are sorted by session date so downstream comparison is order-independent.
@@ -343,7 +352,7 @@ class MassiveClient:
             "ticker": symbol,
             "start": start.isoformat(),
             "end": end.isoformat(),
-            "adjusted": "true",
+            "adjusted": _ADJUSTED_PARAMETER[price_basis],
         }
 
         captures: list[RawCapture] = []
@@ -376,6 +385,7 @@ class MassiveClient:
                 )
             )
 
+            _require_requested_adjustment(page.document, price_basis)
             results = _results_of(page.document)
             if results is None:
                 break
@@ -385,7 +395,10 @@ class MassiveClient:
             following = _next_url_of(page.document)
             if following is None:
                 break
-            next_path = following
+            # A provider-built next_url is not trusted to carry the adjustment
+            # mode through: pin it, so a later page cannot silently come back in
+            # a different basis from the first.
+            next_path = _pin_adjusted_parameter(following, price_basis)
             # A next_url carries its own query string; re-sending the original
             # params would duplicate them.
             next_params = {}
@@ -400,7 +413,10 @@ class MassiveClient:
         # Sorted by session date so a caller cannot depend on the provider's
         # ordering, and so two runs over the same range produce byte-identical
         # input to the writer.
-        resolved = [to_canonical_daily_bar(bar, venue=venue, identifier=symbol) for bar in bars]
+        resolved = [
+            to_canonical_daily_bar(bar, venue=venue, price_basis=price_basis, identifier=symbol)
+            for bar in bars
+        ]
         resolved.sort(key=lambda bar: bar.trading_session_date)
         return DailyBarsResult(bars=resolved, captures=tuple(captures))
 
@@ -527,6 +543,57 @@ def _decode(response: httpx.Response) -> JsonValue:
         return decode_json_document(response.content)
     except ValueError as exc:
         raise ProviderResponseError(str(exc)) from exc
+
+
+#: QuantForge price basis -> Massive's ``adjusted`` query value. The only place
+#: this vendor vocabulary exists.
+_ADJUSTED_PARAMETER: Final[dict[PriceBasis, str]] = {
+    PriceBasis.SPLIT_ADJUSTED: "true",
+    PriceBasis.AS_TRADED: "false",
+}
+
+
+def _require_requested_adjustment(document: JsonValue, price_basis: PriceBasis) -> None:
+    """Fail if the response states an ``adjusted`` value that contradicts the request.
+
+    The field is read when present and a boolean. Its absence is not an error
+    (the request parameter is the authority), but a stated mismatch means the
+    bars are not in the basis the caller asked for and must not be stored as
+    if they were.
+    """
+    if not isinstance(document, dict):
+        return
+    stated = document.get("adjusted")
+    if not isinstance(stated, bool):
+        return
+    expected = price_basis is PriceBasis.SPLIT_ADJUSTED
+    if stated != expected:
+        message = (
+            f"requested {price_basis.value} (adjusted={_ADJUSTED_PARAMETER[price_basis]}) "
+            f"but the response states adjusted={str(stated).lower()}; refusing to "
+            "ingest bars under a basis the provider did not confirm"
+        )
+        raise ProviderResponseError(message)
+
+
+def _pin_adjusted_parameter(next_path: str, price_basis: PriceBasis) -> str:
+    """Return ``next_path`` with the requested ``adjusted`` value guaranteed present.
+
+    Adds the parameter when the provider's ``next_url`` dropped it, and refuses a
+    ``next_url`` that carries a *different* value.
+    """
+    expected = _ADJUSTED_PARAMETER[price_basis]
+    url = httpx.URL(next_path)
+    carried = url.params.get("adjusted")
+    if carried is None:
+        return str(url.copy_add_param("adjusted", expected))
+    if carried != expected:
+        message = (
+            f"next_url carries adjusted={carried} but {price_basis.value} "
+            f"(adjusted={expected}) was requested; refusing to follow it"
+        )
+        raise ProviderResponseError(message)
+    return next_path
 
 
 def _results_of(document: JsonValue) -> Sequence[JsonValue] | None:

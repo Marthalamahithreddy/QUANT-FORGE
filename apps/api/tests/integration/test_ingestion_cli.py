@@ -9,8 +9,10 @@ between them was broken, which is exactly the wiring an operator depends on.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Iterator
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -23,11 +25,15 @@ from sqlalchemy.orm import Session
 
 from quantforge.core.config import get_settings
 from quantforge.ingestion import cli
+from quantforge.ingestion.raw_store import RawResponseStore
+from quantforge.ingestion.runs import FAILED_RUN_RECORDED
+from quantforge.ingestion.service import IngestionService, UnknownListingError
 from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
 from quantforge.models.company import Company
-from quantforge.models.enums import IngestionStatus
+from quantforge.models.enums import IngestionStatus, PriceBasis
 from quantforge.models.ingestion import IngestionRun
 from quantforge.models.market import DailyPriceBar
+from quantforge.models.provenance import DataSource
 from quantforge.models.security import Listing, Security
 from quantforge.providers.errors import ProviderConfigurationError
 from quantforge.providers.massive.client import MassiveClient, MassiveConfig
@@ -546,6 +552,298 @@ def test_daily_is_idempotent_across_runs(
         assert daily_runs[0].records_skipped == 1
 
 
+# ── failed runs are durable; their domain writes are not ────────────────────
+
+_EARLIER_BAR_T = 1_756_827_200_000  # two days before BARS_PAYLOAD's bar
+
+
+def _bars_handler_with(results: list[dict[str, Any]]) -> Any:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/v2/aggs/"):
+            return httpx.Response(200, json=dict(BARS_PAYLOAD, results=results))
+        return _ticker_handler(request)
+
+    return handler
+
+
+def test_a_failed_daily_run_is_recorded_but_writes_no_domain_rows(
+    configured: Path,
+    empty_database: None,
+    serve: Any,
+    integration_engine: Engine,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A conflict after one valid new bar: the run survives, the new bar does not."""
+    serve(_ticker_handler)
+    assert cli.main(["ingestion", "reference", "AAPL"]) == cli.EXIT_OK
+    argv = ["ingestion", "daily", "AAPL", "--start", "2026-09-01", "--end", "2026-09-05"]
+    assert cli.main(argv) == cli.EXIT_OK
+    capsys.readouterr()
+
+    original = BARS_PAYLOAD["results"][0]
+    earlier_new_bar = dict(original, t=_EARLIER_BAR_T)
+    revised = dict(original, c=101.0)  # same session, different close (within H/L) -> conflict
+    serve(_bars_handler_with([earlier_new_bar, revised]))
+    assert cli.main(argv) == cli.EXIT_RUN_FAILED
+
+    with Session(integration_engine) as session:
+        bars = session.query(DailyPriceBar).all()
+        assert len(bars) == 1, "the earlier, valid bar must roll back with the failed run"
+        assert bars[0].close == Decimal("104.000000"), "nothing was overwritten"
+        failed = session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).one()
+        assert failed.dataset == "daily-bars"
+        assert failed.error_type == "ProviderDataConflict"
+        assert failed.records_written == 0
+        assert failed.completed_at is not None
+        assert failed.raw_artifact_path, "the fetched evidence must stay referenced"
+        succeeded = session.query(IngestionRun).filter_by(status=IngestionStatus.SUCCEEDED).all()
+        assert {run.dataset for run in succeeded} == {"reference", "daily-bars"}
+
+
+def test_a_provider_failure_before_any_write_still_leaves_a_failed_run(
+    configured: Path,
+    empty_database: None,
+    serve: Any,
+    integration_engine: Engine,
+) -> None:
+    serve(_ticker_handler)
+    assert cli.main(["ingestion", "reference", "MSFT"]) == cli.EXIT_OK
+
+    # The stub answers bars only for AAPL, so MSFT's bar request is a provider 404.
+    code = cli.main(["ingestion", "daily", "MSFT", "--start", "2026-09-01", "--end", "2026-09-05"])
+
+    assert code == cli.EXIT_RUN_FAILED
+    with Session(integration_engine) as session:
+        failed = session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).one()
+        assert failed.dataset == "daily-bars"
+        assert failed.error_type
+        assert session.query(DailyPriceBar).count() == 0
+
+
+def test_a_failed_first_benchmark_run_rolls_back_identity_and_source_but_keeps_the_run(
+    configured: Path,
+    empty_database: None,
+    serve: Any,
+    integration_engine: Engine,
+) -> None:
+    serve(_ticker_handler)  # answers SPY's bar request with a provider 404
+
+    code = cli.main(
+        [
+            "ingestion",
+            "benchmark",
+            "SPY",
+            "--start",
+            "2026-01-02",
+            "--end",
+            "2026-01-09",
+            "--name",
+            "SPY (ETF proxy for the S&P 500)",
+        ]
+    )
+
+    assert code == cli.EXIT_RUN_FAILED
+    with Session(integration_engine) as session:
+        assert session.query(Benchmark).count() == 0, "no partial identity row"
+        assert session.query(BenchmarkPriceBar).count() == 0
+        assert session.query(DataSource).count() == 0, "created inside the failed block"
+        failed = session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).one()
+        assert failed.dataset == "benchmark-daily-bars"
+
+
+def test_a_failed_benchmark_conflict_keeps_the_run_and_the_original_levels(
+    configured: Path,
+    empty_database: None,
+    serve: Any,
+    integration_engine: Engine,
+) -> None:
+    serve(_benchmark_handler)
+    argv = [
+        "ingestion",
+        "benchmark",
+        "SPY",
+        "--start",
+        "2026-01-02",
+        "--end",
+        "2026-01-09",
+        "--name",
+        "SPY (ETF proxy for the S&P 500)",
+    ]
+    assert cli.main(argv) == cli.EXIT_OK
+
+    original = SPY_BARS_PAYLOAD["results"][0]
+    revised = dict(original, c=689.0)  # within the bar's high/low, but a different close
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=dict(SPY_BARS_PAYLOAD, results=[revised]))
+
+    serve(handler)
+    assert cli.main(argv) == cli.EXIT_RUN_FAILED
+
+    with Session(integration_engine) as session:
+        level = session.query(BenchmarkPriceBar).one()
+        assert level.close == Decimal("685.000000")
+        failed = session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).one()
+        assert failed.error_type == "BenchmarkBarConflictError"
+
+
+def test_a_successful_run_still_commits_exactly_as_before(
+    configured: Path,
+    empty_database: None,
+    serve: Any,
+    integration_engine: Engine,
+) -> None:
+    serve(_ticker_handler)
+    assert cli.main(["ingestion", "reference", "AAPL"]) == cli.EXIT_OK
+    assert (
+        cli.main(["ingestion", "daily", "AAPL", "--start", "2026-09-01", "--end", "2026-09-05"])
+        == cli.EXIT_OK
+    )
+
+    with Session(integration_engine) as session:
+        assert session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).count() == 0
+        assert session.query(DailyPriceBar).count() == 1
+        assert session.query(DataSource).count() == 1
+
+
+# ── price basis end to end ──────────────────────────────────────────────────
+
+
+def _basis_aware_handler(
+    seen: list[str], *, bars: dict[str, Any], scale: int = 10, lie_about_adjusted: bool = False
+) -> Any:
+    """Serve reference data, and bars whose values and ``adjusted`` echo follow the request.
+
+    ``adjusted=false`` returns prices ``scale`` times larger (a split-affected session);
+    ``lie_about_adjusted`` makes the response echo the opposite of what was asked.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if not request.url.path.startswith("/v2/aggs/"):
+            return _ticker_handler(request)
+        adjusted = request.url.params["adjusted"]
+        seen.append(adjusted)
+        factor = 1 if adjusted == "true" else scale
+        row = bars["results"][0]
+        scaled = dict(row, **{key: row[key] * factor for key in ("o", "h", "l", "c")})
+        echoed = (adjusted == "true") != lie_about_adjusted
+        return httpx.Response(200, json=dict(bars, results=[scaled], adjusted=echoed))
+
+    return handler
+
+
+_DAILY_ARGV = ["ingestion", "daily", "AAPL", "--start", "2026-09-01", "--end", "2026-09-05"]
+
+
+def test_daily_defaults_to_the_split_adjusted_research_basis(
+    configured: Path, empty_database: None, serve: Any, integration_engine: Engine
+) -> None:
+    seen: list[str] = []
+    serve(_basis_aware_handler(seen, bars=BARS_PAYLOAD))
+    assert cli.main(["ingestion", "reference", "AAPL"]) == cli.EXIT_OK
+
+    assert cli.main(_DAILY_ARGV) == cli.EXIT_OK
+
+    assert seen == ["true"]
+    with Session(integration_engine) as session:
+        bar = session.query(DailyPriceBar).one()
+        assert bar.price_basis is PriceBasis.SPLIT_ADJUSTED
+        run = session.query(IngestionRun).filter_by(dataset="daily-bars").one()
+        assert run.request_parameters["price_basis"] == "SPLIT_ADJUSTED"
+
+
+def test_daily_as_traded_requests_adjusted_false_and_stores_a_separate_row(
+    configured: Path, empty_database: None, serve: Any, integration_engine: Engine
+) -> None:
+    seen: list[str] = []
+    serve(_basis_aware_handler(seen, bars=BARS_PAYLOAD))
+    assert cli.main(["ingestion", "reference", "AAPL"]) == cli.EXIT_OK
+    assert cli.main(_DAILY_ARGV) == cli.EXIT_OK
+
+    assert cli.main([*_DAILY_ARGV, "--price-basis", "as-traded"]) == cli.EXIT_OK
+
+    assert seen == ["true", "false"]
+    with Session(integration_engine) as session:
+        rows = {bar.price_basis: bar for bar in session.query(DailyPriceBar).all()}
+        assert rows[PriceBasis.SPLIT_ADJUSTED].close == Decimal("104.000000")
+        assert rows[PriceBasis.AS_TRADED].close == Decimal("1040.000000")
+        assert session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).count() == 0
+        traded_run = (
+            session.query(IngestionRun)
+            .filter_by(dataset="daily-bars")
+            .order_by(IngestionRun.started_at.desc())
+            .first()
+        )
+        assert traded_run is not None
+        assert traded_run.request_parameters["price_basis"] == "AS_TRADED"
+
+
+def test_each_basis_is_idempotent_on_rerun(
+    configured: Path, empty_database: None, serve: Any, integration_engine: Engine
+) -> None:
+    seen: list[str] = []
+    serve(_basis_aware_handler(seen, bars=BARS_PAYLOAD))
+    assert cli.main(["ingestion", "reference", "AAPL"]) == cli.EXIT_OK
+    for _ in range(2):
+        assert cli.main(_DAILY_ARGV) == cli.EXIT_OK
+        assert cli.main([*_DAILY_ARGV, "--price-basis", "as-traded"]) == cli.EXIT_OK
+
+    with Session(integration_engine) as session:
+        assert session.query(DailyPriceBar).count() == 2
+
+
+def test_a_response_that_contradicts_the_requested_basis_stores_nothing(
+    configured: Path, empty_database: None, serve: Any, integration_engine: Engine
+) -> None:
+    serve(_basis_aware_handler([], bars=BARS_PAYLOAD))
+    assert cli.main(["ingestion", "reference", "AAPL"]) == cli.EXIT_OK
+    serve(_basis_aware_handler([], bars=BARS_PAYLOAD, lie_about_adjusted=True))
+
+    code = cli.main([*_DAILY_ARGV, "--price-basis", "as-traded"])
+
+    assert code == cli.EXIT_RUN_FAILED
+    with Session(integration_engine) as session:
+        assert session.query(DailyPriceBar).count() == 0
+        failed = session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).one()
+        assert "refusing to ingest" in (failed.error_message or "")
+
+
+def test_an_unknown_price_basis_is_a_usage_error(configured: Path) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main([*_DAILY_ARGV, "--price-basis", "raw"])
+
+    assert exit_info.value.code == cli.EXIT_USAGE
+
+
+def test_benchmark_stores_both_bases_as_separate_levels(
+    configured: Path, empty_database: None, serve: Any, integration_engine: Engine
+) -> None:
+    seen: list[str] = []
+    serve(_basis_aware_handler(seen, bars=SPY_BARS_PAYLOAD))
+    argv = [
+        "ingestion",
+        "benchmark",
+        "SPY",
+        "--start",
+        "2026-01-02",
+        "--end",
+        "2026-01-09",
+        "--name",
+        "SPY (ETF proxy for the S&P 500)",
+    ]
+    # The shared handler answers the ticker path for AAPL/MSFT only; benchmark
+    # ingestion needs no reference call, just the aggregates path.
+    assert cli.main(argv) == cli.EXIT_OK
+    assert cli.main([*argv, "--price-basis", "as-traded"]) == cli.EXIT_OK
+
+    assert seen == ["true", "false"]
+    with Session(integration_engine) as session:
+        levels = {level.price_basis: level for level in session.query(BenchmarkPriceBar).all()}
+        assert levels[PriceBasis.SPLIT_ADJUSTED].close == Decimal("685.000000")
+        assert levels[PriceBasis.AS_TRADED].close == Decimal("6850.000000")
+        assert session.query(Benchmark).count() == 1
+
+
 # ── benchmark ingestion ─────────────────────────────────────────────────────
 
 _SPY_NAME = "SPY (ETF proxy for the S&P 500)"
@@ -720,3 +1018,36 @@ def test_runs_does_not_leak_the_credential(
 
     cli.main(["ingestion", "runs"])
     assert "test-key-not-real" not in capsys.readouterr().out
+
+
+def test_a_stale_failed_run_marker_never_authorises_a_commit_after_a_pre_run_failure(
+    integration_engine: Engine, tmp_path: Path
+) -> None:
+    """A reused session's marker from an earlier failed run is cleared by the next attempt,
+    so a failure *before* any run exists cannot commit the caller's pending state."""
+
+    class NoProvider:
+        name = "massive"
+
+    now = datetime(2026, 9, 27, tzinfo=UTC)
+    with Session(integration_engine) as session:
+        session.info[FAILED_RUN_RECORDED] = True  # left over from an earlier failed run
+        service = IngestionService(
+            session=session,
+            provider=NoProvider(),  # type: ignore[arg-type]
+            store=RawResponseStore(root=tmp_path / "raw"),
+            now=now,
+        )
+        with pytest.raises(UnknownListingError):
+            asyncio.run(
+                service.ingest_daily_bars(
+                    "NOPE",
+                    date(2026, 9, 1),
+                    date(2026, 9, 2),
+                    price_basis=PriceBasis.SPLIT_ADJUSTED,
+                )
+            )
+
+        assert FAILED_RUN_RECORDED not in session.info
+        cli._commit_failed_run(session)  # no marker -> rolls back rather than committing
+        assert session.scalar(sa.select(sa.func.count()).select_from(IngestionRun)) == 0
