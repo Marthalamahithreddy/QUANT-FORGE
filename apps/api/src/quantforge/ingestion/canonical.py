@@ -1,0 +1,484 @@
+"""Provider-independent ingestion values.
+
+Why these exist
+---------------
+An adapter's DTOs answer "what did Massive send?". These answer "what is
+QuantForge trying to store?". The two are not the same question, and conflating
+them is what turns a provider integration into a refactor of the storage layer.
+
+The separation buys a specific, testable property: everything in this module is
+free of vendor vocabulary. No ``o``/``h``/``l``/``c``, no ``primary_exchange``,
+no ``T``, no ``vw``. A second vendor's adapter produces these same types, so the
+reference resolver, the daily-bar writer and the future earnings writer cannot
+know or care which vendor supplied the data. That is the whole point -- a test
+for the daily-bar writer runs with no HTTP client and no vendor anywhere in
+sight.
+
+Validation lives here rather than in the models
+-----------------------------------------------
+These are frozen dataclasses constructed *only* by an adapter's mapper, so
+validation is cheapest and clearest at construction. The ORM models then receive
+values already known to be well-formed, and the database ``CHECK`` constraints
+remain the final authority for anything arriving by another route.
+
+The invariants asserted below are the ones where a silent wrong value would
+survive all the way into a backtest: a high below the low, a non-positive price,
+an unsorted bar, a timezone-naive timestamp. Each of those produces plausible
+numbers that are simply incorrect, which is far more dangerous than a crash.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Final
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from quantforge.models.enums import EarningsTiming
+
+__all__ = [
+    "CanonicalDailyBar",
+    "CanonicalEarningsEvent",
+    "CanonicalEquityReference",
+    "ReferenceResolution",
+    "ResolvedVenue",
+]
+
+#: A listed equity's share count and price data imply a positive price. A zero or
+#: negative close is a data error, not a real print: no venue reports it, and
+#: accepting one would corrupt any return calculation that touches the row.
+_MIN_POSITIVE_PRICE: Final[Decimal] = Decimal("1e-9")
+
+#: A SEC CIK is a fixed-width, zero-padded 10-digit number. Repeated here rather
+#: than imported so the canonical layer's invariant does not depend on the model
+#: module's column widths.
+_CIK_LENGTH: Final[int] = 10
+
+#: Upper bound on a single US equity price. This is a gross-corruption
+#: backstop, not a units check: it catches a field holding a market cap, a
+#: cumulative index level, or a garbage value. It deliberately does *not* claim
+#: to catch a cents-as-dollars error, because 199.99 stored as 19999 is still
+#: under this bound -- no single price ceiling can distinguish that from a
+#: legitimately expensive stock, and pretending otherwise would be a false
+#: guarantee. Sits far above any real listing, including the multi-thousand
+#: prints that pre-split adjusted series can contain.
+_MAX_PLAUSIBLE_PRICE: Final[Decimal] = Decimal("100000000")
+
+#: Fiscal-year bound, mirroring the ``fiscal_year_range`` CHECK constraint on
+#: ``earnings_event``. Repeated locally, as the price bounds above are, so the
+#: canonical invariant does not depend on a model module's column declarations.
+_MIN_FISCAL_YEAR: Final[int] = 1900
+_MAX_FISCAL_YEAR: Final[int] = 2200
+
+#: Fiscal-quarter bound, mirroring the ``fiscal_quarter_range`` CHECK
+#: constraint. Nullable and not convertible: a non-quarterly filer has no
+#: quarter, and inventing one would corrupt calendar joins.
+_MIN_FISCAL_QUARTER: Final[int] = 1
+_MAX_FISCAL_QUARTER: Final[int] = 4
+
+#: An ISO 4217 alphabetic currency code is exactly three letters.
+_CURRENCY_CODE_LENGTH: Final[int] = 3
+
+
+def _require_blank_free(value: str, message: str) -> None:
+    if not value.strip():
+        raise ValueError(message)
+
+
+def _require_int(value: object, field_name: str) -> None:
+    if not isinstance(value, int):
+        message = f"{field_name} must be an int, got {type(value).__name__}"
+        raise ValueError(message)
+
+
+def _require_range(value: int, low: int, high: int, field_name: str) -> None:
+    if not low <= value <= high:
+        message = f"{field_name} must be between {low} and {high}, got {value}"
+        raise ValueError(message)
+
+
+def _require_aware(instant: datetime, field_name: str) -> None:
+    if instant.tzinfo is None:
+        raise ValueError(f"{field_name} must be timezone-aware")
+
+
+def _require_member(value: object, enum_cls: type[EarningsTiming], field_name: str) -> None:
+    if not isinstance(value, enum_cls):
+        message = f"{field_name} must be an {enum_cls.__name__} member, got {value!r}"
+        raise ValueError(message)
+
+
+def _require_optional_decimal(value: object, field_name: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, Decimal):
+        message = f"{field_name} must be a Decimal, got {type(value).__name__}"
+        raise ValueError(message)
+    if not value.is_finite():
+        message = f"{field_name} must be finite, got {value}"
+        raise ValueError(message)
+
+
+def _require_currency(value: str) -> None:
+    if not (len(value) == _CURRENCY_CODE_LENGTH and value.isalpha() and value.isupper()):
+        message = f"currency must be an ISO 4217 code like 'USD', got {value!r}"
+        raise ValueError(message)
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedVenue:
+    """A provider's venue code resolved to a real, storable exchange.
+
+    Created only by an adapter that has an explicit, curated mapping. There is no
+    code path that produces a :class:`ResolvedVenue` from a vendor string
+    without passing through that mapping, which is what makes "unknown exchange"
+    a hard failure instead of a row with a garbage MIC.
+    """
+
+    #: ISO 10383 Market Identifier Code. The value stored in ``Exchange.mic``.
+    mic: str
+
+    #: Human-readable venue name.
+    name: str
+
+    #: IANA timezone, used to turn a bar's timestamp into a session date.
+    timezone_name: str
+
+    def __post_init__(self) -> None:
+        # The zone is resolved eagerly so a typo in an adapter's exchange table
+        # surfaces when the mapping is written, not weeks later when a bar's
+        # session date silently comes out one day wrong. A venue's timezone is
+        # the single authority for that conversion, so it has to be a name the
+        # platform can actually resolve.
+        try:
+            ZoneInfo(self.timezone_name)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            message = f"timezone {self.timezone_name!r} is not a known IANA zone name"
+            raise ValueError(message) from exc
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalEquityReference:
+    """A US-listed common or preferred equity, as QuantForge understands it.
+
+    Constructed by an adapter's mapper, which is responsible for *normalising*
+    the incoming values: upper-casing the ticker, zero-padding the CIK, collapsing
+    blanks to ``None``, resolving the venue, and mapping the instrument class into
+    QuantForge's vocabulary. This class does not repeat that work, because
+    normalising in two places is how the two drift apart.
+
+    What it *does* enforce is the identity rule, because that one is a correctness
+    requirement rather than a formatting preference: a CIK that is not ten digits
+    cannot match any real issuer, and storing it would create a row that silently
+    fails to join forever.
+    """
+
+    #: Upper-case symbol exactly as the venue lists it, e.g. ``"AAPL"``.
+    ticker: str
+
+    #: QuantForge instrument class, e.g. ``EQUITY`` / ``PREFERRED_EQUITY``.
+    security_type: str
+
+    #: Resolved venue, or ``None`` only if the adapter was configured to allow an
+    #: unmapped venue -- which this milestone does not, so in practice this is
+    #: always populated. Typed optional so the "venue is genuinely unknown" case
+    #: can be represented for a future non-listed instrument class.
+    venue: ResolvedVenue | None
+
+    #: Issuer display name, when supplied.
+    company_name: str | None = None
+
+    #: Zero-padded 10-digit SEC CIK. The preferred stable issuer key.
+    cik: str | None = None
+
+    #: FIGI for the whole issuer, across all its securities.
+    composite_figi: str | None = None
+
+    #: FIGI for this specific share class.
+    share_class_figi: str | None = None
+
+    #: ISO 4217 alphabetic trading currency.
+    currency_code: str | None = None
+
+    #: Whether the provider currently considers the symbol trading.
+    is_active: bool | None = None
+
+    def __post_init__(self) -> None:
+        if not self.ticker.strip():
+            message = "canonical reference requires a non-blank ticker"
+            raise ValueError(message)
+        if not self.security_type.strip():
+            message = "canonical reference requires a security type"
+            raise ValueError(message)
+        if self.cik is not None and (not self.cik.isdigit() or len(self.cik) != _CIK_LENGTH):
+            message = f"CIK must be {_CIK_LENGTH} digits, got {self.cik!r}"
+            raise ValueError(message)
+
+    @property
+    def identity_key(self) -> str:
+        """The key this reference should be resolved under.
+
+        Deliberately CIK-first. A ticker is not an identity -- symbols are
+        reused across issuers over time, and a reused ticker would otherwise
+        merge two companies' entire price histories. The FIGI is the fallback
+        because it is a global instrument identifier. If neither exists the
+        caller must not fall back to the ticker; that is an explicit failure, and
+        the resolver is where it is enforced.
+        """
+        if self.cik is not None:
+            return f"cik:{self.cik}"
+        if self.share_class_figi is not None:
+            return f"figi:{self.share_class_figi}"
+        if self.composite_figi is not None:
+            return f"cfigi:{self.composite_figi}"
+        message = (
+            f"{self.ticker} has no CIK and no FIGI; it cannot be resolved to a "
+            "stable identity without risking a merge of two distinct issuers"
+        )
+        raise ValueError(message)
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalDailyBar:
+    """One daily OHLCV aggregate, ready to persist.
+
+    ``trading_session_date`` is already a ``date``, already derived through the
+    venue's timezone. The writer must not re-derive it: a second conversion is a
+    second chance to disagree with the first, and the disagreement would be
+    invisible because both results are plausible dates.
+
+    ``observed_at`` is ``None`` unless the provider supplied a genuine statement
+    of when this data became available. Daily aggregates are not stamped with
+    that by most vendors, and inventing one -- typically "the session's close" --
+    would claim a knowledge that makes a point-in-time backtest quietly wrong.
+    "When we ingested it" is a different fact and has its own column.
+    """
+
+    trading_session_date: date
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    volume: int | None
+    observed_at: datetime | None = None
+    #: Provider-computed volume-weighted average price, when supplied. Carried
+    #: through rather than recomputed, so a stored value always matches what the
+    #: provider published on the day.
+    vwap: Decimal | None = None
+    #: Trade count, when supplied. Useful later as a liquidity proxy.
+    trades: int | None = None
+
+    def __post_init__(self) -> None:
+        for field in ("open", "high", "low", "close"):
+            price: Decimal = getattr(self, field)
+            if not price.is_finite():
+                message = f"{field} must be finite, got {price}"
+                raise ValueError(message)
+            if price <= _MIN_POSITIVE_PRICE:
+                message = f"{field} must be positive, got {price}"
+                raise ValueError(message)
+            if price > _MAX_PLAUSIBLE_PRICE:
+                message = (
+                    f"{field}={price} exceeds the gross-corruption price bound; "
+                    "check that this field is a per-share price and not a market "
+                    "cap, index level or cumulative figure"
+                )
+                raise ValueError(message)
+
+        # The low must not exceed the high. Enforced as ``low > high`` rather
+        # than via a min/max sweep so a genuinely inverted bar is *rejected*
+        # instead of being silently "corrected" by swapping the two values --
+        # quietly repairing bad data hides that the data was bad.
+        if self.low > self.high:
+            message = f"low {self.low} exceeds high {self.high}"
+            raise ValueError(message)
+        # The open and close are prints made *within* the session, so they cannot
+        # sit outside the session's own range. Enforced rather than trusted: a bar
+        # whose open is above its high is a parse error upstream, and accepting it
+        # yields a chart that cannot be drawn and a return that is quietly wrong.
+        for field in ("open", "close"):
+            price = getattr(self, field)
+            if not self.low <= price <= self.high:
+                message = f"{field}={price} is outside the session range [{self.low}, {self.high}]"
+                raise ValueError(message)
+        # A volume-weighted average of the session's own trades cannot fall
+        # outside the range those trades spanned. Checked because vwap is the
+        # price field most often carried through unvalidated, and because a vwap
+        # computed over the wrong field -- turnover instead of volume, say -- is
+        # wrong by an order of magnitude and still looks like a number.
+        if self.vwap is not None and not self.low <= self.vwap <= self.high:
+            message = f"vwap={self.vwap} is outside the session range [{self.low}, {self.high}]"
+            raise ValueError(message)
+        if self.volume is not None and self.volume < 0:
+            message = f"volume must not be negative, got {self.volume}"
+            raise ValueError(message)
+        if self.trades is not None and self.trades < 0:
+            message = f"trades must not be negative, got {self.trades}"
+            raise ValueError(message)
+        if self.observed_at is not None and self.observed_at.tzinfo is None:
+            message = "observed_at must be timezone-aware"
+            raise ValueError(message)
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalEarningsEvent:
+    """One earnings fact for an issuer, provider-independent, ready to persist.
+
+    Point-in-time semantics are load-bearing here, so they are pinned on the
+    type rather than left to the writer:
+
+    * ``event_date`` is the provider-supported calendar date of the event,
+      exactly as the source stated it, and is **always required**. Every
+      earnings-calendar source QuantForge has integrated states at least this
+      much; it is the one fact guaranteed to exist.
+    * ``event_timestamp`` is the exact instant the event occurred *or is
+      scheduled*, when -- and only when -- the source genuinely states one.
+      ``None`` is the honest answer otherwise, and it is never derived from
+      ``event_date`` or ``timing``: a calendar date plus "after market close"
+      is not an instant, and manufacturing midnight, 09:30 or 16:00 out of
+      that pair would assert a precision the source never gave. When present,
+      it must be timezone-aware, for the same reason a naive instant cannot
+      be stored in a ``TIMESTAMPTZ`` column without guessing a zone.
+    * ``timing`` is a coarse, provider-declared session classification. It
+      does not imply or require an exact timestamp -- a source can state
+      "after market close" without stating *when*, and that is still real
+      information worth keeping, not a reason to fabricate one.
+    * ``observed_at`` is when the source made the information available. It is
+      ``None`` unless the source genuinely stated when, and it is never
+      manufactured: "we do not know" and "it was observed at X" are different
+      facts with different research value. Inventing a value -- say the session's
+      close -- would make a point-in-time study quietly wrong.
+    * ``ingested_at`` (when QuantForge received the event) is deliberately
+      **not** a field here. It is assigned by the ingestion service at write
+      time and only then, so a fetch that is validated and re-stored later is
+      stamped with the moment of the storage decision rather than an earlier
+      parse.
+    * ``timing`` is the session phase the source *declared* and nothing more.
+      It is never inferred from the wall-clock hour of ``event_timestamp``, and
+      ``UNKNOWN`` is the honest answer when the source does not declare one.
+      Whether an event was actionable, and when, is a derivable question, not a
+      stored fact.
+
+    Reported and estimated figures are carried side by side and never combined.
+    EPS surprise and revenue surprise are computed later in the analytics layer,
+    where the methodology is versioned and re-runnable; freezing an answer into a
+    fact row would discard its inputs. Negative EPS and negative revenue are
+    legitimately present in loss-making quarters and restatements, so no
+    non-negativity bound is applied.
+
+    ``ticker`` is the provider-independent symbol the observation belongs to. It
+    is *not* a stored identity: the future earnings service resolves it to a
+    ``company_id`` through the reference resolver, exactly as
+    :class:`CanonicalEquityReference` does for daily bars. Identity and
+    deduaplication across sources are the ingestion service's job, not this
+    type's; the intended policy is documented alongside the earnings milestones.
+    """
+
+    #: Provider-independent symbol, e.g. ``"AAPL"``. Resolved to a company by
+    #: the earnings ingestion service, never stored as-is.
+    ticker: str
+
+    #: The issuer's fiscal year the result covers -- not the calendar year.
+    fiscal_year: int
+
+    #: The issuer's fiscal quarter 1-4, or ``None`` for non-quarterly/annual
+    #: filers. Never invented from a calendar date.
+    fiscal_quarter: int | None
+
+    #: The provider-supported calendar date of the event, exactly as the
+    #: source stated it. Always required; never derived from a fiscal period.
+    event_date: date
+
+    #: The session phase the source declared, typed. Never inferred from the
+    #: clock, and ``None`` is not an option -- ``UNKNOWN`` is the negative space.
+    timing: EarningsTiming
+
+    #: The exact instant the event occurred or is scheduled, timezone-aware,
+    #: *only* when the source genuinely states one. ``None`` otherwise -- never
+    #: derived from ``event_date`` or ``timing``. Not snapped to any session
+    #: boundary when present.
+    event_timestamp: datetime | None = None
+
+    #: Reported diluted/basic EPS as published, exactly as a Decimal. May be
+    #: negative (a loss).
+    reported_eps: Decimal | None = None
+
+    #: Consensus/market EPS estimate as published. May be negative.
+    estimated_eps: Decimal | None = None
+
+    #: Reported revenue as published. May be negative after restatement.
+    reported_revenue: Decimal | None = None
+
+    #: Consensus/market revenue estimate as published.
+    estimated_revenue: Decimal | None = None
+
+    #: ISO 4217 code for the figures, if the source stated it. ``None`` means
+    #: the source did not state a currency, not "assume USD".
+    currency: str | None = None
+
+    #: When the source indicated this event became public, if genuinely known.
+    #: Never manufactured; ``None`` means undisclosed.
+    observed_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        _require_blank_free(self.ticker, "canonical earnings event requires a non-blank ticker")
+        _require_int(self.fiscal_year, "fiscal_year")
+        _require_range(self.fiscal_year, _MIN_FISCAL_YEAR, _MAX_FISCAL_YEAR, "fiscal_year")
+        if self.fiscal_quarter is not None:
+            _require_int(self.fiscal_quarter, "fiscal_quarter")
+            _require_range(
+                self.fiscal_quarter,
+                _MIN_FISCAL_QUARTER,
+                _MAX_FISCAL_QUARTER,
+                "fiscal_quarter",
+            )
+        if isinstance(self.event_date, datetime) or not isinstance(self.event_date, date):
+            # datetime is a `date` subclass, so it is rejected explicitly: a
+            # calendar date must not silently carry a hidden time-of-day.
+            message = f"event_date must be a plain date, got {type(self.event_date).__name__}"
+            raise ValueError(message)
+        if self.event_timestamp is not None:
+            _require_aware(self.event_timestamp, "event_timestamp")
+        _require_member(self.timing, EarningsTiming, "timing")
+        for field_name in (
+            "reported_eps",
+            "estimated_eps",
+            "reported_revenue",
+            "estimated_revenue",
+        ):
+            _require_optional_decimal(getattr(self, field_name), field_name)
+        if self.currency is not None:
+            _require_currency(self.currency)
+        if self.observed_at is not None:
+            _require_aware(self.observed_at, "observed_at")
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceResolution:
+    """The outcome of resolving one reference to stored entities.
+
+    Returned rather than written in place so a caller can inspect what would
+    happen -- and so a dry-run mode can report it without mutating anything.
+    """
+
+    #: The reference that was resolved.
+    reference: CanonicalEquityReference
+
+    #: Resolved listing, i.e. the tradable symbol on a venue.
+    listing_id: uuid.UUID
+
+    #: Resolved security, i.e. the instrument.
+    security_id: uuid.UUID
+
+    #: Resolved company, i.e. the issuer.
+    company_id: uuid.UUID
+
+    #: The key the company was matched under, e.g. ``"cik:0000320193"``. Recorded
+    #: so an operator can see *why* two references were considered the same
+    #: issuer, which is the question to ask when a match turns out to be wrong.
+    matched_on: str
+
+    #: True when new rows were created, False when existing ones were reused.
+    created: bool

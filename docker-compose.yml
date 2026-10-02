@@ -1,0 +1,72 @@
+# QuantForge local infrastructure.
+#
+# Backing services for local development only. The API and web application run on
+# the host and connect over the published localhost ports, so nothing here needs
+# to know about application containers.
+#
+#   docker compose up -d     # start
+#   docker compose ps        # status and health
+#   docker compose down      # stop, keep data
+#   docker compose down -v   # stop and DELETE all local data  <-- destructive
+#
+# Credentials come from the environment (see .env.example). Defaults are supplied
+# so the stack starts with no .env file present; they are throwaway local values
+# and must never be reused anywhere else.
+
+name: quantforge
+
+services:
+  postgres:
+    image: postgres:18
+    container_name: quantforge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-quantforge}
+      POSTGRES_USER: ${POSTGRES_USER:-quantforge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quantforge}
+      # Page checksums detect silent corruption of the local data files.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # PostgreSQL 18 stores data in a major-version-specific subdirectory of
+      # /var/lib/postgresql, and the image refuses to start when the mount point
+      # is the older /var/lib/postgresql/data. Mount the parent directory.
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      # $$ escapes the variable so it is expanded inside the container, not by
+      # Compose, so the check always tests the credentials this service got.
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    stop_grace_period: 30s
+
+  redis:
+    image: redis:8
+    container_name: quantforge-redis
+    restart: unless-stopped
+    # No password: the port is bound to loopback only, for local development.
+    # Add a requirepass value before exposing this anywhere else.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --save
+      - "60"
+      - "1"
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+volumes:
+  postgres_data:
+  redis_data:

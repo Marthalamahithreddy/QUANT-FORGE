@@ -1,0 +1,173 @@
+[project]
+name = "quantforge-api"
+version = "0.1.0"
+description = "QuantForge API - event-driven equity research and quantitative backtesting platform"
+readme = "README.md"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "alembic>=1.13",
+    "fastapi>=0.115",
+    # httpx2 is the httpx 2.x distribution. It is used for the provider HTTP
+    # client *and* by Starlette's TestClient, so the project runs on one HTTP
+    # stack rather than shipping httpx 0.x alongside it.
+    "httpx2>=2",
+    "numpy>=2",
+    "polars>=1",
+    "psycopg[binary]>=3.1",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "redis>=5",
+    "scipy>=1.13",
+    "sqlalchemy>=2.0",
+    "uvicorn[standard]>=0.30",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.11",
+    "pytest>=8",
+    "pytest-cov>=5",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+quantforge = "quantforge.ingestion.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+# PEP 561 needs no configuration here: the backend ships the whole module
+# directory, so `src/quantforge/py.typed` is included automatically. Without that
+# marker every downstream `from quantforge...` import is reported as an untyped
+# third-party library and silently degrades to `Any`.
+module-name = "quantforge"
+module-root = "src"
+
+# ─────────────────────────────── Ruff ────────────────────────────────────────
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+src = ["src", "tests"]
+extend-exclude = [".venv", "alembic/versions"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "A",    # flake8-builtins
+    "C4",   # flake8-comprehensions
+    "DTZ",  # flake8-datetimez - no naive datetimes
+    "T20",  # flake8-print - no stray print()
+    "ISC",  # flake8-implicit-str-concat
+    "ICN",  # flake8-import-conventions
+    "G",    # flake8-logging-format
+    "PGH",  # pygrep-hooks
+    "PL",   # pylint
+    "RET",  # flake8-return
+    "RUF",  # ruff-specific
+    "SIM",  # flake8-simplify
+    "ARG",  # flake8-unused-arguments
+    "PTH",  # flake8-use-pathlib
+]
+ignore = [
+    # Line length is enforced by the formatter, not the linter.
+    "E501",
+    # FastAPI dependency injection legitimately takes unused arguments.
+    "ARG001",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests intentionally use bare asserts and may shadow/monkeypatch internals.
+"tests/**" = ["ARG002", "PLR2004", "S101"]
+# Boundary tests construct naive datetimes and call date.today() on purpose: the
+# whole point is to prove the schemas *reject* them. Production code has no such
+# exemption.
+"tests/test_schemas.py" = ["DTZ001", "DTZ011"]
+# This file asserts that a *timezone-naive* observed_at is rejected. Constructing
+# one on purpose is the test, not an oversight.
+"tests/test_canonical.py" = ["DTZ001"]
+# The CLI's output *is* its interface: an operator reads results on a terminal,
+# and stdout is what they read. Routing operator-facing results through the logging
+# stack would attach them to a level and a handler chosen for debugging, and would
+# make `quantforge ingestion runs | jq` unreliable. print() stays banned everywhere
+# else; only the process's own reporting surface is exempt.
+"src/quantforge/ingestion/cli.py" = ["T201"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["quantforge"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# ─────────────────────────────── mypy ────────────────────────────────────────
+[tool.mypy]
+python_version = "3.14"
+files = ["src", "tests"]
+strict = true
+warn_unreachable = true
+warn_no_return = true
+enable_error_code = [
+    "ignore-without-code",
+    "redundant-expr",
+    "truthy-bool",
+    "truthy-iterable",
+]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# Third-party stubs are not bundled for these; keep the project strict without
+# forcing casts in our own call sites.
+module = ["fakeredis.*"]
+ignore_missing_imports = true
+
+# ─────────────────────────────── pytest ──────────────────────────────────────
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
+]
+markers = [
+    # Requires the local PostgreSQL container. Verifies real CHECK/partial-unique/
+    # NUMERIC/TIMESTAMPTZ behaviour, so it is never run against SQLite. Selected
+    # with `uv run pytest -m integration -q`. Skips cleanly when no server is
+    # reachable, which keeps the default `pytest` run dependency-free.
+    "integration: needs a real PostgreSQL server; excluded from the default fast suite",
+    # Async tests. The plugin is anyio's, which arrives transitively with
+    # starlette/fastapi, so async coverage costs no extra dependency. The
+    # `anyio_backend` fixture in tests/conftest.py pins these to asyncio.
+    "anyio: run this test on an anyio event loop",
+]
+filterwarnings = [
+    "error",
+    # FastAPI/Starlette deprecation noise from transitive deps should not mask
+    # genuine warnings, but new ones will still surface as errors.
+    "ignore::DeprecationWarning:pydantic.*",
+]
+
+# ────────────────────────────── coverage ─────────────────────────────────────
+[tool.coverage.run]
+branch = true
+source = ["quantforge"]
+omit = ["*/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision = 2
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

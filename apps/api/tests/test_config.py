@@ -1,0 +1,188 @@
+"""Configuration and settings-parsing tests."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+
+import pytest
+from pydantic import ValidationError
+
+from quantforge.core.config import CORS_ALLOW_HEADERS, CORS_ALLOW_METHODS, Settings
+
+
+def test_local_development_defaults(settings: Settings) -> None:
+    assert settings.environment == "local"
+    assert settings.debug is False
+    assert settings.app_name == "quantforge-api"
+    assert settings.api_v1_prefix == "/api/v1"
+    assert settings.cors_origins == ["http://localhost:3000"]
+    assert settings.cors_allow_credentials is True
+    assert settings.log_level == "INFO"
+
+
+def test_default_datastore_urls_are_loopback_placeholders(settings: Settings) -> None:
+    """Defaults must be local placeholders, never real credentials."""
+    assert settings.database_url == (
+        "postgresql+psycopg://quantforge:quantforge@localhost:5432/quantforge"
+    )
+    assert settings.redis_url == "redis://localhost:6379/0"
+    assert "@localhost" in settings.database_url
+
+
+def test_environment_variables_use_qf_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QF_ENVIRONMENT", "staging")
+    monkeypatch.setenv("QF_LOG_LEVEL", "DEBUG")
+    monkeypatch.setenv("QF_DATABASE_URL", "postgresql+psycopg://u:p@db.internal:5432/qf")
+    monkeypatch.setenv("QF_REDIS_URL", "redis://cache.internal:6379/1")
+
+    resolved = Settings(_env_file=None)
+
+    assert resolved.environment == "staging"
+    assert resolved.log_level == "DEBUG"
+    assert resolved.database_url == "postgresql+psycopg://u:p@db.internal:5432/qf"
+    assert resolved.redis_url == "redis://cache.internal:6379/1"
+
+
+def test_unprefixed_variables_are_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    assert Settings(_env_file=None).environment == "local"
+
+
+def test_invalid_environment_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QF_ENVIRONMENT", "not-a-real-environment")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+def test_invalid_log_level_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QF_LOG_LEVEL", "TRACE")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+# ── CORS parsing ────────────────────────────────────────────────────────────
+
+
+def test_cors_origins_parsed_from_comma_separated_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "QF_CORS_ORIGINS",
+        "http://localhost:3000, https://app.quantforge.test ,http://localhost:4321",
+    )
+
+    assert Settings(_env_file=None).cors_origins == [
+        "http://localhost:3000",
+        "https://app.quantforge.test",
+        "http://localhost:4321",
+    ]
+
+
+def test_cors_origins_parsed_from_json_array(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QF_CORS_ORIGINS", '["https://a.test", "https://b.test"]')
+
+    assert Settings(_env_file=None).cors_origins == ["https://a.test", "https://b.test"]
+
+
+def test_cors_origins_reject_malformed_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QF_CORS_ORIGINS", '["https://a.test", ')
+
+    with pytest.raises(ValidationError, match="not valid JSON"):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("raw", ["", "   "])
+def test_blank_cors_origins_become_empty_list(
+    make_settings: Callable[..., Settings],
+    monkeypatch: pytest.MonkeyPatch,
+    raw: str,
+) -> None:
+    monkeypatch.setenv("QF_CORS_ORIGINS", raw)
+    assert Settings(_env_file=None).cors_origins == []
+
+
+def test_cors_origins_accept_sequence(make_settings: Callable[..., Settings]) -> None:
+    resolved = make_settings(cors_origins=["https://a.test", "https://b.test"])
+    assert resolved.cors_origins == ["https://a.test", "https://b.test"]
+
+
+def test_cors_origins_trailing_comma_is_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QF_CORS_ORIGINS", "https://a.test,,")
+    assert Settings(_env_file=None).cors_origins == ["https://a.test"]
+
+
+# ── Wildcard rejection ──────────────────────────────────────────────────────
+
+
+def test_wildcard_rejected_when_credentials_enabled(
+    make_settings: Callable[..., Settings],
+) -> None:
+    with pytest.raises(ValidationError, match="must not contain"):
+        make_settings(cors_origins=["*"])
+
+
+def test_wildcard_rejected_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QF_CORS_ORIGINS", "*")
+
+    with pytest.raises(ValidationError, match="must not contain"):
+        Settings(_env_file=None)
+
+
+def test_wildcard_rejected_when_embedded_in_a_list(
+    make_settings: Callable[..., Settings],
+) -> None:
+    with pytest.raises(ValidationError, match="must not contain"):
+        make_settings(cors_origins=["https://a.test", "*"])
+
+
+def test_wildcard_allowed_when_credentials_disabled(
+    make_settings: Callable[..., Settings],
+) -> None:
+    resolved = make_settings(cors_origins=["*"], cors_allow_credentials=False)
+
+    assert resolved.cors_origins == ["*"]
+    assert resolved.cors_allow_credentials is False
+
+
+def test_similar_origin_is_not_treated_as_wildcard(
+    make_settings: Callable[..., Settings],
+) -> None:
+    """A subdomain wildcard is a legitimate explicit origin, not ``*``."""
+    resolved = make_settings(cors_origins=["https://*.quantforge.test"])
+    assert resolved.cors_origins == ["https://*.quantforge.test"]
+
+
+# ── API prefix normalisation ────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("/api/v1", "/api/v1"),
+        ("api/v1", "/api/v1"),
+        ("/api/v1/", "/api/v1"),
+        ("  /api/v1/  ", "/api/v1"),
+        ("/custom", "/custom"),
+    ],
+)
+def test_api_v1_prefix_is_normalised(
+    make_settings: Callable[..., Settings], raw: str, expected: str
+) -> None:
+    assert make_settings(api_v1_prefix=raw).api_v1_prefix == expected
+
+
+# ── CORS method/header policy constants ─────────────────────────────────────
+
+
+def test_cors_policy_constants_are_explicit() -> None:
+    assert CORS_ALLOW_METHODS == ("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+    assert "Content-Type" in CORS_ALLOW_HEADERS
+    assert "Authorization" in CORS_ALLOW_HEADERS
+    assert "*" not in CORS_ALLOW_METHODS
+    assert "*" not in CORS_ALLOW_HEADERS
+
+
+def test_default_origins_are_loopback_only(settings: Settings) -> None:
+    assert all(origin.startswith("http://localhost") for origin in settings.cors_origins)

@@ -1,0 +1,17 @@
+"""Aggregate router for API version 1.
+
+The liveness probe is mounted at both ``/health`` and ``{prefix}/health``; the
+readiness probe is versioned only, because it is an API contract that may gain
+fields and orchestrators pin it explicitly.
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter
+
+from quantforge.api.v1.health import router as health_router
+from quantforge.api.v1.ready import router as ready_router
+
+router = APIRouter()
+router.include_router(health_router)
+router.include_router(ready_router)

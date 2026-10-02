@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+/*
+ * QuantForge design tokens.
+ *
+ * Dark-first, low-chroma surfaces with a single restrained accent. The palette
+ * is tuned for long sessions in a research terminal: no gradients, no glow, and
+ * text contrast held at or above WCAG AA on every surface below.
+ */
+@theme {
+  /* Surfaces, darkest to lightest */
+  --color-surface-0: #0a0e13;
+  --color-surface-1: #0f141b;
+  --color-surface-2: #151b24;
+  --color-surface-3: #1c232e;
+
+  /* Hairlines */
+  --color-border-subtle: #1f2732;
+  --color-border-strong: #2d3743;
+
+  /* Type */
+  --color-text-primary: #e7edf4;
+  --color-text-secondary: #9fb0c0;
+  --color-text-muted: #7d92a4;
+
+  /* Accent */
+  --color-accent: #58a6ff;
+  --color-accent-subtle: #16283d;
+
+  /* Status */
+  --color-status-ok: #47b357;
+  --color-status-warn: #d4a03c;
+  --color-status-down: #f0645a;
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-surface-0);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "tnum";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* A single, consistent focus treatment for keyboard users. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--color-accent-subtle);
+    color: var(--color-text-primary);
+  }
+
+  /* Restrained scrollbars to match the terminal aesthetic. */
+  * {
+    scrollbar-color: var(--color-border-strong) transparent;
+    scrollbar-width: thin;
+  }
+}
+
+@layer components {
+  /*
+   * Tabular figures for any numeric or identifier-like content, so columns
+   * align as a research grid would.
+   */
+  .font-tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
