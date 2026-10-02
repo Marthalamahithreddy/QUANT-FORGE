@@ -150,6 +150,9 @@ uv run quantforge ingestion reference AAPL MSFT
 uv run quantforge ingestion daily AAPL --start 2026-01-01 --end 2026-01-31
 # --exchange (MIC) disambiguates a symbol currently listed on more than one venue.
 uv run quantforge ingestion daily AAPL --start 2026-01-01 --end 2026-01-31 --exchange XNAS
+# Fetch daily levels for an explicit benchmark instrument (see "Benchmark" below).
+uv run quantforge ingestion benchmark SPY --start 2026-01-01 --end 2026-01-31 \
+  --name "SPY (ETF proxy for the S&P 500)"
 # List recent runs, newest first. --limit caps the rows (default 10);
 # --dataset filters to one kind, e.g. reference or daily-bars.
 uv run quantforge ingestion runs
@@ -194,6 +197,32 @@ disk or to the database.
 errors on `408/429/500/502/503/504` (honouring `Retry-After` up to a cap),
 treats `401/403` as configuration errors, and decodes every price as
 `Decimal` so `199.99` never becomes `199.99000000000000284`.
+
+**Price basis.** Massive is "formerly Polygon.io" and its daily-aggregate
+request is sent with `adjusted=true`, which (per Polygon's own aggregates
+contract) means **split-adjusted**, not dividend-adjusted and not total
+return. `DailyPriceBar.close` is therefore already a split-adjusted price,
+never a raw as-traded one — verified live against the real Massive API, not
+assumed. `DailyPriceBar.adjusted_close` stays `NULL`: it is a distinct column
+reserved for a further adjustment (e.g. dividend/total-return) this project
+does not yet compute, and populating it with a copy of `close` would make
+"not supplied" indistinguishable from "equals close". Every return QuantForge
+computes from `close` (see `research/returns.py`) is consequently a
+**split-adjusted price return, dividends excluded** — not a total return —
+and is documented as such everywhere it is reported.
+
+**Benchmark.** `quantforge ingestion benchmark` reuses the same
+daily-aggregate endpoint, adapter and provenance machinery as
+`ingestion daily`, writing into `benchmark`/`benchmark_price_bar` instead of
+`security`/`daily_price_bar`. The first (and currently only) benchmark this
+project ingests is **SPY, an ETF proxy for the S&P 500 — not the index
+itself**. The real index dataset (Massive's `I:SPX`) returns an entitlement
+`403` under the currently configured plan; SPY uses the ordinary stocks
+aggregate endpoint, which is accessible. `--name` is required on every call
+and must say exactly what the symbol represents (e.g. `"SPY (ETF proxy for
+the S&P 500)"`, never `"S&P 500 Index"`) — benchmark identity is never
+inferred, and an existing row under the same symbol with a different name is
+reported as a conflict rather than silently reused or renamed.
 
 **Live-verified, not just unit-tested.** Reference and daily-bar ingestion have
 been run against the real Massive API (AAPL reference plus daily bars, including

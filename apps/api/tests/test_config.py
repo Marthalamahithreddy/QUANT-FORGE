@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -186,3 +187,70 @@ def test_cors_policy_constants_are_explicit() -> None:
 
 def test_default_origins_are_loopback_only(settings: Settings) -> None:
     assert all(origin.startswith("http://localhost") for origin in settings.cors_origins)
+
+
+def test_ingestion_raw_root_default_is_an_absolute_repository_path(settings: Settings) -> None:
+    """The default must not be a bare relative path.
+
+    A relative ``Path("data/raw")`` resolves against whatever the process's
+    current working directory happens to be when it is later opened, not
+    against a fixed project location -- see
+    ``test_ingestion_raw_root_default_is_independent_of_cwd`` for why that is
+    a real defect, not a hypothetical one.
+    """
+    assert settings.ingestion_raw_root.is_absolute()
+    assert settings.ingestion_raw_root.name == "raw"
+    assert settings.ingestion_raw_root.parent.name == "data"
+
+
+def test_ingestion_raw_root_default_is_independent_of_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The default raw-store root must resolve the same way regardless of CWD.
+
+    Both of the ways ingestion is actually invoked are expected to behave
+    identically: ``cd apps/api && uv run quantforge ...`` (the README's own
+    quick start) and running from the repository root. Before this default
+    was anchored to the repository root rather than left as a relative
+    ``Path("data/raw")``, the first of those two put raw artifacts under
+    ``apps/api/data/raw/`` -- a location the root ``.gitignore``'s
+    ``data/raw/*`` entry does not cover, since a pattern containing a
+    non-trailing slash is anchored to the directory the ``.gitignore`` file
+    itself lives in. This test proves the fix by actually changing the
+    process's working directory to an unrelated location and confirming the
+    resolved default does not move.
+    """
+    from_repo_root = Settings(_env_file=None).ingestion_raw_root
+
+    monkeypatch.chdir(tmp_path)
+    from_elsewhere = Settings(_env_file=None).ingestion_raw_root
+
+    assert from_elsewhere == from_repo_root
+    assert from_elsewhere.is_absolute()
+
+
+def test_ingestion_raw_root_default_points_at_the_repository_data_directory(
+    settings: Settings,
+) -> None:
+    """The resolved default must actually be ``<repo root>/data/raw``.
+
+    Walking up from this test file (``apps/api/tests/test_config.py``) three
+    levels reaches the repository root that owns ``data/`` and the root
+    ``.gitignore``. Computed independently of ``quantforge.core.config``'s
+    own anchor, so a bug in that anchor's arithmetic cannot cancel out
+    against this assertion.
+    """
+    repo_root = Path(__file__).resolve().parents[3]
+    assert settings.ingestion_raw_root == repo_root / "data" / "raw"
+    assert (repo_root / "data").is_dir()
+
+
+def test_ingestion_raw_root_is_overridable_via_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    override = tmp_path / "custom-raw-root"
+    monkeypatch.setenv("QF_INGESTION_RAW_ROOT", str(override))
+
+    resolved = Settings(_env_file=None)
+
+    assert resolved.ingestion_raw_root == override

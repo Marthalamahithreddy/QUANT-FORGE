@@ -93,3 +93,8 @@ temp/
 *.swp
 *.swo
 *~
+
+# ── Local session continuity (never shipped) ────────────────────────────────
+# Working notes for resuming a session on this machine; not part of the project.
+HANDOFF.md
+NEXT_SESSION_PROMPT.md

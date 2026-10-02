@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from quantforge.core.config import get_settings
 from quantforge.ingestion import cli
+from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
 from quantforge.models.company import Company
 from quantforge.models.enums import IngestionStatus
 from quantforge.models.ingestion import IngestionRun
@@ -61,6 +63,27 @@ BARS_PAYLOAD: dict[str, Any] = {
     ],
     "status": "OK",
     "request_id": "abc123",
+}
+
+#: Shaped exactly like a real Massive/Polygon aggregates response, including
+#: the ``adjusted`` field the provider echoes back -- see
+#: ``quantforge.ingestion.benchmark`` on why that field means split-adjusted,
+#: not total-return.
+SPY_BARS_PAYLOAD: dict[str, Any] = {
+    "ticker": "SPY",
+    "adjusted": True,
+    "results": [
+        {
+            "o": 680.0,
+            "h": 690.0,
+            "l": 679.0,
+            "c": 685.0,
+            "v": 70_000_000,
+            "t": 1_767_330_000_000,
+        }
+    ],
+    "status": "OK",
+    "request_id": "spy123",
 }
 
 
@@ -172,6 +195,24 @@ def _ticker_handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(404, json={"status": "ERROR", "error": f"unknown ticker {symbol}"})
 
 
+def _benchmark_handler(request: httpx.Request) -> httpx.Response:
+    """Serve a daily-aggregate response for SPY under its real shape.
+
+    Benchmark ingestion uses the identical ``/v2/aggs/`` path as stock daily
+    bars -- this handler exists only because ``_ticker_handler`` above always
+    answers that path with the AAPL-shaped ``BARS_PAYLOAD``, which would make
+    a SPY request resolve as "unknown ticker".
+    """
+    if request.url.path.startswith("/v2/aggs/"):
+        symbol = request.url.params.get("ticker", "")
+        if symbol == "SPY":
+            return httpx.Response(200, json=SPY_BARS_PAYLOAD)
+        return httpx.Response(404, json={"status": "ERROR", "error": f"unknown ticker {symbol}"})
+    return httpx.Response(
+        404, json={"status": "ERROR", "error": "unexpected path for this handler"}
+    )
+
+
 # ── argument parsing ────────────────────────────────────────────────────────
 
 
@@ -218,6 +259,14 @@ def test_a_malformed_date_is_rejected() -> None:
     with pytest.raises(SystemExit):
         cli.build_parser().parse_args(
             ["ingestion", "daily", "AAPL", "--start", "01-09-2026", "--end", "2026-09-05"]
+        )
+
+
+def test_benchmark_requires_an_explicit_name() -> None:
+    """Benchmark identity is never inferred from the symbol -- ``--name`` is required."""
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(
+            ["ingestion", "benchmark", "SPY", "--start", "2026-09-01", "--end", "2026-09-05"]
         )
 
 
@@ -495,6 +544,133 @@ def test_daily_is_idempotent_across_runs(
         )
         assert daily_runs[0].records_written == 0
         assert daily_runs[0].records_skipped == 1
+
+
+# ── benchmark ingestion ─────────────────────────────────────────────────────
+
+_SPY_NAME = "SPY (ETF proxy for the S&P 500)"
+
+
+def test_benchmark_stores_levels_and_links_them_to_the_run(
+    configured: Path,
+    empty_database: None,
+    serve: Any,
+    integration_engine: Engine,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """No reference ingestion is needed first -- a benchmark has no Listing to resolve."""
+    serve(_benchmark_handler)
+
+    code = cli.main(
+        [
+            "ingestion",
+            "benchmark",
+            "SPY",
+            "--start",
+            "2026-01-02",
+            "--end",
+            "2026-01-09",
+            "--name",
+            _SPY_NAME,
+        ]
+    )
+
+    assert code == cli.EXIT_OK
+    assert "written=1" in capsys.readouterr().out
+    with Session(integration_engine) as session:
+        benchmark = session.query(Benchmark).one()
+        assert benchmark.symbol == "SPY"
+        assert benchmark.name == _SPY_NAME
+        level = session.query(BenchmarkPriceBar).one()
+        assert level.close == Decimal("685.000000")
+        assert level.benchmark_id == benchmark.id
+        # BenchmarkPriceBar has no ingestion_run_id column (unlike DailyPriceBar),
+        # so the link back to "which run wrote this" is by dataset/source/time
+        # rather than a foreign key -- a known, pre-existing schema asymmetry,
+        # not something this step introduces or can fix without a migration.
+        run = session.query(IngestionRun).filter_by(dataset="benchmark-daily-bars").one()
+        assert run.status is IngestionStatus.SUCCEEDED
+        assert run.records_written == 1
+
+
+def test_benchmark_is_idempotent_across_runs(
+    configured: Path, empty_database: None, serve: Any, integration_engine: Engine
+) -> None:
+    serve(_benchmark_handler)
+    argv = [
+        "ingestion",
+        "benchmark",
+        "SPY",
+        "--start",
+        "2026-01-02",
+        "--end",
+        "2026-01-09",
+        "--name",
+        _SPY_NAME,
+    ]
+
+    assert cli.main(argv) == cli.EXIT_OK
+    assert cli.main(argv) == cli.EXIT_OK
+
+    with Session(integration_engine) as session:
+        assert session.query(Benchmark).count() == 1
+        assert session.query(BenchmarkPriceBar).count() == 1
+        benchmark_runs = (
+            session.query(IngestionRun)
+            .filter_by(dataset="benchmark-daily-bars")
+            .order_by(IngestionRun.started_at.desc())
+            .all()
+        )
+        assert benchmark_runs[0].records_written == 0
+        assert benchmark_runs[0].records_skipped == 1
+
+
+def test_benchmark_rejects_an_incompatible_existing_identity(
+    configured: Path,
+    empty_database: None,
+    serve: Any,
+    integration_engine: Engine,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A different --name for an already-used symbol is a conflict, not a silent rename."""
+    serve(_benchmark_handler)
+    base_argv = ["ingestion", "benchmark", "SPY", "--start", "2026-01-02", "--end", "2026-01-09"]
+    assert cli.main([*base_argv, "--name", _SPY_NAME]) == cli.EXIT_OK
+
+    code = cli.main([*base_argv, "--name", "Something Else Entirely"])
+
+    assert code == cli.EXIT_USAGE
+    assert "SPY" in capsys.readouterr().err
+    with Session(integration_engine) as session:
+        assert session.query(Benchmark).count() == 1
+        assert session.query(Benchmark).one().name == _SPY_NAME
+
+
+def test_benchmark_does_not_leak_the_credential(
+    configured: Path, empty_database: None, serve: Any, integration_engine: Engine
+) -> None:
+    serve(_benchmark_handler)
+    cli.main(
+        [
+            "ingestion",
+            "benchmark",
+            "SPY",
+            "--start",
+            "2026-01-02",
+            "--end",
+            "2026-01-09",
+            "--name",
+            _SPY_NAME,
+        ]
+    )
+
+    assert list(configured.rglob("*"))
+    for path in configured.rglob("*"):
+        if path.is_file():
+            assert "test-key-not-real" not in path.read_text()
+    with Session(integration_engine) as session:
+        run = session.query(IngestionRun).filter_by(dataset="benchmark-daily-bars").one()
+        assert "test-key-not-real" not in json.dumps(run.request_parameters)
 
 
 # ── runs listing ────────────────────────────────────────────────────────────

@@ -44,9 +44,24 @@ DEFAULT_MASSIVE_BASE_URL = "https://api.massive.com"
 #: not replace Massive for reference/daily-bar data.
 DEFAULT_FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 
+#: This file's own location: ``apps/api/src/quantforge/core/config.py``.
+#: Climbing five parents reaches the repository root -- the directory
+#: containing ``apps/``, ``data/`` and the root ``.gitignore``.
+_REPO_ROOT = Path(__file__).resolve().parents[5]
+
 #: Raw provider responses land here, outside the package tree, because they are
-#: data artefacts rather than application state.
-DEFAULT_INGESTION_RAW_ROOT = Path("data/raw")
+#: data artefacts rather than application state. Anchored to the repository
+#: root rather than left as a bare relative ``Path("data/raw")``: a relative
+#: path resolves against the process's current working directory, and both
+#: documented ways of running ingestion -- ``cd apps/api && uv run quantforge
+#: ...`` (the README's own quick start) and running from the repository root
+#: -- must land in the same place. A relative default previously put raw
+#: artifacts in ``apps/api/data/raw/`` when invoked the first way, which the
+#: root ``.gitignore``'s ``data/raw/*`` entry (anchored to the directory that
+#: file lives in, per git's own anchoring rule for a pattern containing a
+#: non-trailing slash) does not cover -- risking a real provider response
+#: being staged by an unqualified ``git add``.
+DEFAULT_INGESTION_RAW_ROOT = _REPO_ROOT / "data" / "raw"
 
 
 class Settings(BaseSettings):

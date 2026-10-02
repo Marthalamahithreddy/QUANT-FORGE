@@ -39,6 +39,7 @@ import sqlalchemy as sa
 
 from quantforge.core.config import Settings, get_settings
 from quantforge.db.session import get_session_factory
+from quantforge.ingestion.benchmark import BenchmarkBarConflictError, BenchmarkIdentityConflict
 from quantforge.ingestion.daily import ProviderDataConflict
 from quantforge.ingestion.raw_store import RawResponseStore
 from quantforge.ingestion.runs import RunOutcome
@@ -88,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="quantforge",
-        description="Ingest US equity reference data and daily bars from Massive.",
+        description="Ingest US equity reference data, daily bars and benchmark levels from Massive.",
     )
     parser.add_argument(
         "--log-level",
@@ -104,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     ingestion = sub.add_parser(
         "ingestion",
         help="fetch and manage market data",
-        description="Ingest US equity reference data and daily bars from Massive.",
+        description="Ingest US equity reference data, daily bars and benchmark levels from Massive.",
     )
     commands = ingestion.add_subparsers(dest="command", required=True)
 
@@ -140,6 +141,38 @@ def build_parser() -> argparse.ArgumentParser:
     )
     daily.set_defaults(handler=_cmd_daily)
 
+    benchmark = commands.add_parser(
+        "benchmark",
+        help="fetch daily levels for a benchmark instrument (e.g. an ETF proxy)",
+        description=(
+            "Fetch daily aggregate levels for a benchmark symbol over an inclusive "
+            "date range, from the same Massive daily-aggregate endpoint "
+            "'quantforge ingestion daily' uses, and store them against an "
+            "explicit Benchmark identity. There is no implied default benchmark: "
+            "--name must state exactly what the symbol represents. Example: "
+            "quantforge ingestion benchmark SPY --start 2026-09-01 --end "
+            "2026-09-30 --name 'SPY (ETF proxy for the S&P 500)'."
+        ),
+    )
+    benchmark.add_argument("symbol", type=_ticker, help="e.g. SPY")
+    benchmark.add_argument("--start", required=True, type=_iso_date, help="inclusive YYYY-MM-DD")
+    benchmark.add_argument("--end", required=True, type=_iso_date, help="inclusive YYYY-MM-DD")
+    benchmark.add_argument(
+        "--name",
+        required=True,
+        help=(
+            "explicit benchmark identity, e.g. 'SPY (ETF proxy for the S&P 500)' "
+            "-- never inferred from the symbol, and never 'S&P 500 Index' for an "
+            "ETF proxy"
+        ),
+    )
+    benchmark.add_argument(
+        "--currency",
+        default="USD",
+        help="ISO 4217 code, recorded only if this creates the Benchmark row (default: USD)",
+    )
+    benchmark.set_defaults(handler=_cmd_benchmark)
+
     runs = commands.add_parser(
         "runs",
         help="list recent ingestion runs, newest first",
@@ -165,6 +198,17 @@ class DailyRequest:
     start: date
     end: date
     exchange_mic: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BenchmarkRequest:
+    """A validated benchmark-ingestion request, as the user expressed it."""
+
+    symbol: str
+    start: date
+    end: date
+    name: str
+    currency: str | None = None
 
 
 # ── Command handlers ────────────────────────────────────────────────────────
@@ -207,6 +251,35 @@ def _cmd_daily(args: argparse.Namespace, settings: Settings) -> int:
     outcome = asyncio.run(run())
     print(
         f"\n{request.ticker} {request.start}..{request.end}: "
+        f"received={outcome.records_received} written={outcome.records_written} "
+        f"skipped={outcome.records_skipped} failed={outcome.records_failed}"
+    )
+    return _print_outcome(outcome)
+
+
+def _cmd_benchmark(args: argparse.Namespace, settings: Settings) -> int:
+    if args.end < args.start:
+        message = f"--end {args.end} is before --start {args.start}"
+        print(f"error: {message}", file=sys.stderr)
+        return EXIT_USAGE
+
+    request = BenchmarkRequest(
+        symbol=args.symbol,
+        start=args.start,
+        end=args.end,
+        name=args.name,
+        currency=args.currency,
+    )
+
+    async def run() -> RunOutcome:
+        async with _client(settings) as client:
+            return await _ingest_benchmark(
+                settings=settings, client=client, request=request, now=datetime.now(UTC)
+            )
+
+    outcome = asyncio.run(run())
+    print(
+        f"\n{request.symbol} ({request.name}) {request.start}..{request.end}: "
         f"received={outcome.records_received} written={outcome.records_written} "
         f"skipped={outcome.records_skipped} failed={outcome.records_failed}"
     )
@@ -311,6 +384,36 @@ async def _ingest_daily(
         return outcome
 
 
+async def _ingest_benchmark(
+    *,
+    settings: Settings,
+    client: MassiveClient,
+    request: BenchmarkRequest,
+    now: datetime,
+) -> RunOutcome:
+    factory = get_session_factory(settings)
+    with factory() as session:
+        service = IngestionService(
+            session=session,
+            provider=client,
+            store=_store(settings),
+            now=now,
+        )
+        try:
+            outcome = await service.ingest_benchmark_daily_bars(
+                request.symbol,
+                request.start,
+                request.end,
+                name=request.name,
+                currency=request.currency,
+            )
+        except BaseException:
+            session.rollback()
+            raise
+        session.commit()
+        return outcome
+
+
 def _store(settings: Settings) -> RawResponseStore:
     return RawResponseStore(root=Path(settings.ingestion_raw_root))
 
@@ -399,7 +502,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _classify(exc)
 
 
-def _classify(exc: Exception) -> int:
+def _classify(exc: Exception) -> int:  # noqa: PLR0911 - one return per distinct, named failure kind; splitting it up would not simplify anything
     """Map a failure onto an exit code and say why on stderr.
 
     Split out of :func:`main` so the ordering of the ``except`` clauses stays
@@ -408,6 +511,12 @@ def _classify(exc: Exception) -> int:
     lookup errors, so the specific cases have to be tried first.
     """
     if isinstance(exc, UnknownListingError):
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    if isinstance(exc, BenchmarkIdentityConflict):
+        # Like UnknownListingError, this is the caller needing to say which
+        # existing identity is meant (or use a different symbol/name), not a
+        # data revision to decide about.
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
     if isinstance(exc, ProviderAuthenticationError):
@@ -419,7 +528,7 @@ def _classify(exc: Exception) -> int:
         # which cannot help, and would bury it among genuine provider outages.
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
-    if isinstance(exc, ProviderDataConflict):
+    if isinstance(exc, ProviderDataConflict | BenchmarkBarConflictError):
         print(f"error: {exc}", file=sys.stderr)
         print(
             "nothing was overwritten; reconcile the source before re-running",

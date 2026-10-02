@@ -85,7 +85,13 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # Tests intentionally use bare asserts and may shadow/monkeypatch internals.
-"tests/**" = ["ARG002", "PLR2004", "S101"]
+# PLR0913/PLR0917 (too many arguments) are pytest's own fixture-injection
+# convention, not an API design smell: a test composing several independent
+# fixtures (a company, a listing, a benchmark, its data sources, the session)
+# legitimately takes more than five parameters, and splitting that into a
+# bundling fixture purely to satisfy this rule would obscure which fixtures
+# a given test actually depends on.
+"tests/**" = ["ARG002", "PLR0913", "PLR0917", "PLR2004", "S101"]
 # Boundary tests construct naive datetimes and call date.today() on purpose: the
 # whole point is to prove the schemas *reject* them. Production code has no such
 # exemption.

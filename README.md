@@ -92,6 +92,8 @@ uv run quantforge ingestion reference AAPL MSFT   # resolve + store listings
 uv run quantforge ingestion daily AAPL --start 2026-01-01 --end 2026-01-31
 uv run quantforge ingestion daily AAPL --start 2026-01-01 --end 2026-01-31 \
   --exchange XNAS                                 # disambiguate a multi-venue ticker
+uv run quantforge ingestion benchmark SPY --start 2026-01-01 --end 2026-01-31 \
+  --name "SPY (ETF proxy for the S&P 500)"         # benchmark levels, explicit identity required
 uv run quantforge ingestion runs                  # recent runs, newest first
 uv run quantforge ingestion runs --limit 20 --dataset daily-bars
 ```
@@ -102,8 +104,16 @@ and FIGI, never on a name; daily bars are idempotent per
 a conflict that fails the run. Every fetch is recorded in `ingestion_run` and
 the provider's raw bytes are stored byte-for-byte, content-addressed by their
 own SHA-256, under `data/raw/`. Ingestion commands fail fast without an API
-key, and the key is never written to disk or to the database. See
-[`apps/api/README.md`](apps/api/README.md#ingestion) for the details.
+key, and the key is never written to disk or to the database.
+
+Massive's daily aggregates are requested `adjusted=true`, which means
+**split-adjusted, not dividend-adjusted** — `close` already has stock splits
+compensated for, but cash dividends are excluded, so research returns
+computed from it are price returns, not total returns. The one benchmark
+currently ingested, **SPY, is an ETF proxy for the S&P 500, not the index
+itself** — the real index dataset is unavailable under the configured Massive
+plan. See [`apps/api/README.md`](apps/api/README.md#ingestion) for the full
+detail.
 
 ## Infrastructure
 

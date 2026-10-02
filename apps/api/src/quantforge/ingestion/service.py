@@ -38,6 +38,12 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from quantforge.ingestion.benchmark import (
+    BENCHMARK_VENUE,
+    BenchmarkBarConflictError,
+    BenchmarkBarIngestor,
+    get_or_create_benchmark,
+)
 from quantforge.ingestion.canonical import CanonicalEquityReference, ResolvedVenue
 from quantforge.ingestion.daily import DailyBarIngestor, ProviderDataConflict
 from quantforge.ingestion.earnings import EarningsIngestor
@@ -262,6 +268,85 @@ class IngestionService:
 
             outcome = run.partial(self._now) if counts.failed else run.succeed(self._now)
             logger.info("daily bars for %s: %s", ticker.upper(), outcome)
+            return outcome
+
+    # ── Benchmark bars ─────────────────────────────────────────────────────
+
+    async def ingest_benchmark_daily_bars(
+        self,
+        symbol: str,
+        start: date,
+        end: date,
+        *,
+        name: str,
+        currency: str | None = None,
+    ) -> RunOutcome:
+        """Fetch and store daily levels for a benchmark instrument (e.g. an ETF proxy).
+
+        Reuses the same Massive daily-aggregate endpoint, adapter, canonical
+        mapping, raw-capture and run machinery as :meth:`ingest_daily_bars` --
+        only the persistence target differs:
+        :class:`~quantforge.models.benchmark.BenchmarkPriceBar` via
+        :class:`~quantforge.ingestion.benchmark.BenchmarkBarIngestor`, not
+        ``DailyPriceBar`` via a resolved ``Listing``. A benchmark has no
+        ``Listing``/``Exchange`` to resolve, so
+        :data:`~quantforge.ingestion.benchmark.BENCHMARK_VENUE` stands in
+        purely for the timezone conversion ``get_daily_bars`` needs to turn a
+        bar's instant into a session date; it is never stored.
+
+        Args:
+            symbol: The provider ticker to fetch, and the value stored as
+                ``Benchmark.symbol`` (e.g. ``"SPY"``).
+            start: Inclusive start of the date range.
+            end: Inclusive end of the date range.
+            name: The benchmark's full, explicit identity (e.g. ``"SPY (ETF
+                proxy for the S&P 500)"``). Required, never defaulted or
+                inferred -- see
+                :func:`quantforge.ingestion.benchmark.get_or_create_benchmark`
+                on why benchmark selection stays explicit all the way down to
+                ingestion.
+            currency: Recorded only if this call creates the ``Benchmark`` row.
+        """
+        symbol = symbol.upper()
+        source = get_or_create_data_source(self._session, name=self._provider.name)
+        benchmark = get_or_create_benchmark(
+            self._session,
+            name=name,
+            symbol=symbol,
+            currency=currency,
+            source_id=source.id,
+        )
+
+        with RunRecorder(
+            session=self._session,
+            store=self._store,
+            provider=self._provider.name,
+            dataset="benchmark-daily-bars",
+            request_parameters={
+                "symbol": symbol,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+            },
+            now=self._now,
+        ) as run:
+            result = await self._provider.get_daily_bars(symbol, start, end, venue=BENCHMARK_VENUE)
+            self._record(run, result.captures)
+
+            ingestor = BenchmarkBarIngestor(self._session, now=self._now)
+            try:
+                counts = ingestor.ingest(
+                    result.bars,
+                    benchmark_id=benchmark.id,
+                    source_id=source.id,
+                    symbol=symbol,
+                    run=run.row,
+                )
+            except BenchmarkBarConflictError as exc:
+                logger.warning("benchmark level conflict during %s ingestion: %s", symbol, exc)
+                raise
+
+            outcome = run.partial(self._now) if counts.failed else run.succeed(self._now)
+            logger.info("benchmark levels for %s: %s", symbol, outcome)
             return outcome
 
     def _find_listing(
