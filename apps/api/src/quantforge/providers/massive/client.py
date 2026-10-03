@@ -43,6 +43,7 @@ from typing import Any, Final, NamedTuple, Self
 import httpx2 as httpx
 from pydantic import SecretStr
 
+from quantforge.ingestion.canonical import CanonicalTickerEvents
 from quantforge.models.enums import PriceBasis
 from quantforge.providers.base import (
     DailyBarsResult,
@@ -63,15 +64,21 @@ from quantforge.providers.errors import (
     ProviderTransportError,
 )
 from quantforge.providers.json_decimal import JsonValue, decode_json_document
+from quantforge.providers.listing_history import TickerEventsResult, TickerSnapshotsResult
 from quantforge.providers.massive.dto import (
     MassiveDailyBarDTO,
     MassiveSplitDTO,
+    MassiveTickerChangeEventDTO,
     MassiveTickerDetailsDTO,
+    MassiveTickerSnapshotDTO,
 )
 from quantforge.providers.massive.exchanges import VenueIdentity, resolve_venue
 from quantforge.providers.massive.mapper import (
+    is_supported_snapshot_type,
     to_canonical_daily_bar,
     to_canonical_stock_split,
+    to_canonical_ticker_change,
+    to_canonical_ticker_snapshot,
 )
 from quantforge.providers.pacing import (
     BackoffPolicy,
@@ -96,6 +103,10 @@ PROVIDER_NAME: Final[str] = "massive"
 _TICKER_DETAILS_PATH: Final[str] = "/v3/reference/tickers/{ticker}"
 _DAILY_BARS_PATH: Final[str] = "/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}"
 _SPLITS_PATH: Final[str] = "/stocks/v1/splits"
+_TICKER_SNAPSHOTS_PATH: Final[str] = "/v3/reference/tickers"
+#: EXPERIMENTAL provider endpoint (``vX``): isolated here, validated strictly.
+_TICKER_EVENTS_PATH: Final[str] = "/vX/reference/tickers/{ticker}/events"
+_SNAPSHOT_PAGE_LIMIT: Final[int] = 1000
 
 #: Documented maximum for the splits endpoint. A ticker has a handful of splits, so
 #: one page is the norm; the limit is sent explicitly so it is visible here.
@@ -543,6 +554,154 @@ class MassiveClient:
 
         splits.sort(key=lambda split: (split.execution_date, split.provider_split_id))
         return SplitsResult(splits=splits, rejected=tuple(rejected), captures=tuple(captures))
+
+    async def get_ticker_snapshots(
+        self, ticker: str, on_date: date, *, active: bool = True
+    ) -> TickerSnapshotsResult:
+        """Records for ``ticker`` as Massive lists it on ``on_date`` (``/v3/reference/tickers?date=``).
+
+        ``active=True`` asks for tickers trading on that date; ``False`` for delisted ones. The
+        snapshot proves what the provider says for that single date. Records of instrument types
+        QuantForge does not model are counted, not failed; a record of a supported type that fails
+        validation, or that is for a different ticker, is rejected. Pages follow ``next_url``
+        (host discarded) up to ``max_pages`` and every page is captured raw.
+        """
+        symbol = _normalise_ticker(ticker)
+        params: dict[str, str] = {
+            "ticker": symbol,
+            "date": on_date.isoformat(),
+            "market": "stocks",
+            "active": "true" if active else "false",
+            "limit": str(_SNAPSHOT_PAGE_LIMIT),
+        }
+        captures: list[RawCapture] = []
+        try:
+            return await self._fetch_snapshots(symbol, on_date, params, captures)
+        except ProviderError as exc:
+            if not exc.captures:
+                exc.captures = tuple(captures)
+            raise
+
+    async def _fetch_snapshots(
+        self,
+        symbol: str,
+        on_date: date,
+        params: dict[str, str],
+        captures: list[RawCapture],
+    ) -> TickerSnapshotsResult:
+        snapshots = []
+        rejected: list[str] = []
+        unsupported = 0
+        seen_pages: set[str] = set()
+        next_path: str | None = _TICKER_SNAPSHOTS_PATH
+        next_params: Mapping[str, str] = params
+        captured_params: Mapping[str, str] = params
+
+        for page_number in range(1, self._config.max_pages + 1):
+            if next_path is None:  # pragma: no cover - defensive; set below
+                break
+            if next_path in seen_pages:
+                message = f"provider pagination loop: {next_path!r} was already fetched."
+                raise ProviderResponseError(message)
+            seen_pages.add(next_path)
+            page = await self._get_json(next_path, params=next_params, dataset="ticker-snapshots")
+            captures.append(
+                _capture(
+                    dataset="ticker-snapshots",
+                    endpoint=_TICKER_SNAPSHOTS_PATH,
+                    request_parameters=captured_params,
+                    response=page,
+                    retrieved_at=self._now(),
+                )
+            )
+            for element in _results_of(page.document) or ():
+                try:
+                    dto = MassiveTickerSnapshotDTO.from_provider(element, identifier=symbol)
+                    if not is_supported_snapshot_type(dto):
+                        unsupported += 1
+                        continue
+                    if dto.ticker != symbol:
+                        rejected.append(
+                            f"record for ticker {dto.ticker!r} but {symbol!r} was requested"
+                        )
+                        continue
+                    snapshots.append(to_canonical_ticker_snapshot(dto, as_of_date=on_date))
+                except ProviderPayloadError as exc:
+                    rejected.append(str(exc))
+            next_path = _next_url_of(page.document)
+            if next_path is None:
+                break
+            next_params = {}
+            captured_params = {
+                **params,
+                "page": str(page_number + 1),
+                "next_url_sha256": hashlib.sha256(next_path.encode()).hexdigest()[:32],
+            }
+        else:
+            message = (
+                f"stopped after {self._config.max_pages} pages without exhausting the "
+                "provider's pagination; raise QF_MASSIVE_MAX_PAGES if the listing is larger"
+            )
+            raise ProviderResponseError(message)
+        snapshots.sort(key=lambda s: (s.ticker, s.share_class_figi or ""))
+        return TickerSnapshotsResult(
+            snapshots=snapshots,
+            unsupported=unsupported,
+            rejected=tuple(rejected),
+            captures=tuple(captures),
+        )
+
+    async def get_ticker_events(self, ticker: str) -> TickerEventsResult:
+        """Ticker-change events for the entity CURRENTLY represented by ``ticker``.
+
+        ``/vX/reference/tickers/{ticker}/events`` is documented as experimental, so the payload
+        is validated strictly: a non-object ``results``, a non-list ``events``, an unknown event
+        type or a malformed date is rejected (reported, never guessed), and the raw response is
+        always captured. The endpoint is not paginated.
+        """
+        symbol = _normalise_ticker(ticker)
+        captures: list[RawCapture] = []
+        params: dict[str, str] = {"ticker": symbol}
+        page = await self._get_json(
+            _TICKER_EVENTS_PATH.format(ticker=symbol), params={}, dataset="ticker-events"
+        )
+        captures.append(
+            _capture(
+                dataset="ticker-events",
+                endpoint=_TICKER_EVENTS_PATH,
+                request_parameters=params,
+                response=page,
+                retrieved_at=self._now(),
+            )
+        )
+        document = page.document
+        results = document.get("results") if isinstance(document, dict) else None
+        if not isinstance(results, dict):
+            message = "ticker events response has no 'results' object"
+            return TickerEventsResult(events=None, rejected=(message,), captures=tuple(captures))
+        raw_events = results.get("events")
+        if not isinstance(raw_events, list):
+            message = "ticker events 'results.events' is not an array"
+            return TickerEventsResult(events=None, rejected=(message,), captures=tuple(captures))
+        changes = []
+        rejected: list[str] = []
+        for element in raw_events:
+            try:
+                changes.append(
+                    to_canonical_ticker_change(
+                        MassiveTickerChangeEventDTO.from_provider(element, identifier=symbol)
+                    )
+                )
+            except ProviderPayloadError as exc:
+                rejected.append(str(exc))
+        changes.sort(key=lambda change: (change.effective_date, change.ticker))
+        name = results.get("name")
+        events = CanonicalTickerEvents(
+            requested_ticker=symbol,
+            changes=tuple(changes),
+            name=name if isinstance(name, str) else None,
+        )
+        return TickerEventsResult(events=events, rejected=tuple(rejected), captures=tuple(captures))
 
     # ── Internals ──────────────────────────────────────────────────────────
 

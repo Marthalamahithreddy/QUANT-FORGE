@@ -40,7 +40,9 @@ __all__ = [
     "MASSIVE_SECURITY_TYPE_BY_CODE",
     "MassiveDailyBarDTO",
     "MassiveSplitDTO",
+    "MassiveTickerChangeEventDTO",
     "MassiveTickerDetailsDTO",
+    "MassiveTickerSnapshotDTO",
 ]
 
 #: Anchor for converting epoch milliseconds to an aware datetime without ever
@@ -329,3 +331,110 @@ class MassiveSplitDTO(_MassiveModel):
         except Exception as exc:
             message = f"invalid split record: {exc}"
             raise ProviderPayloadError(message, identifier=identifier) from exc
+
+
+class MassiveTickerSnapshotDTO(_MassiveModel):
+    """One entry of ``GET /v3/reference/tickers`` (optionally ``date=`` for a historical snapshot).
+
+    Only what listing history needs. ``primary_exchange`` is the provider's venue code,
+    ``delisted_utc`` the last date the asset traded (an ISO timestamp or date; only its date is
+    used), ``active`` whether it traded on the queried date. A missing FIGI/CIK is ``None``, never
+    an empty string.
+    """
+
+    ticker: str
+    type: str | None = None
+    active: bool
+    primary_exchange: str | None = None
+    cik: str | None = None
+    composite_figi: str | None = None
+    share_class_figi: str | None = None
+    delisted_utc: str | None = None
+
+    @field_validator("ticker", mode="before")
+    @classmethod
+    def _require_ticker(cls, value: object) -> str:
+        if not isinstance(value, str) or not value.strip():
+            message = "ticker must be a non-blank string"
+            raise ValueError(message)
+        return value.strip().upper()
+
+    @field_validator("active", mode="before")
+    @classmethod
+    def _require_bool(cls, value: object) -> bool:
+        if not isinstance(value, bool):
+            message = f"active must be a boolean, got {type(value).__name__}"
+            raise ValueError(message)
+        return value
+
+    @field_validator("cik", mode="before")
+    @classmethod
+    def _pad_cik(cls, value: object) -> str | None:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        if (
+            not isinstance(value, str)
+            or not value.strip().isdigit()
+            or len(value.strip()) > _CIK_LENGTH
+        ):
+            message = f"cik {value!r} is not a 1-10 digit string"
+            raise ValueError(message)
+        return value.strip().zfill(_CIK_LENGTH)
+
+    @field_validator("composite_figi", "share_class_figi", mode="before")
+    @classmethod
+    def _blank_figi_is_absent(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            message = f"FIGI must be a string, got {type(value).__name__}"
+            raise ValueError(message)
+        return value.strip() or None
+
+    @classmethod
+    def from_provider(
+        cls, payload: Any, *, identifier: str | None = None
+    ) -> MassiveTickerSnapshotDTO:
+        if not isinstance(payload, dict):
+            message = f"expected an object, got {type(payload).__name__}"
+            raise ProviderPayloadError(message, identifier=identifier)
+        try:
+            return cls.model_validate(payload)
+        except Exception as exc:
+            message = f"invalid ticker snapshot record: {exc}"
+            raise ProviderPayloadError(message, identifier=identifier) from exc
+
+
+class MassiveTickerChangeEventDTO(_MassiveModel):
+    """One element of ``/vX/reference/tickers/{id}/events`` -> ``results.events``.
+
+    The endpoint is EXPERIMENTAL, so this is strict: only a ``ticker_change`` event with an ISO
+    ``date`` and a non-blank ``ticker_change.ticker`` is accepted. Any other event type, a missing
+    nested object, or a malformed date is rejected rather than guessed at.
+    """
+
+    type: str
+    date: str
+    new_ticker: str
+
+    @classmethod
+    def from_provider(
+        cls, payload: Any, *, identifier: str | None = None
+    ) -> MassiveTickerChangeEventDTO:
+        if not isinstance(payload, dict):
+            message = f"expected an object, got {type(payload).__name__}"
+            raise ProviderPayloadError(message, identifier=identifier)
+        kind = payload.get("type")
+        if kind != "ticker_change":
+            message = f"unsupported ticker event type {kind!r}; only 'ticker_change' is understood"
+            raise ProviderPayloadError(message, identifier=identifier)
+        raw_date = payload.get("date")
+        if not isinstance(raw_date, str) or not _ISO_DATE.fullmatch(raw_date):
+            message = f"ticker event date must be a YYYY-MM-DD string, got {raw_date!r}"
+            raise ProviderPayloadError(message, identifier=identifier)
+        nested = payload.get("ticker_change")
+        symbol = nested.get("ticker") if isinstance(nested, dict) else None
+        if not isinstance(symbol, str) or not symbol.strip():
+            message = "ticker event has no non-blank ticker_change.ticker"
+            raise ProviderPayloadError(message, identifier=identifier)
+        return cls(type=kind, date=raw_date, new_ticker=symbol.strip().upper())

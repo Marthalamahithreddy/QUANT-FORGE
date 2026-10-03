@@ -37,6 +37,8 @@ from sqlalchemy.exc import InterfaceError, OperationalError
 from sqlalchemy.orm import Session
 
 from quantforge.db.session import get_session
+from quantforge.identity.listing_history import SecurityHistory
+from quantforge.identity.resolver import HistoricalListingResolver
 from quantforge.models.earnings import EarningsEvent
 from quantforge.models.enums import AvailabilityBasis, EarningsTiming, ProviderType, SecurityType
 from quantforge.models.security import Listing, Security
@@ -126,6 +128,13 @@ class EarningsEventItem(BaseModel):
     company: CompanyRef
     source: SourceRef
     listings: list[ListingRef]
+    resolved_tickers: list[str] = Field(
+        description=(
+            "Tickers proven for this company on the event date by the historical resolver "
+            "(first-observed listings and source-stated history). May name a ticker no stored "
+            "listing carries; empty when nothing is proven or the evidence conflicts."
+        )
+    )
     fiscal_year: int
     fiscal_quarter: int | None
     event_date: date
@@ -180,11 +189,44 @@ def _listings_by_company(
     return grouped
 
 
-def _valid_on(listing: Listing, on: date) -> bool:
-    return listing.valid_from <= on and (listing.valid_to is None or listing.valid_to > on)
+class _Histories:
+    """Derived listing histories for the securities of a set of companies (two queries)."""
+
+    __slots__ = ("_by_company", "_resolver")
+
+    def __init__(self, session: Session, company_ids: set[uuid.UUID]) -> None:
+        self._resolver = HistoricalListingResolver(session)
+        securities: dict[uuid.UUID, list[uuid.UUID]] = {}
+        if company_ids:
+            for sid, cid in session.execute(
+                sa.select(Security.id, Security.company_id).where(
+                    Security.company_id.in_(company_ids)
+                )
+            ):
+                securities.setdefault(cid, []).append(sid)
+        every = self._resolver.histories(sid for sids in securities.values() for sid in sids)
+        self._by_company: dict[uuid.UUID, list[SecurityHistory]] = {
+            cid: [every[sid] for sid in sids] for cid, sids in securities.items()
+        }
+
+    def valid_listing_ids(self, company_id: uuid.UUID, on: date) -> frozenset[uuid.UUID]:
+        """Listings whose ticker is proven on ``on`` -- the same rule the resolver applies."""
+        ids: set[uuid.UUID] = set()
+        for history in self._by_company.get(company_id, []):
+            ids |= self._resolver.valid_listing_ids_on(history, on)
+        return frozenset(ids)
+
+    def proven_tickers(self, company_id: uuid.UUID, on: date) -> list[str]:
+        tickers: set[str] = set()
+        for history in self._by_company.get(company_id, []):
+            if history.conflict_on(on) is None:
+                tickers |= history.sourced_tickers_on(on) | history.provisional_tickers_on(on)
+        return sorted(tickers)
 
 
-def _to_item(event: EarningsEvent, listings: list[Listing]) -> EarningsEventItem:
+def _to_item(
+    event: EarningsEvent, listings: list[Listing], histories: _Histories
+) -> EarningsEventItem:
     eligibility = classify_point_in_time_eligibility(
         ResearchMode.POINT_IN_TIME,
         observed_at=event.observed_at,
@@ -194,6 +236,7 @@ def _to_item(event: EarningsEvent, listings: list[Listing]) -> EarningsEventItem
         reported_eps=event.reported_eps, estimated_eps=event.estimated_eps
     )
     company = event.company
+    valid_ids = histories.valid_listing_ids(event.company_id, event.event_date)
     return EarningsEventItem(
         id=event.id,
         company=CompanyRef(
@@ -203,6 +246,7 @@ def _to_item(event: EarningsEvent, listings: list[Listing]) -> EarningsEventItem
             cik=company.cik,
         ),
         source=SourceRef(name=event.source.name, provider_type=event.source.provider_type),
+        resolved_tickers=histories.proven_tickers(event.company_id, event.event_date),
         listings=[
             ListingRef(
                 ticker=listing.ticker,
@@ -213,7 +257,7 @@ def _to_item(event: EarningsEvent, listings: list[Listing]) -> EarningsEventItem
                 valid_from=listing.valid_from,
                 valid_to=listing.valid_to,
                 is_primary=listing.is_primary,
-                valid_on_event_date=_valid_on(listing, event.event_date),
+                valid_on_event_date=listing.id in valid_ids,
             )
             for listing in listings
         ],
@@ -275,21 +319,25 @@ def list_earnings_events(
         conditions.append(EarningsEvent.event_date >= date_from)
     if date_to is not None:
         conditions.append(EarningsEvent.event_date <= date_to)
-    if ticker is not None:
-        # Valid on THIS event's date, half-open: a listing that started or
-        # ended on another date must not rewrite history.
-        conditions.append(
-            sa.exists()
-            .where(
-                Security.company_id == EarningsEvent.company_id,
-                Listing.security_id == Security.id,
-                sa.func.upper(Listing.ticker) == ticker.upper(),
-                Listing.valid_from <= EarningsEvent.event_date,
-                sa.or_(Listing.valid_to.is_(None), Listing.valid_to > EarningsEvent.event_date),
-            )
-            .correlate(EarningsEvent)
-        )
     try:
+        if ticker is not None:
+            # The ticker must be PROVEN for the event's company on the event's own date by the same
+            # resolver the research layer uses (half-open intervals, conflicts excluded); a listing
+            # that started or ended on another date must not rewrite history.
+            ranges = HistoricalListingResolver(session).ticker_company_ranges(ticker)
+            conditions.append(
+                sa.or_(
+                    sa.false(),
+                    *(
+                        sa.and_(
+                            EarningsEvent.company_id == company_id,
+                            EarningsEvent.event_date >= first,
+                            *(() if last is None else (EarningsEvent.event_date < last,)),
+                        )
+                        for company_id, first, last in ranges
+                    ),
+                )
+            )
         total = session.scalar(
             sa.select(sa.func.count()).select_from(EarningsEvent).where(*conditions)
         )
@@ -304,8 +352,10 @@ def list_earnings_events(
             .limit(limit)
             .offset(offset)
         ).all()
-        listings = _listings_by_company(session, {event.company_id for event in events})
-        items = [_to_item(event, listings.get(event.company_id, [])) for event in events]
+        company_ids = {event.company_id for event in events}
+        listings = _listings_by_company(session, company_ids)
+        histories = _Histories(session, company_ids)
+        items = [_to_item(event, listings.get(event.company_id, []), histories) for event in events]
     except (OperationalError, InterfaceError) as exc:
         raise _unavailable(exc) from exc
     return EarningsEventPage(items=items, total=total or 0, limit=limit, offset=offset)
@@ -323,7 +373,9 @@ def get_earnings_event(event_id: uuid.UUID, session: SessionDep) -> EarningsEven
         if event is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found.")
         listings = _listings_by_company(session, {event.company_id})
-        return _to_item(event, listings.get(event.company_id, []))
+        return _to_item(
+            event, listings.get(event.company_id, []), _Histories(session, {event.company_id})
+        )
     except (OperationalError, InterfaceError) as exc:
         raise _unavailable(exc) from exc
 

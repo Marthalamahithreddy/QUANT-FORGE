@@ -45,6 +45,8 @@ from quantforge.ingestion.canonical import (
     CanonicalDailyBar,
     CanonicalEquityReference,
     CanonicalStockSplit,
+    CanonicalTickerChange,
+    CanonicalTickerSnapshot,
     ResolvedVenue,
 )
 from quantforge.models.enums import PriceBasis, StockSplitAdjustmentType
@@ -54,7 +56,9 @@ from quantforge.providers.massive.dto import (
     MASSIVE_SECURITY_TYPE_BY_CODE,
     MassiveDailyBarDTO,
     MassiveSplitDTO,
+    MassiveTickerChangeEventDTO,
     MassiveTickerDetailsDTO,
+    MassiveTickerSnapshotDTO,
 )
 from quantforge.providers.massive.exchanges import (
     UnsupportedExchangeError,
@@ -274,3 +278,71 @@ def to_canonical_stock_split(dto: MassiveSplitDTO) -> CanonicalStockSplit:
         )
     except ValueError as exc:
         raise ProviderPayloadError(str(exc), identifier=dto.provider_split_id) from exc
+
+
+#: Instrument types a ticker snapshot is turned into a listing-history fact for. The same two the
+#: reference adapter understands; anything else (ETFs, warrants, ADRs...) is not modelled here.
+_SNAPSHOT_SUPPORTED_TYPES: Final[frozenset[str]] = frozenset(MASSIVE_SECURITY_TYPE_BY_CODE)
+
+
+def is_supported_snapshot_type(dto: MassiveTickerSnapshotDTO) -> bool:
+    """Whether this snapshot record is a security type QuantForge models."""
+    return dto.type is not None and dto.type.strip().upper() in _SNAPSHOT_SUPPORTED_TYPES
+
+
+def to_canonical_ticker_snapshot(
+    dto: MassiveTickerSnapshotDTO, *, as_of_date: date
+) -> CanonicalTickerSnapshot:
+    """Map one dated-snapshot record. Dates are taken as stated; no interval is derived.
+
+    The provider's venue code becomes a MIC only through the explicit venue table; a code the
+    table does not know leaves ``primary_mic`` empty (the venue evidence is simply absent, and
+    nothing is guessed). ``delisted_utc`` contributes only its calendar date.
+
+    Raises:
+        ProviderPayloadError: the values fail the canonical invariants.
+    """
+    mic: str | None = None
+    if dto.primary_exchange is not None and dto.primary_exchange.strip():
+        try:
+            mic = resolve_venue(dto.primary_exchange).mic
+        except UnsupportedExchangeError:
+            mic = None
+    delisted: date | None = None
+    if dto.delisted_utc is not None and dto.delisted_utc.strip():
+        try:
+            delisted = date.fromisoformat(dto.delisted_utc.strip()[:10])
+        except ValueError as exc:
+            message = f"delisted_utc {dto.delisted_utc!r} has no ISO date"
+            raise ProviderPayloadError(message, identifier=dto.ticker) from exc
+    try:
+        return CanonicalTickerSnapshot(
+            as_of_date=as_of_date,
+            ticker=dto.ticker,
+            active=dto.active,
+            share_class_figi=dto.share_class_figi,
+            composite_figi=dto.composite_figi,
+            cik=dto.cik,
+            primary_mic=mic,
+            delisted_date=delisted,
+        )
+    except ValueError as exc:
+        raise ProviderPayloadError(str(exc), identifier=dto.ticker) from exc
+
+
+#: Massive documents ``ticker_change`` events (experimental) but not what the event ``date`` means.
+#: The adapter treats it as the INCLUSIVE first date of the new ticker. That is a provider-contract
+#: assumption, isolated here: it is NOT independently established, no live call has checked it, and
+#: nothing downstream may treat it as more than a provider-stated start. If a live probe shows a
+#: different meaning, change this adapter's interpretation, not the identity architecture.
+TICKER_EVENT_DATE_SEMANTICS_VERIFIED: Final[bool] = False
+
+
+def to_canonical_ticker_change(dto: MassiveTickerChangeEventDTO) -> CanonicalTickerChange:
+    """Map one ticker-change event: ``new_ticker`` became the symbol on ``date`` (inclusive)."""
+    try:
+        return CanonicalTickerChange(
+            ticker=dto.new_ticker, effective_date=date.fromisoformat(dto.date)
+        )
+    except ValueError as exc:
+        raise ProviderPayloadError(str(exc), identifier=dto.new_ticker) from exc

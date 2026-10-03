@@ -59,6 +59,9 @@ __all__ = [
     "CanonicalEquityReference",
     "CanonicalSecFiling",
     "CanonicalStockSplit",
+    "CanonicalTickerChange",
+    "CanonicalTickerEvents",
+    "CanonicalTickerSnapshot",
     "ReferenceResolution",
     "ResolvedVenue",
 ]
@@ -668,4 +671,113 @@ class CanonicalStockSplit:
                 f"adjustment_type {self.adjustment_type.value} contradicts the ratio "
                 f"{self.old_shares} -> {self.new_shares}"
             )
+            raise ValueError(message)
+
+
+#: An OpenFIGI identifier is 12 characters: ``BBG`` + 8 alphanumerics + a check digit.
+_FIGI_PATTERN: Final = re.compile(r"BBG[A-Z0-9]{9}")
+
+
+def _require_ticker(value: object, field_name: str) -> None:
+    if not isinstance(value, str) or not value.strip() or value != value.strip():
+        message = f"{field_name} must be a non-blank string without surrounding whitespace"
+        raise ValueError(message)
+    if value != value.upper():
+        message = f"{field_name} must be upper-case, got {value!r}"
+        raise ValueError(message)
+    if len(value) > PROVIDER_TICKER_LENGTH:
+        message = f"{field_name} is longer than the stored limit of {PROVIDER_TICKER_LENGTH}"
+        raise ValueError(message)
+
+
+_SANE_DATES: Final = (date(1900, 1, 1), date(2100, 12, 31))
+
+
+def _require_plain_date(value: object, field_name: str) -> None:
+    if type(value) is not date:
+        message = f"{field_name} must be a plain date, got {type(value).__name__}"
+        raise ValueError(message)
+    if not _SANE_DATES[0] <= value <= _SANE_DATES[1]:
+        message = f"{field_name} {value} is outside {_SANE_DATES[0]}..{_SANE_DATES[1]}"
+        raise ValueError(message)
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalTickerSnapshot:
+    """One provider record from a DATED ticker listing: "as of ``as_of_date``, this ticker ...".
+
+    It proves what the provider says for that one date and nothing around it: two snapshots do
+    not make a continuous interval, and ``primary_mic`` is venue evidence for that date only.
+    ``share_class_figi`` is the security-level anchor; ``composite_figi`` is exchange-composite
+    level (a different thing, never substituted); ``cik`` is registrant (company) identity, never
+    security identity. ``delisted_date`` is the provider's "last date the asset was traded"
+    (inclusive), present only for delisted tickers.
+    """
+
+    as_of_date: date
+    ticker: str
+    active: bool
+    share_class_figi: str | None = None
+    composite_figi: str | None = None
+    cik: str | None = None
+    primary_mic: str | None = None
+    delisted_date: date | None = None
+
+    def __post_init__(self) -> None:
+        _require_plain_date(self.as_of_date, "as_of_date")
+        _require_ticker(self.ticker, "ticker")
+        stated_active: object = self.active
+        if not isinstance(stated_active, bool):
+            message = f"active must be a bool, got {type(stated_active).__name__}"
+            raise ValueError(message)
+        for name in ("share_class_figi", "composite_figi"):
+            value = getattr(self, name)
+            if value is not None and not _FIGI_PATTERN.fullmatch(value):
+                message = f"{name} must look like BBG followed by 9 alphanumerics, got {value!r}"
+                raise ValueError(message)
+        if self.cik is not None and not _CIK_PATTERN.fullmatch(self.cik):
+            message = f"cik must be exactly 10 digits (zero-padded), got {self.cik!r}"
+            raise ValueError(message)
+        if self.primary_mic is not None and not re.fullmatch(r"[A-Z0-9]{4}", self.primary_mic):
+            message = f"primary_mic must be a 4-character MIC, got {self.primary_mic!r}"
+            raise ValueError(message)
+        if self.delisted_date is not None:
+            _require_plain_date(self.delisted_date, "delisted_date")
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalTickerChange:
+    """A provider ticker-change event: ``ticker`` became the symbol on ``effective_date``.
+
+    The date's exact meaning (first trading day of the new symbol) is the documented intent of
+    Massive's experimental ``ticker_change`` event but is NOT yet verified against live data; it
+    is treated as an inclusive start. It says nothing about venue, continuity of trading, or
+    identity beyond "the entity the provider attributes the event list to".
+    """
+
+    ticker: str
+    effective_date: date
+
+    def __post_init__(self) -> None:
+        _require_ticker(self.ticker, "ticker")
+        _require_plain_date(self.effective_date, "effective_date")
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalTickerEvents:
+    """The ticker-change events the provider returned for one queried identifier.
+
+    ``requested_ticker`` is the symbol that was asked about: the provider returns events for the
+    entity CURRENTLY represented by it. ``changes`` are in ascending date order.
+    """
+
+    requested_ticker: str
+    changes: tuple[CanonicalTickerChange, ...]
+    name: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_ticker(self.requested_ticker, "requested_ticker")
+        dates = [change.effective_date for change in self.changes]
+        if dates != sorted(dates):
+            message = "changes must be in ascending date order"
             raise ValueError(message)

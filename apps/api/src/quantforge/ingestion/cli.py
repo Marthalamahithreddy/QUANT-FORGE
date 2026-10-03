@@ -29,7 +29,7 @@ import argparse
 import asyncio
 import logging
 import sys
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -40,6 +40,7 @@ from sqlalchemy.orm import Session
 
 from quantforge.core.config import Settings, get_settings
 from quantforge.db.session import get_session_factory
+from quantforge.identity.resolver import HistoricalListingResolver
 from quantforge.ingestion.benchmark import BenchmarkBarConflictError, BenchmarkIdentityConflict
 from quantforge.ingestion.daily import ProviderDataConflict
 from quantforge.ingestion.filings import (
@@ -47,6 +48,12 @@ from quantforge.ingestion.filings import (
     FilingIngestionService,
     SecFilingConflictError,
     UnknownRegistrantError,
+)
+from quantforge.ingestion.listing_history import (
+    IncompleteListingHistoryError,
+    InvalidAnchorDateError,
+    ListingFactConflictError,
+    ListingHistoryIngestionService,
 )
 from quantforge.ingestion.raw_store import RawResponseStore
 from quantforge.ingestion.runs import FAILED_RUN_RECORDED, RunOutcome
@@ -56,6 +63,7 @@ from quantforge.ingestion.splits import (
     AmbiguousSplitSecurityError,
     IncompleteSplitFetchError,
     InvalidSplitRangeError,
+    ListingHistoryConflictError,
     RetiredTickerCoverageError,
     SplitIngestionService,
     StockSplitConflictError,
@@ -122,6 +130,65 @@ def _ticker(value: str) -> str:
         message = f"{value!r} does not look like a ticker symbol"
         raise argparse.ArgumentTypeError(message)
     return cleaned
+
+
+def _add_listing_history_commands(commands: Any) -> None:
+    """The sourced listing-history commands: snapshot, events, and a read-only era report."""
+    snapshot = commands.add_parser(
+        "listing-snapshot",
+        help="store a dated ticker snapshot as a sourced listing-history fact",
+        description=(
+            "Fetch Massive's listing of one ticker as of ONE date (/v3/reference/tickers?date=) and "
+            "store the facts it states for that single date (the ticker was observed that day; a "
+            "last-traded date when the provider gives one). Each record is attributed to a stored "
+            "security through its share-class FIGI. Nothing is derived and the listing table is "
+            "never changed; two snapshots do not make a continuous interval."
+        ),
+    )
+    snapshot.add_argument("ticker", type=_ticker, help="e.g. META")
+    snapshot.add_argument(
+        "--date", required=True, type=_iso_date, help="the snapshot date, YYYY-MM-DD"
+    )
+    snapshot.add_argument(
+        "--delisted",
+        action="store_true",
+        help="ask for tickers NOT trading on that date (to read a last-traded date)",
+    )
+    snapshot.set_defaults(handler=_cmd_listing_snapshot)
+
+    events = commands.add_parser(
+        "listing-events",
+        help="store a ticker's ticker-change history as sourced listing-history facts",
+        description=(
+            "Fetch Massive's EXPERIMENTAL ticker-events for the entity currently represented by "
+            "TICKER and store each ticker change as a 'ticker started' fact. Identity is anchored "
+            "by a dated snapshot fetched in the same run (--anchor-date, default yesterday UTC): "
+            "its share-class FIGI decides which stored security the events belong to. Everything "
+            "is stored or nothing is. No exchange continuity is implied."
+        ),
+    )
+    events.add_argument("ticker", type=_ticker, help="the ticker the entity holds NOW, e.g. META")
+    events.add_argument(
+        "--anchor-date",
+        type=_iso_date,
+        default=None,
+        help="a recent date the ticker traded (default: yesterday, UTC)",
+    )
+    events.set_defaults(handler=_cmd_listing_events)
+
+    eras = commands.add_parser(
+        "listing-eras",
+        help="show the ticker eras the stored evidence proves (read-only, no provider call)",
+        description=(
+            "Print where, inside the date range, one security is PROVEN to have held the ticker, "
+            "using the same resolver research, the earnings API and split ingestion use. A gap, an "
+            "ambiguity or a conflict is reported as such, never filled."
+        ),
+    )
+    eras.add_argument("ticker", type=_ticker, help="e.g. META")
+    eras.add_argument("--start", required=True, type=_iso_date, help="inclusive YYYY-MM-DD")
+    eras.add_argument("--end", required=True, type=_iso_date, help="inclusive YYYY-MM-DD")
+    eras.set_defaults(handler=_cmd_listing_eras)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -268,6 +335,8 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     splits.set_defaults(handler=_cmd_stock_splits)
+
+    _add_listing_history_commands(commands)
 
     runs = commands.add_parser(
         "runs",
@@ -438,6 +507,71 @@ def _cmd_stock_splits(args: argparse.Namespace, settings: Settings) -> int:
         f"failed={outcome.records_failed}"
     )
     return _print_outcome(outcome)
+
+
+def _cmd_listing_snapshot(args: argparse.Namespace, settings: Settings) -> int:
+    now = datetime.now(UTC)
+
+    async def run() -> RunOutcome:
+        async with _client(settings) as client:
+            return await _ingest_listing_history(
+                settings=settings,
+                client=client,
+                now=now,
+                operation=lambda service: service.ingest_ticker_snapshot(
+                    args.ticker, args.date, active=not args.delisted
+                ),
+            )
+
+    outcome = asyncio.run(run())
+    print(
+        f"\n{args.ticker} snapshot {args.date}: received={outcome.records_received} "
+        f"written={outcome.records_written} skipped={outcome.records_skipped} "
+        f"failed={outcome.records_failed}"
+    )
+    return _print_outcome(outcome)
+
+
+def _cmd_listing_events(args: argparse.Namespace, settings: Settings) -> int:
+    now = datetime.now(UTC)
+    anchor = args.anchor_date or (now.date() - timedelta(days=1))
+
+    async def run() -> RunOutcome:
+        async with _client(settings) as client:
+            return await _ingest_listing_history(
+                settings=settings,
+                client=client,
+                now=now,
+                operation=lambda service: service.ingest_ticker_events(
+                    args.ticker, anchor_date=anchor
+                ),
+            )
+
+    outcome = asyncio.run(run())
+    print(
+        f"\n{args.ticker} ticker events (anchor {anchor}): received={outcome.records_received} "
+        f"written={outcome.records_written} skipped={outcome.records_skipped} "
+        f"failed={outcome.records_failed}"
+    )
+    return _print_outcome(outcome)
+
+
+def _cmd_listing_eras(args: argparse.Namespace, settings: Settings) -> int:
+    if args.end < args.start:
+        print(f"error: --end {args.end} is before --start {args.start}", file=sys.stderr)
+        return EXIT_USAGE
+    with get_session_factory(settings)() as session:
+        resolution = HistoricalListingResolver(session).resolve_ticker_eras(
+            args.ticker, args.start, args.end
+        )
+    print(
+        f"{args.ticker} {args.start}..{args.end}: {resolution.status.value} -- {resolution.reason}"
+    )
+    if resolution.security_id is not None:
+        print(f"  security: {resolution.security_id}")
+    for first, last in resolution.ranges:
+        print(f"  proven: {first} .. {last} (inclusive)")
+    return EXIT_OK if resolution.status.value == "RESOLVED" else EXIT_RUN_FAILED
 
 
 def _cmd_runs(args: argparse.Namespace, settings: Settings) -> int:
@@ -646,6 +780,27 @@ async def _ingest_stock_splits(  # noqa: PLR0913 - one keyword per request field
         return outcome
 
 
+async def _ingest_listing_history(
+    *,
+    settings: Settings,
+    client: MassiveClient,
+    now: datetime,
+    operation: Callable[[ListingHistoryIngestionService], Awaitable[RunOutcome]],
+) -> RunOutcome:
+    factory = get_session_factory(settings)
+    with factory() as session:
+        service = ListingHistoryIngestionService(
+            session=session, provider=client, store=_store(settings), now=now
+        )
+        try:
+            outcome = await operation(service)
+        except BaseException:
+            _commit_failed_run(session)
+            raise
+        session.commit()
+        return outcome
+
+
 def _store(settings: Settings) -> RawResponseStore:
     return RawResponseStore(root=Path(settings.ingestion_raw_root))
 
@@ -747,12 +902,18 @@ def _classify(exc: Exception) -> int:  # noqa: PLR0911 - one return per distinct
         UnknownListingError
         | UnknownRegistrantError
         | InvalidSplitRangeError
+        | InvalidAnchorDateError
+        | ListingHistoryConflictError
         | RetiredTickerCoverageError
         | AmbiguousSplitSecurityError
         | UnknownSplitTickerError,
     ):
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
+    if isinstance(exc, IncompleteListingHistoryError | ListingFactConflictError):
+        print(f"error: {exc}", file=sys.stderr)
+        print("nothing was stored; reconcile the source before re-running", file=sys.stderr)
+        return EXIT_RUN_FAILED
     if isinstance(exc, IncompleteSplitFetchError | UnmappedSplitError):
         print(f"error: {exc}", file=sys.stderr)
         print("no coverage was recorded", file=sys.stderr)

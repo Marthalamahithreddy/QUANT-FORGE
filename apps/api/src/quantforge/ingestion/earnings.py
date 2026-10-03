@@ -67,11 +67,12 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
+from quantforge.identity.listing_history import ResolutionStatus
+from quantforge.identity.resolver import HistoricalListingResolver
 from quantforge.ingestion.canonical import CanonicalEarningsEvent
 from quantforge.ingestion.daily import IngestCounts
 from quantforge.models.earnings import EarningsEvent, earnings_event_fingerprint
 from quantforge.models.ingestion import IngestionRun
-from quantforge.models.security import Listing
 
 __all__ = ["EarningsIngestor", "UnknownIssuerError", "earnings_fingerprint"]
 
@@ -136,31 +137,37 @@ def resolve_company_id(
             covers ``event_date``, or two different issuers' listings cover it.
     """
     symbol = ticker.upper()
-    listings = list(session.scalars(sa.select(Listing).where(Listing.ticker == symbol)).all())
-    if not listings:
-        hint = f" Ingest its reference first: quantforge ingestion reference {symbol}."
-        raise UnknownIssuerError(f"{symbol} is not stored.{hint}")
-
-    covering = [
-        listing
-        for listing in listings
-        if listing.valid_from <= event_date
-        and (listing.valid_to is None or event_date < listing.valid_to)
-    ]
-    if not covering:
+    # The one historical resolver: first-observed listings AND source-stated history, with
+    # conflicts and ambiguity surfaced rather than resolved by picking a side.
+    outcome = HistoricalListingResolver(session).resolve_ticker_on(symbol, event_date)
+    if outcome.status is ResolutionStatus.NO_EVIDENCE:
+        if not outcome.known:
+            hint = f" Ingest its reference first: quantforge ingestion reference {symbol}."
+            raise UnknownIssuerError(f"{symbol} is not stored.{hint}")
         raise UnknownIssuerError(
             f"{symbol} had no listing covering {event_date.isoformat()} (the "
             "ticker may have been reused or delisted); not attributing the "
             "event to a guessed issuer"
         )
-
-    companies = {listing.security.company_id for listing in covering}
-    if len(companies) > 1:
+    if outcome.status is ResolutionStatus.CONFLICT:
         raise UnknownIssuerError(
-            f"{symbol} is covered by listings from {len(companies)} issuers on "
+            f"{symbol} has contradictory listing history on {event_date.isoformat()} "
+            f"({outcome.reason}); not attributing the event to a guessed issuer"
+        )
+    if len(outcome.company_ids) > 1:
+        raise UnknownIssuerError(
+            f"{symbol} is covered by listings from {len(outcome.company_ids)} issuers on "
             f"{event_date.isoformat()}; refusing to pick one"
         )
-    return companies.pop()
+    if outcome.status is ResolutionStatus.RESOLVED and outcome.company_id is not None:
+        return outcome.company_id
+    if outcome.status is ResolutionStatus.AMBIGUOUS and len(outcome.company_ids) == 1:
+        # Several share classes of ONE issuer carry the ticker: the issuer is not in doubt.
+        return next(iter(outcome.company_ids))
+    raise UnknownIssuerError(
+        f"{symbol} had no listing covering {event_date.isoformat()}; not attributing the "
+        "event to a guessed issuer"
+    )
 
 
 class EarningsIngestor:

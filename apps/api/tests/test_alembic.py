@@ -110,6 +110,7 @@ def test_baseline_revision_exists_and_is_empty() -> None:
         "0007_availability_basis.py",
         "0008_sec_filing.py",
         "0009_stock_split.py",
+        "0010_listing_history_fact.py",
     ]
 
     source = revisions[0].read_text(encoding="utf-8")

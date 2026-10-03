@@ -79,7 +79,16 @@ class IdentifierType(StrEnum):
     ISIN = "ISIN"
     CUSIP = "CUSIP"
     SEDOL = "SEDOL"
+    #: Legacy, level UNSPECIFIED. An OpenFIGI identifier exists at several levels (venue,
+    #: exchange-composite, share class) that name different things; a row of this type does
+    #: not say which. Rows written by the Massive reference adapter were relabelled
+    #: ``FIGI_SHARE_CLASS`` by migration 0010 (that adapter has only ever stored the share-class
+    #: FIGI); any other row stays here and is never trusted as a share-class anchor.
     FIGI = "FIGI"
+    #: The OpenFIGI SHARE-CLASS FIGI: one code for one share class across every venue and
+    #: ticker. This is the security-level identity anchor (a ticker is not, and the
+    #: composite FIGI is exchange-composite level, not share-class level).
+    FIGI_SHARE_CLASS = "FIGI_SHARE_CLASS"
     OTHER = "OTHER"
 
 
@@ -239,6 +248,25 @@ class StockSplitAdjustmentType(StrEnum):
     STOCK_DIVIDEND = "STOCK_DIVIDEND"
 
 
+class ListingFactKind(StrEnum):
+    """What a :class:`~quantforge.models.listing_history.ListingHistoryFact` states.
+
+    Every kind is a statement about ONE date; intervals are never stored here, they are
+    derived later by an explicit, deterministic reconciliation.
+    """
+
+    #: "As of ``effective_date`` the source says this security traded under this ticker."
+    #: Proves that single date only -- two observations do not make a continuous interval.
+    TICKER_OBSERVED = "TICKER_OBSERVED"
+    #: "The provider states the ticker became this security's symbol on ``effective_date``" (a
+    #: ticker-change event; inclusive start PER THE PROVIDER CONTRACT as interpreted by the Massive
+    #: adapter -- that meaning is provider-unverified, see ``TICKER_EVENT_DATE_SEMANTICS_VERIFIED``). Proves the era's start, and that the previous ticker ended;
+    #: it does NOT prove the same exchange or uninterrupted trading.
+    TICKER_STARTED = "TICKER_STARTED"
+    #: "The security last traded under this ticker on ``effective_date``" (inclusive).
+    LAST_TRADED = "LAST_TRADED"
+
+
 def enum_type(enum_cls: type[StrEnum], *, name: str, length: int) -> sa.Enum:
     """Return a non-native :class:`sqlalchemy.Enum` for ``enum_cls``.
 
@@ -290,5 +318,6 @@ PRICE_BASIS_LENGTH = 32
 AVAILABILITY_BASIS_LENGTH = 32
 SEC_FORM_LENGTH = 16
 SPLIT_ADJUSTMENT_TYPE_LENGTH = 16
+LISTING_FACT_KIND_LENGTH = 16
 #: Lifecycle status of an ingestion run; see ``IngestionStatus``.
 INGESTION_STATUS_LENGTH = 16

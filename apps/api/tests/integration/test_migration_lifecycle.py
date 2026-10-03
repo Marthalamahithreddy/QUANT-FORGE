@@ -32,7 +32,7 @@ pytestmark = pytest.mark.integration
 API_ROOT = Path(__file__).resolve().parents[2]
 
 SCRATCH_DB_NAME = "quantforge_migrations_test"
-HEAD = "0009"
+HEAD = "0010"
 PRIOR = "0005"
 #: Revision before 0005 -- the 0005 tests below downgrade past 0006 to reach it.
 PRE_0005 = "0004"
@@ -121,9 +121,18 @@ def test_upgrade_to_head_produces_the_expected_chain(
 
     scripts = ScriptDirectory.from_config(config)
     chain = [script.revision for script in scripts.walk_revisions()]
-    assert chain == [HEAD, "0008", "0007", "0006", PRIOR, PRE_0005, "0003", "0002", "0001"], (
-        f"unexpected chain {chain}"
-    )
+    assert chain == [
+        HEAD,
+        "0009",
+        "0008",
+        "0007",
+        "0006",
+        PRIOR,
+        PRE_0005,
+        "0003",
+        "0002",
+        "0001",
+    ], f"unexpected chain {chain}"
     assert scripts.get_current_head() == HEAD
 
 
@@ -760,3 +769,114 @@ def test_0009_constraints_reject_non_positive_ratios_and_inverted_coverage(
             )
     finally:
         _purge_seed(scratch_database, ids)
+
+
+def test_0010_relabels_only_massive_attributed_figi_rows_and_never_guesses(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, HEAD)
+    command.downgrade(config, "0009")
+    ids = _seed_entities(scratch_database)
+    massive, other = uuid.uuid4(), uuid.uuid4()
+    rows = {
+        "massive": (massive, "BBG000000001"),
+        "other": (other, "BBG000000002"),
+        "unattributed": (None, "BBG000000003"),
+    }
+    try:
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO data_source (id, name, provider_type, is_active, created_at) "
+                    "VALUES (:m, 'massive', 'MARKET_DATA_VENDOR', true, now()), "
+                    "(:o, 'some-other-vendor', 'MARKET_DATA_VENDOR', true, now())"
+                ),
+                {"m": massive, "o": other},
+            )
+            for source, figi in rows.values():
+                connection.execute(
+                    sa.text(
+                        "INSERT INTO security_identifier (id, security_id, identifier_type, "
+                        "identifier_value, source_id, created_at) VALUES (gen_random_uuid(), "
+                        ":security, 'FIGI', :figi, :source, now())"
+                    ),
+                    {"security": ids["security"], "figi": figi, "source": source},
+                )
+        command.upgrade(config, HEAD)
+
+        with scratch_database.connect() as connection:
+            types: dict[str, str] = dict(
+                connection.execute(
+                    sa.text("SELECT identifier_value, identifier_type FROM security_identifier")
+                ).all()
+            )
+        assert types["BBG000000001"] == "FIGI_SHARE_CLASS", (
+            "provenance proves the adapter stored it"
+        )
+        assert types["BBG000000002"] == "FIGI", "another source: level unknown, left alone"
+        assert types["BBG000000003"] == "FIGI", "no source: level unknown, left alone"
+        assert "listing_history_fact" in _table_names(scratch_database)
+
+        command.downgrade(config, "0009")
+        with scratch_database.connect() as connection:
+            reverted = {
+                value
+                for (value,) in connection.execute(
+                    sa.text("SELECT identifier_type FROM security_identifier")
+                )
+            }
+        assert reverted == {"FIGI"}
+    finally:
+        with scratch_database.begin() as connection:
+            connection.execute(sa.text("DELETE FROM security_identifier"))
+            connection.execute(
+                sa.text("DELETE FROM data_source WHERE id IN (:m, :o)"), {"m": massive, "o": other}
+            )
+        _purge_seed(scratch_database, ids)
+        command.upgrade(config, HEAD)
+
+
+def test_0010_constraints_and_downgrade_refuse_while_sourced_history_exists(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, HEAD)
+    ids = _seed_entities(scratch_database)
+    try:
+        for ticker, kind, mic in (
+            ("meta", "TICKER_OBSERVED", None),
+            ("META", "TICKER_STARTED", "XNAS"),
+        ):
+            with pytest.raises(sa.exc.IntegrityError), scratch_database.begin() as connection:
+                connection.execute(
+                    sa.text(
+                        "INSERT INTO listing_history_fact (id, security_id, source_id, kind, "
+                        "ticker, effective_date, mic, ingested_at, created_at) VALUES "
+                        "(gen_random_uuid(), :security, :source, :kind, :ticker, '2020-01-02', "
+                        ":mic, now(), now())"
+                    ),
+                    {**ids, "kind": kind, "ticker": ticker, "mic": mic},
+                )
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO listing_history_fact (id, security_id, source_id, kind, ticker, "
+                    "effective_date, ingested_at, created_at) VALUES (gen_random_uuid(), "
+                    ":security, :source, 'TICKER_STARTED', 'BAS', '2012-05-18', now(), now())"
+                ),
+                ids,
+            )
+        with pytest.raises(Exception, match="listing_history_fact row"):
+            command.downgrade(config, "0009")
+        assert _current_version(scratch_database) == HEAD
+
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text("DELETE FROM listing_history_fact WHERE security_id = :security"), ids
+            )
+        command.downgrade(config, "0009")
+        assert "listing_history_fact" not in _table_names(scratch_database)
+    finally:
+        _purge_seed(scratch_database, ids)
+        command.upgrade(config, HEAD)

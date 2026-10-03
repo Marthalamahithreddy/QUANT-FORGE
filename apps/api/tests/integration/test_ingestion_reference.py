@@ -27,6 +27,7 @@ from quantforge.ingestion.reference import (
 )
 from quantforge.ingestion.sources import get_or_create_data_source
 from quantforge.models.company import Company
+from quantforge.models.enums import IdentifierType
 from quantforge.models.security import Exchange, Listing, Security, SecurityIdentifier
 
 pytestmark = pytest.mark.integration
@@ -393,6 +394,8 @@ def test_both_figis_are_recorded(db_session: Session, source_id: uuid.UUID) -> N
     values = {i.identifier_value: i.identifier_type for i in identifiers}
 
     assert "BBG001S5QY8" in values, "the share-class FIGI identifies the security"
+    assert values["BBG001S5QY8"] is IdentifierType.FIGI_SHARE_CLASS, "the FIGI LEVEL is stated"
+    assert "BBG000B9XRY4" not in values, "the composite FIGI is not stored as a security anchor"
     # The CIK is issuer-scoped and lives on company.cik, not here: the same CIK
     # applies to every security of the issuer, and security_identifier is unique
     # on (type, value) globally, so one row per share class would collide.

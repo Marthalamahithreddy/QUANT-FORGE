@@ -94,6 +94,12 @@ from quantforge.models.security import (
     SecurityIdentifier,
 )
 
+#: The reference adapter stores the SHARE-CLASS FIGI, so new rows are written as
+#: ``FIGI_SHARE_CLASS``. Lookups also match legacy ``FIGI`` rows (level unspecified) purely to avoid
+#: creating a duplicate security for a code that is already stored; a legacy row is never trusted as
+#: a share-class anchor elsewhere (``quantforge.identity``).
+_FIGI_TYPES = (IdentifierType.FIGI_SHARE_CLASS, IdentifierType.FIGI)
+
 __all__ = [
     "ReferenceResolutionError",
     "ReferenceResolver",
@@ -393,7 +399,7 @@ class ReferenceResolver:
             .join(Security, Security.company_id == Company.id)
             .join(SecurityIdentifier, SecurityIdentifier.security_id == Security.id)
             .where(
-                SecurityIdentifier.identifier_type == IdentifierType.FIGI,
+                SecurityIdentifier.identifier_type.in_(_FIGI_TYPES),
                 SecurityIdentifier.identifier_value == figi,
             )
         )
@@ -585,7 +591,7 @@ class ReferenceResolver:
                     self._session.add(
                         SecurityIdentifier(
                             security_id=inserted_id,
-                            identifier_type=IdentifierType.FIGI,
+                            identifier_type=IdentifierType.FIGI_SHARE_CLASS,
                             identifier_value=figi,
                             source_id=source_id,
                         )
@@ -645,7 +651,7 @@ class ReferenceResolver:
             sa.select(Security)
             .join(SecurityIdentifier, SecurityIdentifier.security_id == Security.id)
             .where(
-                SecurityIdentifier.identifier_type == IdentifierType.FIGI,
+                SecurityIdentifier.identifier_type.in_(_FIGI_TYPES),
                 SecurityIdentifier.identifier_value == figi,
             )
         )

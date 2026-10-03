@@ -341,7 +341,12 @@ class Listing(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     valid_from: Mapped[date] = mapped_column(
         sa.Date,
         nullable=False,
-        doc="Inclusive first day of this ticker on this venue.",
+        doc=(
+            "Inclusive first day this OPERATIONAL record covers. For rows created by reference "
+            "ingestion it is the date QuantForge FIRST OBSERVED the listing -- not the historical "
+            "listing start -- so it proves nothing about earlier dates. Source-stated history lives "
+            "in ListingHistoryFact and is combined with this row only by quantforge.identity."
+        ),
     )
     valid_to: Mapped[date | None] = mapped_column(
         sa.Date,
@@ -408,6 +413,14 @@ class SecurityIdentifier(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
             "identifier_type",
             "identifier_value",
             name="uq_security_identifier_type_value",
+        ),
+        # One FIGI code names one security however its LEVEL is labelled: the same literal under
+        # ``FIGI`` (legacy, level unknown) and ``FIGI_SHARE_CLASS`` must not point at two securities.
+        sa.Index(
+            "uq_security_identifier_figi_family_value",
+            "identifier_value",
+            unique=True,
+            postgresql_where=sa.text("identifier_type IN ('FIGI', 'FIGI_SHARE_CLASS')"),
         ),
         sa.Index("ix_security_identifier_security_id", "security_id"),
         sa.Index("ix_security_identifier_source_id", "source_id"),

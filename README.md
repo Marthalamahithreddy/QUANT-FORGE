@@ -204,6 +204,26 @@ be shown to belong to a security before that date, and historical coverage is re
 real listing history exists. A split inside the requested range but outside the proven ticker
 period fails the run and records no coverage. The live Massive probe is outstanding (no key configured).
 
+## Historical listing identity
+
+`Listing.valid_from` is when QuantForge **first observed** a listing, not when it began trading, so it proves
+nothing about earlier dates. Source-stated history is stored separately as single-date
+`listing_history_fact` rows (migration `0010`): a dated snapshot (`ticker observed on D`), a ticker-change
+event (`ticker started on D`) and a last-traded date, each with its source and run, attached to a security
+through its **share-class FIGI** (`IdentifierType.FIGI_SHARE_CLASS`; the legacy `FIGI` type does not say which
+FIGI level it holds and is never trusted as an anchor; the CIK is company identity only). Intervals are never
+stored: `quantforge.identity` derives them deterministically from facts and first-observed listings, and one
+resolver (`HistoricalListingResolver`) answers every consumer (research alignment, earnings ingestion, the
+earnings API, split ingestion), returning `RESOLVED` / `NO_EVIDENCE` / `AMBIGUOUS` / `CONFLICT` with an
+evidence kind. Two snapshots never become a continuous interval, gaps are never filled, sources never outrank
+one another (a disagreement is a conflict), and no exchange continuity is inferred. Listing identity is
+reference-data reconstruction; it never feeds `observed_at` or a point-in-time claim.
+
+`quantforge ingestion listing-snapshot TICKER --date D`, `listing-events TICKER` (Massive's EXPERIMENTAL
+ticker-events, anchored by a recent snapshot) and the read-only `listing-eras TICKER --start --end` are the
+only commands; no live Massive validation has run (no key configured), so the ticker-change event-date meaning
+(treated as an inclusive start) and retired-symbol behaviour remain unverified.
+
 ## Research, signals, and backtest layers
 
 Three packages in `apps/api/src/quantforge/`, each strictly downstream of the
@@ -308,7 +328,7 @@ revisions follow the empty `0001`: the financial domain (`0002`), ingestion
 runs / issuer CIK (`0003`), earnings ingestion persistence (`0004`), and the
 earnings `event_date`/`event_timestamp` correction (`0005`), and explicit price
 basis on both bar tables (`0006`), an availability basis on earnings events
-(`0007`), SEC filing metadata (`0008`), and stock splits with split coverage (`0009`, current head). The research, signal, and
+(`0007`), SEC filing metadata (`0008`), stock splits with split coverage (`0009`), and sourced listing history (`0010`, current head). The research, signal, and
 backtest layers are all computed, not persisted.
 
 ## Health endpoints

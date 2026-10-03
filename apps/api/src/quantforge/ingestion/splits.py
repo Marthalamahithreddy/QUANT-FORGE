@@ -53,6 +53,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
+from quantforge.identity.listing_history import ResolutionStatus
+from quantforge.identity.resolver import HistoricalListingResolver
 from quantforge.ingestion.canonical import CanonicalStockSplit
 from quantforge.ingestion.raw_store import RawResponseStore
 from quantforge.ingestion.runs import FAILED_RUN_RECORDED, RunOutcome, RunRecorder
@@ -69,6 +71,7 @@ __all__ = [
     "AmbiguousSplitSecurityError",
     "IncompleteSplitFetchError",
     "InvalidSplitRangeError",
+    "ListingHistoryConflictError",
     "RetiredTickerCoverageError",
     "ReusedTickerRangeError",
     "SplitIngestionService",
@@ -94,6 +97,13 @@ _COMPARED_FIELDS = ("security_id", "execution_date", "old_shares", "new_shares",
 
 class InvalidSplitRangeError(ValueError):
     """The requested range is not a bounded, fully-past, ordered date range."""
+
+
+class ListingHistoryConflictError(ValueError):
+    """Stored listing history contradicts itself inside the requested range (pre-run check).
+
+    Resolved by a person (reconcile or repair the sources); the evidence is never picked between.
+    """
 
 
 class RetiredTickerCoverageError(ValueError):
@@ -202,28 +212,27 @@ def _resolve_eras(
     session: Session, ticker: str, start: date, end: date
 ) -> tuple[uuid.UUID, list[_Era]]:
     """The one security that held ``ticker`` in ``[start, end]`` and the eras it held it."""
-    listings = list(
-        session.scalars(
-            sa.select(Listing).where(
-                Listing.ticker == ticker,
-                Listing.valid_from <= end,
-                sa.or_(Listing.valid_to.is_(None), Listing.valid_to > start),
-            )
-        )
-    )
-    if not listings:
+    # The one historical resolver (first-observed listings AND source-stated history). Evidence
+    # that is missing, ambiguous or contradictory stops the run before any provider call: unknown
+    # history is never turned into continuity, so it can never become coverage.
+    resolution = HistoricalListingResolver(session).resolve_ticker_eras(ticker, start, end)
+    if resolution.status is ResolutionStatus.NO_EVIDENCE:
         message = (
-            f"no stored listing carried {ticker} between {start} and {end}; ingest the "
-            "security's reference first"
+            f"no stored evidence ties {ticker} to a security between {start} and {end}; "
+            "ingest the security's reference (and its listing history) first"
         )
         raise UnknownSplitTickerError(message)
-    security_ids = {listing.security_id for listing in listings}
-    if len(security_ids) > 1:
+    if resolution.status is ResolutionStatus.AMBIGUOUS:
         message = (
-            f"{ticker} belonged to {len(security_ids)} different securities between {start} "
-            f"and {end} (a reused ticker); narrow the range to one holder. Nothing is guessed."
+            f"{ticker} belonged to {len(resolution.security_ids)} different securities between "
+            f"{start} and {end} (a reused ticker); narrow the range to one holder. Nothing is "
+            "guessed."
         )
         raise ReusedTickerRangeError(message)
+    if resolution.status is ResolutionStatus.CONFLICT:
+        raise ListingHistoryConflictError(resolution.reason)
+    assert resolution.security_id is not None  # RESOLVED always carries one
+    security_ids = {resolution.security_id}
     current = _current_tickers(session, next(iter(security_ids)))
     if ticker not in current:
         detail = (
@@ -238,21 +247,7 @@ def _resolve_eras(
             "indexed'. Use the current ticker."
         )
         raise RetiredTickerCoverageError(message)
-    spans = sorted(
-        (
-            max(listing.valid_from, start),
-            end if listing.valid_to is None else min(listing.valid_to - _ONE_DAY, end),
-        )
-        for listing in listings
-    )
-    eras: list[_Era] = []
-    for first, last in spans:
-        if last < first:
-            continue
-        if eras and first <= eras[-1].end + _ONE_DAY:
-            eras[-1] = _Era(eras[-1].start, max(eras[-1].end, last))
-        else:
-            eras.append(_Era(first, last))
+    eras = [_Era(first, last) for first, last in resolution.ranges]
     return next(iter(security_ids)), eras
 
 

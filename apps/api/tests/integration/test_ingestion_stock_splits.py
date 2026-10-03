@@ -572,7 +572,7 @@ async def test_a_delisted_security_cannot_get_coverage(
 async def test_a_ticker_with_no_historical_listing_is_an_explicit_failure(
     db_session: Session, tmp_path: Path
 ) -> None:
-    with pytest.raises(UnknownSplitTickerError, match="no stored listing"):
+    with pytest.raises(UnknownSplitTickerError, match="no stored evidence"):
         await _ingest(db_session, StubProvider([_split()]), tmp_path)
     db_session.rollback()
     assert db_session.query(StockSplit).count() == 0
