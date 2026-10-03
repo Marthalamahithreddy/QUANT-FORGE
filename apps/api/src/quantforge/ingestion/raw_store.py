@@ -82,10 +82,17 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC
 from pathlib import Path
+from typing import IO
 
 from quantforge.providers.base import RawCapture
 
-__all__ = ["RawArtifact", "RawResponseStore", "RawStoreError", "StoredCapture"]
+__all__ = [
+    "MAX_PACKAGE_BYTES",
+    "RawArtifact",
+    "RawResponseStore",
+    "RawStoreError",
+    "StoredCapture",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +116,12 @@ _BODY_DIGEST_CHARS = 12
 #: runaway response is a bug or an attack, and writing it unbounded would fill
 #: the disk. Checked before the write so nothing partial is left behind.
 _MAX_ARTIFACT_BYTES = 256 * 1024 * 1024
+
+#: Cap for a bulk package copied from a local file (e.g. an SEC Financial Statement Data Sets
+#: quarterly ZIP, ~60-125 MB today). Larger than a response cap because a package is a
+#: deliberate operator-supplied file, but still bounded.
+MAX_PACKAGE_BYTES = 2 * 1024 * 1024 * 1024
+_COPY_CHUNK_BYTES = 1024 * 1024
 
 
 class RawStoreError(RuntimeError):
@@ -306,6 +319,97 @@ class RawResponseStore:
             deduplicated=False,
         )
 
+    def store_file(
+        self,
+        source: Path,
+        *,
+        provider: str,
+        dataset: str,
+        key_segment: str,
+        suffix: str = ".zip",
+    ) -> RawArtifact:
+        """Preserve a local file (e.g. a bulk package) without reading it into memory.
+
+        Streams ``source`` in chunks, hashing as it copies, into a temporary file beside
+        the destination, then atomically renames it to ``<sha256><suffix>``. Content-
+        addressed exactly like :meth:`store`: an identical file already present is left
+        untouched (after being re-verified against its own name), and a file at that name
+        whose content does not match its digest is a loud failure, never an overwrite.
+
+        The sidecar records the digest, size and the key segment only. The source's local
+        path is deliberately NOT recorded: it can embed a username or a directory layout,
+        and it is not provenance (the digest is).
+        """
+        safe_provider = _safe_segment(provider.strip().lower(), kind="provider")
+        if safe_provider not in _ALLOWED_PROVIDERS:
+            message = (
+                f"provider {safe_provider!r} is not an allowed raw-store provider "
+                f"(allowed: {', '.join(sorted(_ALLOWED_PROVIDERS))})"
+            )
+            raise RawStoreError(message)
+        safe_dataset = _safe_segment(dataset.strip(), kind="dataset")
+        safe_key = _safe_segment(key_segment.strip(), kind="key")
+        if not re.fullmatch(r"\.[a-z0-9]{1,8}", suffix):
+            message = f"unsafe artifact suffix {suffix!r}"
+            raise RawStoreError(message)
+        directory = self._root / safe_provider / safe_dataset / safe_key
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - closed in `finally` below
+                mode="wb", dir=directory, prefix=".incoming.", suffix=".tmp", delete=False
+            )
+        except OSError as exc:
+            raise RawStoreError(f"cannot prepare raw artifact directory: {exc}") from exc
+        temporary = Path(handle.name)
+        try:
+            digest, length = _copy_and_hash(source, handle, max_bytes=MAX_PACKAGE_BYTES)
+            target = directory / f"{digest}{suffix}"
+            if target.exists():
+                temporary.unlink(missing_ok=True)
+                if _hash_file(target) != digest:
+                    message = (
+                        f"existing file {target.name!r} does not match its content-addressed "
+                        "SHA-256 name; refusing to overwrite or ignore the mismatch"
+                    )
+                    raise RawStoreError(message)
+                return RawArtifact(
+                    relative_path=_relative(target, self._root),
+                    sha256=digest,
+                    byte_length=length,
+                    deduplicated=True,
+                )
+            temporary.replace(target)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+        meta = {
+            "provider": safe_provider,
+            "dataset": safe_dataset,
+            "key": safe_key,
+            "sha256": digest,
+            "byte_length": length,
+            "origin": "local_file",
+        }
+        _atomic_write(
+            directory / f"{digest}.meta.json", json.dumps(meta, indent=2, sort_keys=True).encode()
+        )
+        logger.info(
+            "stored %s package (%d bytes, sha256=%s)",
+            safe_dataset,
+            length,
+            digest[:_BODY_DIGEST_CHARS],
+        )
+        return RawArtifact(
+            relative_path=_relative(target, self._root),
+            sha256=digest,
+            byte_length=length,
+            deduplicated=False,
+        )
+
+    def path_of(self, relative_path: str) -> Path:
+        """The on-disk path of a stored artifact (re-validated to lie inside the store)."""
+        return self._resolve(relative_path)
+
     def store_all(self, captures: Iterable[RawCapture]) -> list[StoredCapture]:
         """Store several captures, preserving order.
 
@@ -361,6 +465,37 @@ class RawResponseStore:
             return _safe_segment(ticker, kind="ticker")
         material = json.dumps(request_parameters, sort_keys=True, separators=(",", ":"))
         return f"params-{sha256_hex(material.encode())[:16]}"
+
+
+def _copy_and_hash(source: Path, handle: IO[bytes], *, max_bytes: int) -> tuple[str, int]:
+    """Copy ``source`` into the open ``handle`` in chunks; return ``(sha256, length)``."""
+    digest = hashlib.sha256()
+    length = 0
+    try:
+        with handle, source.open("rb") as reader:
+            while chunk := reader.read(_COPY_CHUNK_BYTES):
+                length += len(chunk)
+                if length > max_bytes:
+                    message = f"file exceeds the {max_bytes} byte package limit"
+                    raise RawStoreError(message)
+                digest.update(chunk)
+                handle.write(chunk)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except OSError as exc:
+        raise RawStoreError(f"cannot copy {source.name!r} into the raw store: {exc}") from exc
+    if length == 0:
+        message = f"{source.name!r} is empty"
+        raise RawStoreError(message)
+    return digest.hexdigest(), length
+
+
+def _hash_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as reader:
+        while chunk := reader.read(_COPY_CHUNK_BYTES):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _relative(target: Path, root: Path) -> str:

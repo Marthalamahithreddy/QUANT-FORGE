@@ -224,6 +224,56 @@ ticker-events, anchored by a recent snapshot) and the read-only `listing-eras TI
 only commands; no live Massive validation has run (no key configured), so the ticker-change event-date meaning
 (treated as an inclusive start) and retired-symbol behaviour remain unverified.
 
+## Accession-bound financial facts (SEC FSDS)
+
+`quantforge ingestion sec-fsds PACKAGE.zip --accession ... | --cik ...` extracts numeric facts from one **local**
+SEC Financial Statement Data Sets quarterly ZIP into `financial_fact` (migration `0011`). FSDS is QuantForge's
+**first structured extraction source** for accession-bound facts; it is not, by itself, a point-in-time source of
+record. The model is accession-bound, not FSDS-bound: `financial_fact_artifact` (one row per package *content*,
+SHA-256 identity; the ZIP itself lives in the raw store, streamed, never in a row), `financial_fact_submission`
+(what the artifact stated about one filing) and `financial_fact` (one fact bound to exactly one existing
+`sec_filing`). Only 10-K, 10-K/A, 10-Q and 10-Q/A submissions are read.
+
+* **A fact is a source concept, not "EPS".** Identity is the FSDS NUM key with the accession resolved to a stored
+  filing: tag **and** taxonomy version (an issuer extension's version is the accession that defined it), period end,
+  `qtrs`, unit, `segments` and `coreg`. `value` is exact `Decimal` (the source caps it at 4 dp and states no
+  precision attribute) and is not part of the identity: a changed value is a conflict, never an overwrite.
+  A quarter (`qtrs=1`) and a year-to-date amount (`qtrs=2`) of one concept are two facts and nothing collapses them.
+  Period ends are the source's month-end-rounded dates, never mapped to a calendar quarter; units are never
+  converted; dimension/co-registrant text is kept verbatim. The SEC documents a NULL `coreg` as the consolidated
+  entity, but QuantForge stores only the absence (`''`) and applies no such label; absent `segments` is likewise
+  not "consolidated". A NULL `value` (the SEC marks it nullable) is stored as NULL: not zero, not a missing row, and
+  not a valid numeric observation.
+* **Existing filings only.** The accession must already be a `SecFiling` (ingested by `sec-filings`), its company's CIK
+  must equal the package's registrant CIK, and the form and filing date must agree; otherwise the run fails and no
+  fact is written. An amendment is its own accession and its own facts.
+* **No availability.** `SecFiling.accepted_at` is when EDGAR accepted the filing; a bulk package is published
+  later and the SEC does not time-stamp it per package, so nothing here is point-in-time available and no table
+  carries an availability column. `SEC_FILING_ACCEPTANCE` stays unapproved.
+* **Bounded and safe.** At least one `--accession`/`--cik` is required; NUM is streamed and batched; any rejected
+  selected row fails the run and stores nothing. A value must fit the source's NUMERIC(28,4) exactly (at most 24
+  integer and 4 fractional digits, plain decimal text; never rounded, never via float); anything else fails the run.
+* **Changed package = refused, and no revision workflow exists.** The same package name arriving with different bytes
+  is refused and both byte sets stay in the raw store; nothing is changed. The SEC re-posted reprocessed data sets in
+  December 2024, so a legitimate republication is real, but this checkpoint can only *detect and preserve* it: such a
+  package cannot be ingested until an explicit revision workflow is built. Artifact identity is package name **and**
+  SHA-256, never a file name; identical bytes rerun idempotently.
+* **Accessions: explicit vs CIK-wide.** An explicit `--accession` with no stored `SecFiling` fails the run; a `--cik`
+  selection containing one reports it as `unbound` and the run is `partial` (the CLI prints selected / bound / unbound /
+  not-read counts). `partial` is not a coverage statement: a fact missing from `financial_fact` is absent from the
+  locally ingested accessions only, never evidence the source lacks it, and no API converts "not stored" into "absent".
+  Because `sec-filings` ingests `filings.recent` only, older accessions have no local `SecFiling` and cannot be bound, so
+  historical coverage is bounded by locally known filings (older-submissions paging is future work).
+* TAG and PRE are not read (the version identifies extensions; statement classification belongs to a later
+  selection layer). The `prevrpt` flag is never read: it encodes knowledge from after the filing. The SEC
+  CompanyFacts API is never used as history. NUM `footnote` text is not stored (it is not part of the NUM key). No
+  signal, YoY, surprise or selection exists yet. No live SEC call has been made (no contact configured); the command
+  needs no network, and no real FSDS package has been run through it. Unverified against real data: duplicate NUM rows,
+  the real `segments` representation, non-ASCII `coreg`, whether real `value` text ever uses exponent notation (such a
+  row is rejected, loudly), the exact `accepted` text (only the documented 19-character form is accepted; a
+  fractional-second suffix would be rejected, loudly) and its timezone, and behaviour on a reprocessed package. Two
+  concurrent runs ingesting one package name with different bytes are not serialised (single-operator CLI).
+
 ## Research, signals, and backtest layers
 
 Three packages in `apps/api/src/quantforge/`, each strictly downstream of the
@@ -328,7 +378,7 @@ revisions follow the empty `0001`: the financial domain (`0002`), ingestion
 runs / issuer CIK (`0003`), earnings ingestion persistence (`0004`), and the
 earnings `event_date`/`event_timestamp` correction (`0005`), and explicit price
 basis on both bar tables (`0006`), an availability basis on earnings events
-(`0007`), SEC filing metadata (`0008`), stock splits with split coverage (`0009`), and sourced listing history (`0010`, current head). The research, signal, and
+(`0007`), SEC filing metadata (`0008`), stock splits with split coverage (`0009`), sourced listing history (`0010`), and accession-bound financial facts (`0011`, current head). The research, signal, and
 backtest layers are all computed, not persisted.
 
 ## Health endpoints

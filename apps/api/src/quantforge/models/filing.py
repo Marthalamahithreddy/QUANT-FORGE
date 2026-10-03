@@ -41,6 +41,7 @@ fact, never edited in place.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import date, datetime
 
@@ -55,6 +56,7 @@ __all__ = ["SecFiling"]
 
 #: ``0000320193-24-000123``: 10-digit filer id, 2-digit year, 6-digit sequence.
 ACCESSION_PATTERN = r"^[0-9]{10}-[0-9]{2}-[0-9]{6}$"
+ACCESSION_REGEX = re.compile(ACCESSION_PATTERN)
 ACCESSION_LENGTH = 20
 #: EDGAR electronic filing began in 1993; matches the ``filing_date_edgar_era`` CHECK.
 EDGAR_ERA_START = date(1993, 1, 1)

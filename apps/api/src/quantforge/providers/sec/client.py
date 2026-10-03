@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Final, Self
@@ -47,6 +46,7 @@ from quantforge.providers.pacing import (
     parse_retry_after,
     retryable_statuses,
 )
+from quantforge.providers.sec.identifiers import normalise_cik
 from quantforge.providers.sec.mapper import map_recent_filings
 
 __all__ = ["PROVIDER_NAME", "SecClient", "SecConfig", "normalise_cik"]
@@ -73,24 +73,10 @@ HTTP_FORBIDDEN: Final[int] = 403
 HTTP_NOT_FOUND: Final[int] = 404
 HTTP_TOO_MANY_REQUESTS: Final[int] = 429
 HTTP_SERVER_ERROR_FLOOR: Final[int] = 500
-_CIK_DIGITS = re.compile(r"^[0-9]{1,10}$")
 
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-def normalise_cik(value: str) -> str:
-    """Return ``value`` as a zero-padded 10-digit CIK, or raise ``ValueError``."""
-    candidate = value.strip()
-    if not _CIK_DIGITS.fullmatch(candidate):
-        message = f"CIK must be 1-10 digits, got {value!r}"
-        raise ValueError(message)
-    padded = candidate.zfill(10)
-    if int(padded) == 0:
-        message = "CIK must not be zero"
-        raise ValueError(message)
-    return padded
 
 
 class SecConfig:

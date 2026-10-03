@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import re
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -49,13 +50,26 @@ from quantforge.ingestion.filings import (
     SecFilingConflictError,
     UnknownRegistrantError,
 )
+from quantforge.ingestion.financial_facts import (
+    AccessionCikMismatchError,
+    AccessionNotInPackageError,
+    FinancialFactConflictError,
+    FinancialFactIngestionService,
+    FsdsRowsRejectedError,
+    InvalidFactRequestError,
+    MissingSecFilingError,
+    NothingToIngestError,
+    PackageRevisionError,
+    SubmissionMetadataMismatchError,
+    UnsupportedFormError,
+)
 from quantforge.ingestion.listing_history import (
     IncompleteListingHistoryError,
     InvalidAnchorDateError,
     ListingFactConflictError,
     ListingHistoryIngestionService,
 )
-from quantforge.ingestion.raw_store import RawResponseStore
+from quantforge.ingestion.raw_store import RawResponseStore, RawStoreError
 from quantforge.ingestion.runs import FAILED_RUN_RECORDED, RunOutcome
 from quantforge.ingestion.service import IngestionService, UnknownListingError
 from quantforge.ingestion.splits import (
@@ -79,6 +93,7 @@ from quantforge.providers.errors import (
 )
 from quantforge.providers.massive.client import MassiveClient, MassiveConfig
 from quantforge.providers.sec.client import SecClient, SecConfig, normalise_cik
+from quantforge.providers.sec.fsds import FsdsPackageError
 
 __all__ = ["main"]
 
@@ -336,6 +351,43 @@ def build_parser() -> argparse.ArgumentParser:
     )
     splits.set_defaults(handler=_cmd_stock_splits)
 
+    fsds = commands.add_parser(
+        "sec-fsds",
+        help="extract accession-bound financial facts from a local SEC FSDS quarterly ZIP",
+        description=(
+            "Read facts for the NAMED accessions and/or CIKs from one local SEC Financial "
+            "Statement Data Sets quarterly ZIP (sub.txt + num.txt), bind them to filings "
+            "already stored by 'quantforge ingestion sec-filings', and store them with the "
+            "package's SHA-256 as provenance. Bounded: at least one --accession or --cik is "
+            "required; there is no whole-package or whole-archive mode. Local file only: no "
+            "network request is made and no SEC contact is needed. Facts are source concepts, "
+            "not EPS/revenue: nothing is selected, derived or compared, and a fact is NOT "
+            "point-in-time available at its filing's acceptance time (a bulk package is "
+            "published later)."
+        ),
+    )
+    fsds.add_argument("package", type=Path, help="path to a downloaded FSDS ZIP, e.g. 2025q3.zip")
+    fsds.add_argument(
+        "--package-name",
+        help=(
+            "the package's logical identity, e.g. 2025q3; defaults to the file name without "
+            "'.zip' when that has the form YYYYqN"
+        ),
+    )
+    fsds.add_argument(
+        "--accession",
+        action="append",
+        default=[],
+        help="a dashed accession (0000320193-24-000123); repeatable",
+    )
+    fsds.add_argument(
+        "--cik",
+        action="append",
+        default=[],
+        help="a registrant CIK; every 10-K/10-Q submission of it in the package; repeatable",
+    )
+    fsds.set_defaults(handler=_cmd_sec_fsds)
+
     _add_listing_history_commands(commands)
 
     runs = commands.add_parser(
@@ -475,6 +527,58 @@ def _cmd_sec_filings(args: argparse.Namespace, settings: Settings) -> int:
         f"\nCIK {cik}: received={outcome.records_received} written={outcome.records_written} "
         f"skipped={outcome.records_skipped} failed={outcome.records_failed}"
     )
+    return _print_outcome(outcome)
+
+
+def _cmd_sec_fsds(args: argparse.Namespace, settings: Settings) -> int:
+    package: Path = args.package
+    package_name: str | None = args.package_name or (
+        package.stem if re.fullmatch(r"[0-9]{4}q[1-4]", package.stem) else None
+    )
+    if package_name is None:
+        print(
+            "error: cannot derive the package name from the file name; pass --package-name "
+            "(e.g. 2025q3)",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    now = datetime.now(UTC)
+    with get_session_factory(settings)() as session:
+        service = FinancialFactIngestionService(session=session, store=_store(settings), now=now)
+        try:
+            result = service.ingest_fsds_package(
+                package,
+                package_name=package_name,
+                accessions=args.accession,
+                ciks=args.cik,
+            )
+        except BaseException:
+            _commit_failed_run(session)
+            raise
+        session.commit()
+    outcome = result.outcome
+    print(
+        f"\n{package_name}: received={outcome.records_received} written={outcome.records_written} "
+        f"skipped={outcome.records_skipped} failed={outcome.records_failed}"
+    )
+    selected = (
+        len(result.bound_accessions)
+        + len(result.unbound_accessions)
+        + len(result.out_of_scope_forms)
+    )
+    print(
+        f"  selected submissions: {selected} (bound {len(result.bound_accessions)}, "
+        f"unbound {len(result.unbound_accessions)}, not read {len(result.out_of_scope_forms)})"
+    )
+    for accession in result.unbound_accessions:
+        print(f"  unbound (no stored SecFiling; nothing written): {accession}")
+    for accession, form in result.out_of_scope_forms:
+        print(f"  not read (form {form}): {accession}")
+    if result.unbound_accessions:
+        print(
+            "  partial: a fact missing from the database is NOT evidence the source lacks it "
+            "(unbound accessions were not processed)"
+        )
     return _print_outcome(outcome)
 
 
@@ -889,7 +993,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _classify(exc)
 
 
-def _classify(exc: Exception) -> int:  # noqa: PLR0911 - one return per distinct, named failure kind; splitting it up would not simplify anything
+def _classify(exc: Exception) -> int:  # noqa: PLR0911, PLR0912 - one return per distinct, named failure kind; splitting it up would not simplify anything
     """Map a failure onto an exit code and say why on stderr.
 
     Split out of :func:`main` so the ordering of the ``except`` clauses stays
@@ -901,6 +1005,12 @@ def _classify(exc: Exception) -> int:  # noqa: PLR0911 - one return per distinct
         exc,
         UnknownListingError
         | UnknownRegistrantError
+        | InvalidFactRequestError
+        | UnsupportedFormError
+        | AccessionNotInPackageError
+        | MissingSecFilingError
+        | NothingToIngestError
+        | FsdsPackageError
         | InvalidSplitRangeError
         | InvalidAnchorDateError
         | ListingHistoryConflictError
@@ -922,10 +1032,29 @@ def _classify(exc: Exception) -> int:  # noqa: PLR0911 - one return per distinct
         print(f"error: {exc}", file=sys.stderr)
         print("nothing was overwritten; reconcile the source before re-running", file=sys.stderr)
         return EXIT_RUN_FAILED
+    if isinstance(exc, RawStoreError):
+        print(f"error: the raw artifact could not be read or preserved: {exc}", file=sys.stderr)
+        print("nothing was stored by this run", file=sys.stderr)
+        return EXIT_RUN_FAILED
+    if isinstance(exc, PackageRevisionError):
+        print(f"error: {exc}", file=sys.stderr)
+        print(
+            "nothing was overwritten; there is no package-revision workflow yet, so this "
+            "package cannot be ingested",
+            file=sys.stderr,
+        )
+        return EXIT_RUN_FAILED
     if isinstance(exc, AllFilingRecordsRejectedError):
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
-    if isinstance(exc, SecFilingConflictError):
+    if isinstance(
+        exc,
+        SecFilingConflictError
+        | AccessionCikMismatchError
+        | SubmissionMetadataMismatchError
+        | FsdsRowsRejectedError
+        | FinancialFactConflictError,
+    ):
         print(f"error: {exc}", file=sys.stderr)
         print("nothing was overwritten; reconcile the source before re-running", file=sys.stderr)
         return EXIT_RUN_FAILED

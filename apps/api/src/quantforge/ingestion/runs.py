@@ -42,7 +42,7 @@ from typing import Any, Final
 
 from sqlalchemy.orm import Session, SessionTransaction
 
-from quantforge.ingestion.raw_store import RawResponseStore, StoredCapture
+from quantforge.ingestion.raw_store import RawArtifact, RawResponseStore, StoredCapture
 from quantforge.models.enums import IngestionStatus
 from quantforge.models.ingestion import IngestionRun
 
@@ -348,6 +348,46 @@ class RunRecorder:
             dataset=f"{self._run.dataset}-manifest",
             # Keyed by run id so two runs of the same request never share a
             # manifest path and overwrite each other's evidence.
+            key_segment=f"{self._run.started_at:%Y%m%dT%H%M%SZ}-{self._run.id}",
+        )
+        self._run.raw_artifact_path = written.relative_path
+        self._run.raw_content_sha256 = written.sha256
+        self._run.raw_artifact_bytes = written.byte_length
+
+    def record_file_artifacts(self, artifacts: Sequence[tuple[str, RawArtifact]]) -> None:
+        """Manifest of locally supplied files (bulk packages), keyed by an endpoint-like label.
+
+        A local file was not *retrieved* by QuantForge, so each entry says ``origin:
+        local_file`` and carries ``retrieved_at: null``; the manifest's own ``retrieved_at`` is
+        the run's start (when QuantForge received the file). Nothing invents a download time.
+        """
+        if not artifacts:
+            return
+        manifest = {
+            "run_id": str(self._run.id),
+            "provider": self._run.provider,
+            "dataset": self._run.dataset,
+            "retrieved_at": self._now.isoformat(),
+            "artifact_count": len(artifacts),
+            "artifacts": [
+                {
+                    "endpoint": label,
+                    "path": artifact.relative_path,
+                    "sha256": artifact.sha256,
+                    "byte_length": artifact.byte_length,
+                    "retrieved_at": None,
+                    "origin": "local_file",
+                    "provider_status": None,
+                    "deduplicated": artifact.deduplicated,
+                }
+                for label, artifact in artifacts
+            ],
+        }
+        payload = json.dumps(manifest, indent=2, sort_keys=True).encode()
+        written = self._store.write_bytes(
+            payload,
+            provider=self._run.provider,
+            dataset=f"{self._run.dataset}-manifest",
             key_segment=f"{self._run.started_at:%Y%m%dT%H%M%SZ}-{self._run.id}",
         )
         self._run.raw_artifact_path = written.relative_path

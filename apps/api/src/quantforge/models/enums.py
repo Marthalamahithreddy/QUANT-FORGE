@@ -216,6 +216,21 @@ class SecFormType(StrEnum):
         return self.value.endswith("/A")
 
 
+class FinancialFactSourceKind(StrEnum):
+    """The structured source an accession-bound financial fact was extracted from.
+
+    The fact model is accession-bound, not FSDS-bound: a later source (for example
+    a filing-specific inline-XBRL extractor) adds a member here without replacing
+    the core tables. A member naming a source says nothing about whether its facts
+    are point-in-time safe.
+    """
+
+    #: The SEC Financial Statement Data Sets: quarterly bulk ZIPs of numeric facts
+    #: from the primary financial statements. QuantForge's first structured
+    #: extraction source -- not, by itself, a point-in-time source of record.
+    SEC_FSDS = "SEC_FSDS"
+
+
 class ProviderType(StrEnum):
     """The kind of organisation behind a :class:`DataSource`.
 
@@ -317,6 +332,7 @@ PROVIDER_TYPE_LENGTH = 32
 PRICE_BASIS_LENGTH = 32
 AVAILABILITY_BASIS_LENGTH = 32
 SEC_FORM_LENGTH = 16
+FACT_SOURCE_KIND_LENGTH = 16
 SPLIT_ADJUSTMENT_TYPE_LENGTH = 16
 LISTING_FACT_KIND_LENGTH = 16
 #: Lifecycle status of an ingestion run; see ``IngestionStatus``.

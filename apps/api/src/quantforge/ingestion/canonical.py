@@ -30,6 +30,7 @@ numbers that are simply incorrect, which is far more dangerous than a crash.
 from __future__ import annotations
 
 import re
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -47,16 +48,32 @@ from quantforge.models.enums import (
     StockSplitAdjustmentType,
 )
 from quantforge.models.filing import (
-    ACCESSION_PATTERN,
+    ACCESSION_REGEX,
     EDGAR_ERA_START,
     ITEMS_LENGTH,
     PRIMARY_DOCUMENT_LENGTH,
+)
+from quantforge.models.financial_fact import (
+    ADDITIONAL_CIKS_LENGTH,
+    COREG_LENGTH,
+    FACT_VALUE_PRECISION,
+    FACT_VALUE_SCALE,
+    FISCAL_PERIOD_LENGTH,
+    FISCAL_YEAR_END_LENGTH,
+    IDENTITY_TEXT_MAX_BYTES,
+    SEGMENTS_LENGTH,
+    SOURCE_ACCEPTED_LENGTH,
+    TAG_LENGTH,
+    UNIT_LENGTH,
+    VERSION_LENGTH,
 )
 
 __all__ = [
     "CanonicalDailyBar",
     "CanonicalEarningsEvent",
     "CanonicalEquityReference",
+    "CanonicalFactSubmission",
+    "CanonicalFinancialFact",
     "CanonicalSecFiling",
     "CanonicalStockSplit",
     "CanonicalTickerChange",
@@ -534,7 +551,7 @@ class ReferenceResolution:
 
 
 _CIK_PATTERN = re.compile(r"^[0-9]{10}$")
-_ACCESSION_PATTERN = re.compile(ACCESSION_PATTERN)
+_ACCESSION_PATTERN = ACCESSION_REGEX
 
 
 @dataclass(frozen=True, slots=True)
@@ -781,3 +798,223 @@ class CanonicalTickerEvents:
         if dates != sorted(dates):
             message = "changes must be in ascending date order"
             raise ValueError(message)
+
+
+# ── Accession-bound financial facts ─────────────────────────────────────────────────────
+
+#: A concept local name is an XML NCName: letters, digits, ``_``, ``-`` and ``.``, not starting
+#: with a digit, ``-`` or ``.``. ASCII only here so the identity index key stays bounded.
+_TAG_PATTERN: Final = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
+#: A taxonomy release (``us-gaap/2024``, ``dei/2023``) or, for an extension, the accession that
+#: defined it.
+_VERSION_PATTERN: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
+_MAX_FACT_INTEGER_DIGITS: Final = FACT_VALUE_PRECISION - FACT_VALUE_SCALE
+_FACT_VALUE_QUANTUM: Final = Decimal(1).scaleb(-FACT_VALUE_SCALE)
+_SOURCE_ACCEPTED_PATTERN: Final = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}"
+)
+_FISCAL_YEAR_END_PATTERN: Final = re.compile(r"[0-9]{4}")
+_FISCAL_PERIOD_PATTERN: Final = re.compile(r"[A-Z0-9]{2}")
+#: Single-valued ``qtrs`` ceiling. The source rounds to whole quarters and 0 is a point in time;
+#: a longer cumulative span exists (inception-to-date) but is bounded by the column width.
+_MAX_DURATION_QUARTERS: Final = 1000
+_MAX_COREGISTRANTS: Final = 10_000
+#: Control and surrogate characters are never part of source text; everything else (non-ASCII
+#: letters, no-break space, format characters) is stored as stated.
+_FORBIDDEN_TEXT_CATEGORIES: Final = frozenset({"Cc", "Cs"})
+
+
+def _require_printable_ascii(value: object, field_name: str, limit: int) -> None:
+    if not isinstance(value, str):
+        message = f"{field_name} must be a string, got {type(value).__name__}"
+        raise ValueError(message)
+    if len(value) > limit:
+        message = f"{field_name} is longer than the stored limit of {limit} characters"
+        raise ValueError(message)
+    if not (value.isascii() and value.isprintable()):
+        message = f"{field_name} must be printable ASCII, got {value!r}"
+        raise ValueError(message)
+    if value != value.strip():
+        message = f"{field_name} must not have surrounding whitespace, got {value!r}"
+        raise ValueError(message)
+
+
+def _require_free_text(value: object, field_name: str, limit: int) -> None:
+    """Verbatim source text: any printable characters, no surrounding whitespace, bounded.
+
+    Unlike a concept ``tag`` (an ASCII local name), a dimension or co-registrant string is source
+    free text and may legitimately carry non-ASCII letters; it is stored as the source stated it.
+    """
+    if not isinstance(value, str):
+        message = f"{field_name} must be a string, got {type(value).__name__}"
+        raise ValueError(message)
+    if len(value) > limit:
+        message = f"{field_name} is longer than the stored limit of {limit} characters"
+        raise ValueError(message)
+    if any(unicodedata.category(char) in _FORBIDDEN_TEXT_CATEGORIES for char in value):
+        message = f"{field_name} must not contain control characters, got {value!r}"
+        raise ValueError(message)
+    if value != value.strip():
+        message = f"{field_name} must not have surrounding whitespace, got {value!r}"
+        raise ValueError(message)
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalFinancialFact:
+    """One numeric fact exactly as a structured source stated it, bound to an accession.
+
+    Source-agnostic: nothing here is FSDS vocabulary and nothing here names a financial concept.
+    It preserves *source concept semantics* and leaves every selection to a later layer.
+
+    * ``accession_number`` is the filing that reported the fact (the filing identity).
+    * ``tag`` + ``taxonomy_version`` are the concept identity. A tag alone is not a concept: the
+      same local name can be defined by different taxonomies or by an issuer extension, and an
+      extension must never be treated as the standard concept it resembles. ``taxonomy_version``
+      is the taxonomy release for a standard tag and, for an extension, the accession that
+      defined it.
+    * ``period_end`` is the source's period end as stated (the SEC rounds it to a month end);
+      it is never mapped to a calendar quarter.
+    * ``duration_quarters`` is the span in whole quarters; 0 is a point in time. A quarter and a
+      year-to-date amount of one concept are different facts.
+    * ``unit`` is verbatim (``USD``, ``shares``, ``USD/shares``, ``pure``). Units are never
+      converted or merged.
+    * ``segments`` and ``coreg`` carry the source's dimension and co-registrant text verbatim
+      (non-ASCII allowed, bounded in bytes because they sit in the identity index), ``""`` when the source states none. ``""`` is absence of a stated value; it is NOT the label
+      "consolidated".
+    * ``value`` is an exact ``Decimal`` that fits NUMERIC(28,4) *without rounding* (a source
+      value with more precision is refused, never quantised), or ``None`` when the source states
+      none.
+    """
+
+    accession_number: str
+    tag: str
+    taxonomy_version: str
+    unit: str
+    period_end: date
+    duration_quarters: int
+    value: Decimal | None
+    segments: str = ""
+    coreg: str = ""
+
+    def __post_init__(self) -> None:
+        if not _ACCESSION_PATTERN.fullmatch(self.accession_number):
+            message = (
+                f"accession_number must look like 0000320193-24-000123, "
+                f"got {self.accession_number!r}"
+            )
+            raise ValueError(message)
+        _require_printable_ascii(self.tag, "tag", TAG_LENGTH)
+        if not _TAG_PATTERN.fullmatch(self.tag):
+            message = f"tag must be an XBRL local name, got {self.tag!r}"
+            raise ValueError(message)
+        _require_printable_ascii(self.taxonomy_version, "taxonomy_version", VERSION_LENGTH)
+        if not _VERSION_PATTERN.fullmatch(self.taxonomy_version):
+            message = f"taxonomy_version is not a taxonomy release or accession: {self.taxonomy_version!r}"
+            raise ValueError(message)
+        _require_printable_ascii(self.unit, "unit", UNIT_LENGTH)
+        if not self.unit:
+            message = "unit must not be blank"
+            raise ValueError(message)
+        _require_plain_date(self.period_end, "period_end")
+        if type(self.duration_quarters) is not int:
+            message = (
+                f"duration_quarters must be an int, got {type(self.duration_quarters).__name__}"
+            )
+            raise ValueError(message)
+        _require_range(self.duration_quarters, 0, _MAX_DURATION_QUARTERS, "duration_quarters")
+        _require_free_text(self.segments, "segments", SEGMENTS_LENGTH)
+        _require_free_text(self.coreg, "coreg", COREG_LENGTH)
+        key_bytes = len(self.segments.encode()) + len(self.coreg.encode())
+        if key_bytes > IDENTITY_TEXT_MAX_BYTES:
+            # Both are part of the unique identity index, whose entries PostgreSQL bounds.
+            message = (
+                f"segments + coreg are {key_bytes} bytes; the identity index allows "
+                f"{IDENTITY_TEXT_MAX_BYTES}"
+            )
+            raise ValueError(message)
+        if self.value is not None:
+            _require_fact_value(self.value)
+
+
+def _require_fact_value(value: object) -> None:
+    if not isinstance(value, Decimal):
+        # A float (or an int/str that was never parsed as exact decimal text) is refused: the
+        # source's digits are the value.
+        message = f"value must be a Decimal or None, got {type(value).__name__}"
+        raise ValueError(message)
+    if not value.is_finite():
+        message = f"value must be finite, got {value}"
+        raise ValueError(message)
+    fits = value.adjusted() < _MAX_FACT_INTEGER_DIGITS and value == value.quantize(
+        _FACT_VALUE_QUANTUM
+    )
+    if not fits:
+        # More integer digits, or more fractional digits, than NUMERIC(28,4) holds exactly.
+        message = (
+            f"value {value} does not fit NUMERIC({FACT_VALUE_PRECISION},{FACT_VALUE_SCALE}) exactly"
+        )
+        raise ValueError(message)
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalFactSubmission:
+    """What a structured source stated about one filing, alongside its facts.
+
+    ``form``, ``filing_date`` and ``cik`` exist to be *checked against the stored filing*, never
+    to create one. ``source_stated_accepted`` is the source's own acceptance string, verbatim and
+    never parsed into an instant: the source does not state its timezone, and it is not
+    availability evidence (``SecFiling.accepted_at`` is the filing's acceptance record).
+    """
+
+    accession_number: str
+    cik: str
+    form: SecFormType
+    filing_date: date
+    period_end: date
+    coregistrant_count: int
+    fiscal_year: int | None = None
+    fiscal_period: str | None = None
+    fiscal_year_end: str | None = None
+    source_stated_accepted: str | None = None
+    additional_ciks: str | None = None
+
+    def __post_init__(self) -> None:
+        if not _ACCESSION_PATTERN.fullmatch(self.accession_number):
+            message = f"accession_number must look like 0000320193-24-000123, got {self.accession_number!r}"
+            raise ValueError(message)
+        if not _CIK_PATTERN.fullmatch(self.cik):
+            message = f"cik must be exactly 10 digits (zero-padded), got {self.cik!r}"
+            raise ValueError(message)
+        _require_member(self.form, SecFormType, "form")
+        _require_plain_date(self.filing_date, "filing_date")
+        _require_plain_date(self.period_end, "period_end")
+        _require_int(self.coregistrant_count, "coregistrant_count")
+        _require_range(self.coregistrant_count, 1, _MAX_COREGISTRANTS, "coregistrant_count")
+        if self.fiscal_year is not None:
+            _require_int(self.fiscal_year, "fiscal_year")
+            _require_range(self.fiscal_year, _MIN_FISCAL_YEAR, _MAX_FISCAL_YEAR, "fiscal_year")
+        if self.fiscal_period is not None and not _FISCAL_PERIOD_PATTERN.fullmatch(
+            self.fiscal_period
+        ):
+            message = (
+                f"fiscal_period must be {FISCAL_PERIOD_LENGTH} upper-case alphanumerics, "
+                f"got {self.fiscal_period!r}"
+            )
+            raise ValueError(message)
+        if self.fiscal_year_end is not None and not _FISCAL_YEAR_END_PATTERN.fullmatch(
+            self.fiscal_year_end
+        ):
+            message = f"fiscal_year_end must be {FISCAL_YEAR_END_LENGTH} digits (mmdd), got {self.fiscal_year_end!r}"
+            raise ValueError(message)
+        if self.source_stated_accepted is not None and not _SOURCE_ACCEPTED_PATTERN.fullmatch(
+            self.source_stated_accepted
+        ):
+            message = (
+                f"source_stated_accepted must be 'yyyy-mm-dd hh:mm:ss' "
+                f"({SOURCE_ACCEPTED_LENGTH} characters), got {self.source_stated_accepted!r}"
+            )
+            raise ValueError(message)
+        if self.additional_ciks is not None:
+            _require_printable_ascii(
+                self.additional_ciks, "additional_ciks", ADDITIONAL_CIKS_LENGTH
+            )

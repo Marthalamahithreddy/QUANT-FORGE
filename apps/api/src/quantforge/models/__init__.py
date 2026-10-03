@@ -30,6 +30,7 @@ from quantforge.models.earnings import EarningsEvent
 from quantforge.models.enums import (
     AvailabilityBasis,
     EarningsTiming,
+    FinancialFactSourceKind,
     IdentifierType,
     IngestionStatus,
     ListingFactKind,
@@ -40,6 +41,11 @@ from quantforge.models.enums import (
     StockSplitAdjustmentType,
 )
 from quantforge.models.filing import SecFiling
+from quantforge.models.financial_fact import (
+    FinancialFact,
+    FinancialFactArtifact,
+    FinancialFactSubmission,
+)
 from quantforge.models.ingestion import IngestionRun
 from quantforge.models.listing_history import ListingHistoryFact
 from quantforge.models.market import DailyPriceBar
@@ -63,6 +69,9 @@ DOMAIN_TABLES: tuple[str, ...] = (
     "stock_split",
     "stock_split_coverage",
     "listing_history_fact",
+    "financial_fact_artifact",
+    "financial_fact_submission",
+    "financial_fact",
 )
 
 #: Operational tables. Not financial data: these record what the ingestion
@@ -88,6 +97,10 @@ __all__ = [
     "EarningsEvent",
     "EarningsTiming",
     "Exchange",
+    "FinancialFact",
+    "FinancialFactArtifact",
+    "FinancialFactSourceKind",
+    "FinancialFactSubmission",
     "IdentifierType",
     "IngestionRun",
     "IngestionStatus",

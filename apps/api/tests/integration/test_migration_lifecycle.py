@@ -32,7 +32,7 @@ pytestmark = pytest.mark.integration
 API_ROOT = Path(__file__).resolve().parents[2]
 
 SCRATCH_DB_NAME = "quantforge_migrations_test"
-HEAD = "0010"
+HEAD = "0011"
 PRIOR = "0005"
 #: Revision before 0005 -- the 0005 tests below downgrade past 0006 to reach it.
 PRE_0005 = "0004"
@@ -123,6 +123,7 @@ def test_upgrade_to_head_produces_the_expected_chain(
     chain = [script.revision for script in scripts.walk_revisions()]
     assert chain == [
         HEAD,
+        "0010",
         "0009",
         "0008",
         "0007",
@@ -878,5 +879,85 @@ def test_0010_constraints_and_downgrade_refuse_while_sourced_history_exists(
         command.downgrade(config, "0009")
         assert "listing_history_fact" not in _table_names(scratch_database)
     finally:
+        _purge_seed(scratch_database, ids)
+        command.upgrade(config, HEAD)
+
+
+def test_0011_creates_the_fact_tables_and_its_downgrade_refuses_while_rows_exist(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, HEAD)
+    tables = {"financial_fact_artifact", "financial_fact_submission", "financial_fact"}
+    assert tables <= _table_names(scratch_database)
+    # No availability column exists on any of them, by design.
+    for table in tables:
+        assert not _column_names(scratch_database, table) & {
+            "observed_at",
+            "observed_at_basis",
+            "available_at",
+        }
+    ids = _seed_entities(scratch_database)
+    try:
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO sec_filing (id, company_id, accession_number, form, filing_date, "
+                    "accepted_at, source_id, ingested_at, created_at) VALUES (gen_random_uuid(), "
+                    ":company, '0000320193-24-000010', '10-Q', '2024-05-03', now(), :source, "
+                    "now(), now())"
+                ),
+                ids,
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO financial_fact_artifact (id, source_id, source_kind, "
+                    "artifact_name, sha256, byte_length, raw_artifact_path, member_digests, "
+                    "num_has_segments, ingested_at, created_at) VALUES (gen_random_uuid(), "
+                    ":source, 'SEC_FSDS', '2024q2', repeat('a', 64), 1, 'x', '{}'::jsonb, true, "
+                    "now(), now())"
+                ),
+                ids,
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO financial_fact_submission (id, artifact_id, sec_filing_id, "
+                    "period_end, coregistrant_count, created_at) SELECT gen_random_uuid(), a.id, "
+                    "f.id, '2024-03-31', 1, now() FROM financial_fact_artifact a, sec_filing f"
+                )
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO financial_fact (id, sec_filing_id, submission_id, tag, version, "
+                    "period_end, duration_quarters, unit, segments, coreg, value, ingested_at, "
+                    "created_at) SELECT gen_random_uuid(), s.sec_filing_id, s.id, "
+                    "'EarningsPerShareDiluted', 'us-gaap/2024', '2024-03-31', 1, 'USD/shares', "
+                    "'', '', 1.5300, now(), now() FROM financial_fact_submission s"
+                )
+            )
+        duplicate = (
+            "INSERT INTO financial_fact (id, sec_filing_id, submission_id, tag, version, "
+            "period_end, duration_quarters, unit, segments, coreg, value, ingested_at, "
+            "created_at) SELECT gen_random_uuid(), sec_filing_id, submission_id, tag, version, "
+            "period_end, duration_quarters, unit, segments, coreg, 9, now(), now() "
+            "FROM financial_fact"
+        )
+        with (
+            pytest.raises(sa.exc.IntegrityError, match="uq_financial_fact_identity"),
+            scratch_database.begin() as connection,
+        ):
+            connection.execute(sa.text(duplicate))
+        with pytest.raises(Exception, match="financial_fact"):
+            command.downgrade(config, "0010")
+        assert _current_version(scratch_database) == HEAD
+
+        with scratch_database.begin() as connection:
+            for table in ("financial_fact", "financial_fact_submission", "financial_fact_artifact"):
+                connection.execute(sa.text(f"DELETE FROM {table}"))
+        command.downgrade(config, "0010")
+        assert not tables & _table_names(scratch_database)
+    finally:
+        with scratch_database.begin() as connection:
+            connection.execute(sa.text("DELETE FROM sec_filing"))
         _purge_seed(scratch_database, ids)
         command.upgrade(config, HEAD)

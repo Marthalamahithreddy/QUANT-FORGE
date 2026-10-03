@@ -22,16 +22,27 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
+from tests.fsds_fixture import (
+    ACC_10K,
+    ACC_10Q,
+    ACC_10QA,
+    CIK_MAIN,
+    build_package,
+    default_nums,
+    num_row,
+)
 
 from quantforge.core.config import get_settings
 from quantforge.ingestion import cli
 from quantforge.ingestion.raw_store import RawResponseStore
 from quantforge.ingestion.runs import FAILED_RUN_RECORDED
 from quantforge.ingestion.service import IngestionService, UnknownListingError
+from quantforge.ingestion.sources import get_or_create_data_source
 from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
 from quantforge.models.company import Company
-from quantforge.models.enums import IngestionStatus, PriceBasis
+from quantforge.models.enums import IngestionStatus, PriceBasis, ProviderType, SecFormType
 from quantforge.models.filing import SecFiling
+from quantforge.models.financial_fact import FinancialFact, FinancialFactArtifact
 from quantforge.models.ingestion import IngestionRun
 from quantforge.models.market import DailyPriceBar
 from quantforge.models.provenance import DataSource
@@ -1218,3 +1229,213 @@ def test_a_malformed_cik_argument_is_a_usage_error(
     get_settings.cache_clear()
 
     assert cli.main(["ingestion", "sec-filings", "not-a-cik"]) == cli.EXIT_USAGE
+
+
+# ── SEC FSDS financial facts (local file only: no network, no SEC contact) ──
+
+
+def _seed_filings_for_fsds(engine: Engine, *, with_10qa: bool = True) -> None:
+
+    forms = {
+        ACC_10Q: ("10-Q", date(2024, 5, 3), datetime(2024, 5, 3, 20, 30, 22, tzinfo=UTC)),
+        ACC_10K: ("10-K", date(2023, 11, 3), datetime(2023, 11, 3, 22, 8, 27, tzinfo=UTC)),
+        ACC_10QA: ("10-Q/A", date(2024, 5, 17), datetime(2024, 5, 17, 13, 12, 40, tzinfo=UTC)),
+    }
+    with Session(engine) as session:
+        company = Company(legal_name="Example Filer", display_name="Example", cik=CIK_MAIN)
+        session.add(company)
+        source = get_or_create_data_source(
+            session, name="sec-edgar", provider_type=ProviderType.REGULATORY_FILING
+        )
+        session.flush()
+        for accession, (form, filing_date, accepted) in forms.items():
+            if accession == ACC_10QA and not with_10qa:
+                continue
+            session.add(
+                SecFiling(
+                    company_id=company.id,
+                    accession_number=accession,
+                    form=SecFormType(form),
+                    filing_date=filing_date,
+                    accepted_at=accepted,
+                    source_id=source.id,
+                    ingested_at=datetime(2026, 10, 3, tzinfo=UTC),
+                    created_at=datetime(2026, 10, 3, tzinfo=UTC),
+                )
+            )
+        session.commit()
+
+
+@pytest.fixture
+def no_network(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Fail loudly if the FSDS command ever builds an HTTP client of either provider."""
+    calls: list[str] = []
+
+    def forbid(name: str) -> Any:
+        def explode(*_a: Any, **_k: Any) -> Any:
+            calls.append(name)
+            raise AssertionError(f"{name} must not be built by a local-file command")
+
+        return explode
+
+    monkeypatch.setattr(cli, "_sec_client", forbid("sec"))
+    monkeypatch.setattr(cli, "_client", forbid("massive"))
+    return calls
+
+
+def test_sec_fsds_ingests_a_local_package_without_network_or_sec_contact(
+    configured: Path,
+    empty_database: None,
+    monkeypatch: pytest.MonkeyPatch,
+    no_network: list[str],
+    integration_engine: Engine,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+
+    monkeypatch.delenv("QF_SEC_USER_AGENT", raising=False)
+    get_settings.cache_clear()
+    _seed_filings_for_fsds(integration_engine)
+    package = build_package(tmp_path / "2024q2.zip")
+
+    code = cli.main(
+        ["ingestion", "sec-fsds", str(package), "--accession", ACC_10Q, "--accession", ACC_10K]
+    )
+
+    assert code == cli.EXIT_OK
+    assert no_network == []
+    out = capsys.readouterr().out
+    assert "2024q2: received=13 written=13 skipped=0 failed=0" in out
+    with Session(integration_engine) as session:
+        assert session.query(FinancialFact).count() == 13
+        artifact = session.query(FinancialFactArtifact).one()
+        assert artifact.artifact_name == "2024q2"  # derived from the file name
+        run = session.query(IngestionRun).filter_by(dataset="sec-fsds").one()
+        assert run.status is IngestionStatus.SUCCEEDED
+        assert str(tmp_path) not in json.dumps(run.request_parameters)
+    assert code == cli.main(
+        ["ingestion", "sec-fsds", str(package), "--accession", ACC_10Q, "--accession", ACC_10K]
+    )
+    assert "skipped=13" in capsys.readouterr().out
+
+
+def test_sec_fsds_reports_unbound_accessions_for_a_cik_selection(
+    configured: Path,
+    empty_database: None,
+    no_network: list[str],
+    integration_engine: Engine,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+
+    _seed_filings_for_fsds(integration_engine, with_10qa=False)
+    package = build_package(tmp_path / "2024q2.zip")
+
+    code = cli.main(["ingestion", "sec-fsds", str(package), "--cik", "320193"])
+
+    assert code == cli.EXIT_OK
+    out = capsys.readouterr().out
+    assert f"unbound (no stored SecFiling; nothing written): {ACC_10QA}" in out
+    assert "partial" in out
+
+
+@pytest.mark.parametrize(
+    "argv_tail",
+    [[], ["--accession", "bad"], ["--cik", "x"]],
+)
+def test_sec_fsds_refuses_an_unbounded_or_malformed_selection(
+    configured: Path,
+    empty_database: None,
+    no_network: list[str],
+    integration_engine: Engine,
+    tmp_path: Path,
+    argv_tail: list[str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+
+    package = build_package(tmp_path / "2024q2.zip")
+    assert cli.main(["ingestion", "sec-fsds", str(package), *argv_tail]) == cli.EXIT_USAGE
+    assert "error:" in capsys.readouterr().err
+    with Session(integration_engine) as session:
+        assert session.query(IngestionRun).count() == 0
+
+
+def test_sec_fsds_needs_a_package_name_when_the_file_name_does_not_give_one(
+    configured: Path,
+    empty_database: None,
+    no_network: list[str],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+
+    package = build_package(tmp_path / "download (1).zip")
+    code = cli.main(["ingestion", "sec-fsds", str(package), "--accession", ACC_10Q])
+    assert code == cli.EXIT_USAGE
+    assert "--package-name" in capsys.readouterr().err
+
+
+def test_sec_fsds_missing_filing_is_a_usage_error_with_a_durable_failed_run(
+    configured: Path,
+    empty_database: None,
+    no_network: list[str],
+    integration_engine: Engine,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+
+    package = build_package(tmp_path / "2024q2.zip")
+    code = cli.main(["ingestion", "sec-fsds", str(package), "--accession", ACC_10Q])
+    assert code == cli.EXIT_USAGE
+    assert "no stored SecFiling" in capsys.readouterr().err
+    with Session(integration_engine) as session:
+        assert session.query(FinancialFact).count() == 0
+        assert session.query(SecFiling).count() == 0
+        assert session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).count() == 1
+
+
+def test_sec_fsds_a_revised_package_is_a_failed_run_and_never_applied(
+    configured: Path,
+    empty_database: None,
+    no_network: list[str],
+    integration_engine: Engine,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+
+    _seed_filings_for_fsds(integration_engine)
+    original = build_package(tmp_path / "2024q2.zip")
+    assert cli.main(["ingestion", "sec-fsds", str(original), "--accession", ACC_10Q]) == cli.EXIT_OK
+    capsys.readouterr()
+
+    revised = build_package(
+        tmp_path / "revised.zip",
+        nums=[
+            *default_nums(),
+            num_row(
+                adsh=ACC_10Q,
+                tag="Extra",
+                version="us-gaap/2024",
+                ddate="20240331",
+                qtrs="0",
+                value="1.0000",
+            ),
+        ],
+    )
+    code = cli.main(
+        [
+            "ingestion",
+            "sec-fsds",
+            str(revised),
+            "--package-name",
+            "2024q2",
+            "--accession",
+            ACC_10Q,
+        ]
+    )
+    assert code == cli.EXIT_RUN_FAILED
+    err = capsys.readouterr().err
+    assert "already ingested with different content" in err
+    assert "nothing was overwritten" in err
+    with Session(integration_engine) as session:
+        assert session.query(FinancialFact).count() == 12
+        assert session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).count() == 1
