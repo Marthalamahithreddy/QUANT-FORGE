@@ -650,6 +650,13 @@ def test_the_result_and_input_types_carry_no_availability_or_signal_field() -> N
         assert {f.name for f in dataclasses.fields(model)}.isdisjoint(FORBIDDEN_FIELD_NAMES)
 
 
+ALLOWED_FINANCIALS_CONSUMERS = {
+    "api/v1/filing_eps.py",
+    "api/v1/filing_eps_presenter.py",
+    "schemas/filing_eps.py",
+}  # the read-only filing EPS API (10.6J): no signal, backtest, research or UI consumer
+
+
 def test_no_other_package_imports_the_financials_layer() -> None:
     offenders = []
     for path in SRC.rglob("*.py"):
@@ -657,7 +664,9 @@ def test_no_other_package_imports_the_financials_layer() -> None:
             continue
         if any(n.startswith("quantforge.financials") for n in _imports(path)):
             offenders.append(str(path.relative_to(SRC)))
-    assert offenders == [], "nothing is wired to the EPS selector yet (no signal, no API, no UI)"
+    assert set(offenders) <= ALLOWED_FINANCIALS_CONSUMERS, (
+        "only the read-only filing EPS API may consume it"
+    )
 
 
 # ── final-audit cases: period-end A-E and status precedence ──────────────────────────────

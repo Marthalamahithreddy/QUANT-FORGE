@@ -351,6 +351,36 @@ no signal or score, no availability or clock, no persistence, no migration.
   never mutating the process-global Decimal context. The percentage is **not quantized or formatted** in the domain
   (`-1/3` keeps 50 digits); display rounding belongs to a later layer. No float anywhere.
 
+### Filing EPS API (read-only)
+
+`GET /api/v1/filings/{accession}/eps?period_class=QUARTER|ANNUAL&eps_kind=DILUTED|BASIC_AND_DILUTED` exposes, for one
+accession, the existing chain **current EPS -> comparative EPS -> EPS change**. It is a transport surface: the router
+(`api/v1/filing_eps.py`) composes `extract_comparative_eps_observation` + `compute_eps_change`, a pure presenter maps the
+observations to the schema (`schemas/filing_eps.py`), and no financial rule lives in the API layer.
+
+* **Contract:** both query parameters are required (no defaults, nothing inferred from the form); the accession must be a
+  dashed EDGAR accession, else `422` (as for a bad/missing/extra parameter). Every valid request is **`200`, including domain
+  refusals**: `NOT_INGESTED`, `MISSING`, `WRONG_UNIT`, `COMPARATIVE_PERIOD_MISMATCH`, ... are observations, not missing
+  resources; `503` only when the database is unavailable. It reads stored facts only: no SEC/provider call, no write (the
+  request session is rolled back), no cache, no migration. There is no filings index yet.
+* **Response:** one nested envelope: `accession`, `company_cik`, `form`, `period_class`, `eps_kind`, `descriptive_only: true`,
+  `no_point_in_time_claim: true`, `boundary_note`, then `current`, `comparative` and `change`, each with its own `status`
+  (+ `reason` / `fact` evidence where the domain selected a fact: id, tag, taxonomy version, unit, period end, `qtrs`, value,
+  `segments`, `coreg`). Every financial value is a **fixed-point string** (the Decimal's own exponent kept, never `1E-7`,
+  never a JSON number). `percentage_change` is a **ratio** (`"0.5"` = +50%), only for a positive comparative; otherwise it is
+  `null` with `percentage_unavailable_reason` while `eps_change` and `transition` stay available. The comparative is
+  "comparative EPS as presented in this filing". No availability, acceptance or ingestion time is exposed.
+
+```json
+{"accession": "0000320193-24-000010", "company_cik": "0000320193", "form": "10-Q", "period_class": "QUARTER",
+ "eps_kind": "DILUTED", "descriptive_only": true, "no_point_in_time_claim": true,
+ "current": {"status": "AVAILABLE", "reason": "...", "fact": {"value": "1.5300", "unit": "USD", "qtrs": 1, "...": "..."}},
+ "comparative": {"status": "AVAILABLE", "meaning": "comparative EPS as presented in this filing", "fact": {"value": "1.5200", "...": "..."}},
+ "change": {"status": "AVAILABLE", "eps_change": "0.0100", "transition": "POSITIVE_INCREASED",
+            "percentage_change": "0.00657894736842105263157894736842105263157894736842", "percentage_semantics": "ratio",
+            "percentage_unavailable_reason": null}}
+```
+
 ## Research, signals, and backtest layers
 
 Three packages in `apps/api/src/quantforge/`, each strictly downstream of the

@@ -27,16 +27,15 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import date, datetime
-from decimal import Decimal
 from typing import Annotated
 
 import sqlalchemy as sa
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, PlainSerializer
+from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import InterfaceError, OperationalError
 from sqlalchemy.orm import Session
 
-from quantforge.db.session import get_session
+from quantforge.api.v1.dependencies import SessionDep, database_unavailable
 from quantforge.identity.listing_history import SecurityHistory
 from quantforge.identity.resolver import HistoricalListingResolver
 from quantforge.models.earnings import EarningsEvent
@@ -48,6 +47,7 @@ from quantforge.research.availability import (
     classify_point_in_time_eligibility,
 )
 from quantforge.research.eps_surprise import EpsSurpriseStatus, compute_eps_surprise
+from quantforge.schemas.common import DecimalText
 
 logger = logging.getLogger(__name__)
 
@@ -69,16 +69,6 @@ _ELIGIBILITY_REASONS: dict[PointInTimeEligibility, str] = {
         "point-in-time use."
     ),
 }
-
-
-def _fixed_point(value: Decimal) -> str:
-    # ``str(Decimal)`` may use exponent notation ("1E-7"); clients get plain
-    # fixed-point text so no consumer needs to parse an exponent.
-    return format(value, "f")
-
-
-#: A Decimal that always serialises to fixed-point text, never a JSON number.
-DecimalText = Annotated[Decimal, PlainSerializer(_fixed_point, return_type=str, when_used="json")]
 
 
 class CompanyRef(BaseModel):
@@ -167,9 +157,6 @@ class ListParams(BaseModel):
     ticker: str | None = Field(None, min_length=1, max_length=32, pattern=r"^\S(.*\S)?$")
     date_from: date | None = None
     date_to: date | None = None
-
-
-SessionDep = Annotated[Session, Depends(get_session)]
 
 
 def _listings_by_company(
@@ -288,11 +275,7 @@ def _to_item(
 
 
 def _unavailable(exc: OperationalError | InterfaceError) -> HTTPException:
-    # Class name only: driver messages can embed the DSN.
-    logger.warning("Earnings read failed: %s", type(exc).__name__, exc_info=True)
-    return HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database unavailable."
-    )
+    return database_unavailable(exc, what="Earnings read")
 
 
 @router.get(

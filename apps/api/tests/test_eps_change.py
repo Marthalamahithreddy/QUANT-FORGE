@@ -520,7 +520,11 @@ def test_the_package_exports_resolve_lazily_and_nothing_else_imports_eps_change(
         if "financials" not in path.parts
         and any(n.startswith("quantforge.financials") for n in _imports(path))
     ]
-    assert offenders == []
+    assert set(offenders) <= {
+        "api/v1/filing_eps.py",
+        "api/v1/filing_eps_presenter.py",
+        "schemas/filing_eps.py",
+    }, "only the read-only filing EPS API may consume the EPS change layer"
 
 
 def test_the_selector_inputs_used_here_match_the_fixture_dates() -> None:

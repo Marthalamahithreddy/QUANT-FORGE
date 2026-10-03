@@ -10,23 +10,41 @@ arrive from a ``COPY``, a raw script or a future worker.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Annotated
 from zoneinfo import available_timezones
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, PlainSerializer, field_validator
 
 from quantforge.models.base import COUNTRY_LENGTH, CURRENCY_LENGTH, MIC_LENGTH
 
 __all__ = [
     "AVAILABLE_TIMEZONES",
     "CodeValidatingSchema",
+    "DecimalText",
     "OrmReadSchema",
     "as_utc_aware",
     "blank_to_none",
+    "fixed_point",
 ]
 
 #: IANA zone names this deployment can actually resolve. A name absent here would
 #: fail later at offset arithmetic, so it is rejected at the boundary instead.
 AVAILABLE_TIMEZONES: frozenset[str] = frozenset(available_timezones())
+
+
+def fixed_point(value: Decimal) -> str:
+    """Fixed-point text of ``value``: never exponent notation, trailing zeros preserved.
+
+    ``str(Decimal)`` may use exponent notation (``"1E-7"``); clients get plain text so no consumer
+    needs to parse an exponent. The Decimal's own exponent is kept (``Decimal("1.5300")`` is
+    ``"1.5300"``), so nothing is quantized or rounded at the API boundary.
+    """
+    return format(value, "f")
+
+
+#: A Decimal that always serialises to fixed-point text in JSON, never a JSON number.
+DecimalText = Annotated[Decimal, PlainSerializer(fixed_point, return_type=str, when_used="json")]
 
 
 def blank_to_none(value: str | None) -> str | None:
