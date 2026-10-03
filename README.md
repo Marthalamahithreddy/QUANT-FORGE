@@ -274,6 +274,32 @@ SHA-256 identity; the ZIP itself lives in the raw store, streamed, never in a ro
   fractional-second suffix would be rejected, loudly) and its timezone, and behaviour on a reprocessed package. Two
   concurrent runs ingesting one package name with different bytes are not serialised (single-operator CLI).
 
+## Accession-scoped EPS extraction (descriptive only)
+
+`quantforge.financials` is the first **semantic** layer over `financial_fact`: given one stored accession and an
+**explicit** `EpsPeriodClass` (`QUARTER` | `ANNUAL`) and `EpsKind` (`DILUTED` | `BASIC_AND_DILUTED`), it returns one
+immutable `EpsFactObservation` or an explicit refusal status. A pure selector (`financials/eps.py`) holds every rule;
+a thin adapter (`extract_eps_observation`) only reads the stored rows of that one filing. No migration, no table, no
+endpoint, no UI; nothing imports it yet.
+
+* **Question answered:** "does this accession contain exactly one defensible standardized EPS fact for the requested
+  accounting semantics?" It never says when a fact was known: no availability field, no `accepted_at` read, no PIT claim.
+* **Rules:** 10-Q/10-Q/A support `QUARTER` (`qtrs == 1`) and 10-K/10-K/A support `ANNUAL` (`qtrs == 4`); year-to-date
+  rows are never a quarter and **no Q4 is derived**. The fact's period end must equal the filing's own FSDS submission
+  period end (same month-end rounding), so prior-year comparatives are never picked. The concept is matched by exact
+  tag and a `us-gaap/<year>` version (any historical release; an issuer extension is never mapped). Basic EPS and
+  continuing-operations EPS are never substituted. `EarningsPerShareBasicAndDiluted` (defined by the taxonomy as one
+  figure reported when basic and diluted are the same) is available only as the explicitly requested kind
+  `BASIC_AND_DILUTED`, never as an automatic fallback and never labelled `DILUTED`. Only a fact with empty `segments`
+  **and** empty `coreg` is eligible ("non-dimensional under the FSDS representation", not "confirmed consolidated");
+  the unit must be exactly `USD/shares`.
+* **Statuses:** `AVAILABLE`, `NOT_INGESTED` (nothing stored; *not* "absent"), `UNSUPPORTED_FORM_PERIOD`, `MISSING`,
+  `EXTENSION_ONLY`, `WRONG_UNIT`, `DIMENSIONAL_ONLY`, `COREG_ONLY`, `NULL_VALUE`, `AMBIGUOUS`. More than one eligible
+  fact (for example two taxonomy releases in one accession) is `AMBIGUOUS` even when the values agree: no first/last/
+  largest tie-break. The result never depends on fact order. An amendment is its own accession and is never preferred.
+* **Unverified:** no real FSDS package has been read, so the exact `USD/shares` spelling and the SUB-vs-NUM period-end
+  rounding agreement are assumptions (a mismatch refuses loudly, it does not guess). No YoY, surprise or signal exists.
+
 ## Research, signals, and backtest layers
 
 Three packages in `apps/api/src/quantforge/`, each strictly downstream of the

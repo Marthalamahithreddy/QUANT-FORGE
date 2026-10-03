@@ -26,7 +26,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from quantforge.models.company import Company
-from quantforge.models.enums import FinancialFactSourceKind
+from quantforge.models.enums import FinancialFactSourceKind, SecFormType
 from quantforge.models.filing import ACCESSION_PATTERN, SecFiling
 from quantforge.models.financial_fact import (
     FinancialFact,
@@ -34,7 +34,7 @@ from quantforge.models.financial_fact import (
     FinancialFactSubmission,
 )
 
-__all__ = ["FactTrace", "FinancialFactRepository", "is_extension_version"]
+__all__ = ["FactTrace", "FilingFactContext", "FinancialFactRepository", "is_extension_version"]
 
 _ACCESSION = re.compile(ACCESSION_PATTERN)
 _ORDER = (
@@ -71,6 +71,22 @@ class FactTrace:
     ingestion_run_id: uuid.UUID | None
 
 
+@dataclass(frozen=True, slots=True)
+class FilingFactContext:
+    """One stored filing of an accession, with the period ends its FSDS submissions state.
+
+    Plain stored facts, no interpretation. An empty ``submission_period_ends`` means no financial
+    facts were ingested for this filing. No acceptance or ingestion time is carried: this exists to
+    scope a semantic read, not to say when anything was known.
+    """
+
+    sec_filing_id: uuid.UUID
+    accession_number: str
+    company_cik: str | None
+    form: SecFormType
+    submission_period_ends: tuple[date, ...]
+
+
 class FinancialFactRepository:
     """Queries over ``financial_fact`` and its provenance."""
 
@@ -78,6 +94,45 @@ class FinancialFactRepository:
 
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    def filing_fact_contexts(self, accession_number: str) -> list[FilingFactContext]:
+        """Every stored filing row of the accession (a joint filing can have several), by id."""
+        filings = self._session.execute(
+            sa.select(SecFiling.id, SecFiling.accession_number, SecFiling.form, Company.cik)
+            .join(Company, Company.id == SecFiling.company_id)
+            .where(SecFiling.accession_number == accession_number)
+            .order_by(SecFiling.id)
+        ).all()
+        if not filings:
+            return []
+        period_ends: dict[uuid.UUID, set[date]] = {row.id: set() for row in filings}
+        for filing_id, period_end in self._session.execute(
+            sa.select(
+                FinancialFactSubmission.sec_filing_id, FinancialFactSubmission.period_end
+            ).where(FinancialFactSubmission.sec_filing_id.in_(list(period_ends)))
+        ):
+            period_ends[filing_id].add(period_end)
+        return [
+            FilingFactContext(
+                sec_filing_id=row.id,
+                accession_number=row.accession_number,
+                company_cik=row.cik,
+                form=row.form,
+                submission_period_ends=tuple(sorted(period_ends[row.id])),
+            )
+            for row in filings
+        ]
+
+    def facts_for_filing_tag(self, sec_filing_id: uuid.UUID, tag: str) -> list[FinancialFact]:
+        """Every stored fact of one filing with this exact tag: all versions, periods, durations,
+        units and dimensions. No selection; identity order."""
+        return list(
+            self._session.scalars(
+                sa.select(FinancialFact)
+                .where(FinancialFact.sec_filing_id == sec_filing_id, FinancialFact.tag == tag)
+                .order_by(*_ORDER)
+            )
+        )
 
     def facts_for_accession(self, accession_number: str) -> list[FinancialFact]:
         """Every stored fact the accession reported, in identity order. No selection."""
