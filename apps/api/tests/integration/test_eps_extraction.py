@@ -8,7 +8,7 @@ comparative / dimension data as the source, and writes nothing.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Context, Decimal
 from pathlib import Path
 
 import pytest
@@ -27,10 +27,14 @@ from tests.fsds_fixture import (
 from quantforge.financials import (
     ComparativeEpsObservation,
     ComparativeEpsStatus,
+    EpsChangeStatus,
     EpsFactObservation,
     EpsKind,
     EpsPeriodClass,
     EpsStatus,
+    EpsTransition,
+    PercentageUnavailableReason,
+    compute_eps_change,
     extract_comparative_eps_observation,
     extract_eps_observation,
 )
@@ -692,3 +696,35 @@ def test_comparative_extraction_writes_nothing_and_ignores_acceptance_times(
     assert result.comparative_value == Decimal("1.5200")
     assert [db_session.query(table).count() for table in tables] == before
     assert not db_session.new and not db_session.dirty and not db_session.deleted
+
+
+def test_eps_change_composes_database_extracted_comparatives_without_new_queries(
+    db_session: Session, tmp_path: Path, filings: dict[str, SecFiling]
+) -> None:
+    _ingest(
+        db_session,
+        tmp_path,
+        [
+            _eps(ACC_10Q, "20240331", "1", "1.5300"),
+            _eps(ACC_10Q, "20230331", "1", "1.5200"),
+            _eps(ACC_10QA, "20240331", "1", "-0.5000"),
+            _eps(ACC_10QA, "20230331", "1", "-1.0000"),
+            _eps(ACC_10K, "20230930", "4", "6.1300"),  # no comparative stored
+        ],
+    )
+    gain = compute_eps_change(_comparative(db_session, ACC_10Q))
+    assert gain.status is EpsChangeStatus.AVAILABLE
+    assert (
+        gain.eps_change == Decimal("0.0100") and gain.transition is EpsTransition.POSITIVE_INCREASED
+    )
+    assert gain.percentage_change == Context(
+        prec=50, rounding=ROUND_HALF_EVEN, traps=[], flags=[]
+    ).divide(Decimal("0.0100"), Decimal("1.5200"))
+
+    loss = compute_eps_change(_comparative(db_session, ACC_10QA))  # an amendment: independent
+    assert loss.eps_change == Decimal("0.5000") and loss.transition is EpsTransition.LOSS_NARROWED
+    assert loss.percentage_change is None
+    assert loss.percentage_unavailable_reason is PercentageUnavailableReason.NEGATIVE_COMPARATIVE
+
+    nothing = compute_eps_change(_comparative(db_session, ACC_10K, EpsPeriodClass.ANNUAL))
+    assert nothing.status is EpsChangeStatus.INPUT_UNAVAILABLE and nothing.eps_change is None

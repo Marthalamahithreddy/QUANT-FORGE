@@ -314,7 +314,7 @@ endpoint, no UI; nothing imports it yet.
 accession, the current EPS observation plus **comparative EPS as presented in this filing**, or an explicit refusal
 (`ComparativeEpsObservation`, a pure selector plus a read-only adapter; no table, no migration). The comparative may be
 restated or reclassified and is **not** the originally reported prior-year EPS: no other accession is ever consulted.
-There is no growth, change, percentage, sign transition, direction, signal or availability claim.
+There is no growth, direction, signal or availability claim (EPS change, a separate pure layer, is described below).
 
 * **Current first:** the existing selector decides the current EPS; anything but `AVAILABLE` is `CURRENT_UNAVAILABLE`
   carrying that status, and nothing earlier is searched.
@@ -331,6 +331,25 @@ There is no growth, change, percentage, sign transition, direction, signal or av
   (`COMPARATIVE_WRONG_UNIT`, never converted, never "missing"), a single NULL (`COMPARATIVE_NULL_VALUE`), and exactly one
   (`COMPARATIVE_AMBIGUOUS` otherwise, even with equal values or a NULL beside a number). `COMPARATIVE_MISSING` means no
   earlier standard-us-gaap, same-concept, same-`qtrs` fact is stored (same-name extension facts are ignored, never mapped). An amendment is its own accession. The result is order-independent.
+
+### Descriptive EPS change (over a comparative observation)
+
+`compute_eps_change` (`financials/eps_change.py`) is a pure transformation of an **AVAILABLE**
+`ComparativeEpsObservation` (it retrieves nothing; the comparative observation is the evidence envelope). Any other
+comparative status gives `INPUT_UNAVAILABLE` with nothing calculated. It is descriptive only: no surprise/consensus,
+no signal or score, no availability or clock, no persistence, no migration.
+
+* **`eps_change = current - comparative`**: signed, exact `Decimal` (never `abs`; not "absolute change", not "growth").
+* **`transition`** (one enum, no contradictory fields): `POSITIVE_INCREASED/DECREASED/UNCHANGED`,
+  `LOSS_NARROWED/WIDENED/UNCHANGED` (descriptive loss-magnitude moves), `LOSS_TO_PROFIT`, `PROFIT_TO_LOSS`,
+  `ZERO_TO_PROFIT/LOSS`, `PROFIT/LOSS_TO_ZERO`, `ZERO_UNCHANGED`. Zero of any spelling (`-0`, `0.0000`) is one class.
+* **`percentage_change = (current - comparative) / comparative`**: a **ratio** (`0.5` = +50%, not x100, like
+  `surprise_ratio`), only for a **positive** comparative (`1.00 -> -0.50` is `-1.5`). A zero or negative comparative gives
+  `None` plus `PercentageUnavailableReason.ZERO_COMPARATIVE` / `NEGATIVE_COMPARATIVE`; `abs(comparative)` is never used,
+  so a narrowing loss is never called positive growth.
+* **Arithmetic:** an explicit isolated context (50 significant digits, `ROUND_HALF_EVEN`, traps on), independent of and
+  never mutating the process-global Decimal context. The percentage is **not quantized or formatted** in the domain
+  (`-1/3` keeps 50 digits); display rounding belongs to a later layer. No float anywhere.
 
 ## Research, signals, and backtest layers
 

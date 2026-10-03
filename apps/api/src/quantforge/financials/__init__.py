@@ -2,8 +2,9 @@
 
 This package sits *above* :mod:`quantforge.repositories.financial_fact` (which only retrieves
 facts) and *below* anything that would compare or act on a figure. It holds accession-scoped
-EPS selection (:mod:`quantforge.financials.eps`) and same-accession comparative EPS (:mod:`quantforge.financials.comparative_eps`, "comparative EPS as presented in this
-filing"), each a pure function plus a thin database adapter
+EPS selection (:mod:`quantforge.financials.eps`), descriptive EPS change
+(:mod:`quantforge.financials.eps_change`) and same-accession comparative EPS (:mod:`quantforge.financials.comparative_eps`, "comparative EPS as presented in this
+filing"), most a pure function plus a thin database adapter (EPS change is pure and has none)
 (:mod:`quantforge.financials.eps_extraction`, :mod:`quantforge.financials.comparative_eps_extraction`).
 
 It is descriptive accounting extraction: it never states when a fact was known, never reads a
@@ -35,11 +36,23 @@ if TYPE_CHECKING:
         EpsStatus,
         select_eps_fact,
     )
+    from quantforge.financials.eps_change import (
+        EpsChangeObservation,
+        EpsChangeStatus,
+        EpsTransition,
+        PercentageUnavailableReason,
+        compute_eps_change,
+    )
     from quantforge.financials.eps_extraction import extract_eps_observation
 
 # Lazy (PEP 562), like the other domain packages: importing the pure selector must not load the
 # database adapter or its repositories.
 _EXPORTS: dict[str, str] = {
+    "EpsChangeObservation": "quantforge.financials.eps_change",
+    "EpsChangeStatus": "quantforge.financials.eps_change",
+    "EpsTransition": "quantforge.financials.eps_change",
+    "PercentageUnavailableReason": "quantforge.financials.eps_change",
+    "compute_eps_change": "quantforge.financials.eps_change",
     "ComparativeEpsObservation": "quantforge.financials.comparative_eps",
     "ComparativeEpsStatus": "quantforge.financials.comparative_eps",
     "extract_comparative_eps_observation": "quantforge.financials.comparative_eps_extraction",
@@ -75,11 +88,16 @@ __all__ = [
     "EPS_UNIT",
     "ComparativeEpsObservation",
     "ComparativeEpsStatus",
+    "EpsChangeObservation",
+    "EpsChangeStatus",
     "EpsFactObservation",
     "EpsInputFact",
     "EpsKind",
     "EpsPeriodClass",
     "EpsStatus",
+    "EpsTransition",
+    "PercentageUnavailableReason",
+    "compute_eps_change",
     "extract_comparative_eps_observation",
     "extract_eps_observation",
     "select_comparative_eps",
