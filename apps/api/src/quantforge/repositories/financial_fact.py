@@ -34,7 +34,14 @@ from quantforge.models.financial_fact import (
     FinancialFactSubmission,
 )
 
-__all__ = ["FactTrace", "FilingFactContext", "FinancialFactRepository", "is_extension_version"]
+__all__ = [
+    "FactTrace",
+    "FilingFactContext",
+    "FilingIndexResult",
+    "FilingIndexRow",
+    "FinancialFactRepository",
+    "is_extension_version",
+]
 
 _ACCESSION = re.compile(ACCESSION_PATTERN)
 _ORDER = (
@@ -87,6 +94,33 @@ class FilingFactContext:
     submission_period_ends: tuple[date, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class FilingIndexRow:
+    """One stored filing that has FSDS submission data: plain stored metadata, nothing derived.
+
+    Identity is the stored ``SecFiling`` row, i.e. ``(company, accession)``: one joint accession
+    stored under two registrants is two rows. No internal id, acceptance or ingestion time is
+    carried: ``filing_date`` and ``report_date`` are source metadata, never availability evidence.
+    ``fsds_period_end`` is the period every one of the filing's FSDS submissions agree on, or
+    ``None`` when they disagree (no latest/earliest/first is ever chosen).
+    """
+
+    accession_number: str
+    company_cik: str | None
+    form: SecFormType
+    filing_date: date
+    report_date: date | None
+    fsds_period_end: date | None
+
+
+@dataclass(frozen=True, slots=True)
+class FilingIndexResult:
+    """A page of index rows and the total number of logical rows matching the filters."""
+
+    rows: tuple[FilingIndexRow, ...]
+    total: int
+
+
 class FinancialFactRepository:
     """Queries over ``financial_fact`` and its provenance."""
 
@@ -94,6 +128,82 @@ class FinancialFactRepository:
 
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    def filing_index(
+        self, *, limit: int, offset: int, form: SecFormType | None = None, cik: str | None = None
+    ) -> FilingIndexResult:
+        """Stored filings that have at least one FSDS submission, newest filing date first.
+
+        Eligibility is an EXISTS test and the period is a per-filing correlated aggregate, so a
+        filing with several submissions is still exactly one row: ``total`` and the page both
+        count logical filings.
+        ``form`` (exact stored form, no amendment folding) and ``cik`` combine with AND. The order
+        is total: ``filing_date`` DESC, accession DESC, CIK DESC (NULLs last), then the row id as a
+        final tie-break. It never uses an acceptance or ingestion time.
+        """
+        submissions = FinancialFactSubmission
+        # Eligibility is EXISTS (never a join), so a filing with many submissions stays one row.
+        eligible = sa.exists().where(submissions.sec_filing_id == SecFiling.id)
+        # period_end is NOT NULL, so DISTINCT counts real dates only; disagreement is NULL.
+        fsds_period_end = (
+            sa.select(
+                sa.case(
+                    (
+                        sa.func.count(sa.distinct(submissions.period_end)) == 1,
+                        sa.func.min(submissions.period_end),
+                    ),
+                    else_=sa.null(),
+                )
+            )
+            .where(submissions.sec_filing_id == SecFiling.id)
+            .correlate(SecFiling)
+            .scalar_subquery()
+        )
+        filters: list[sa.ColumnElement[bool]] = [eligible]
+        if form is not None:
+            filters.append(SecFiling.form == form)
+        if cik is not None:
+            filters.append(Company.cik == cik)
+        total = self._session.scalar(
+            sa.select(sa.func.count())
+            .select_from(SecFiling)
+            .join(Company, Company.id == SecFiling.company_id)
+            .where(*filters)
+        )
+        rows = self._session.execute(
+            sa.select(
+                SecFiling.accession_number,
+                Company.cik.label("company_cik"),
+                SecFiling.form,
+                SecFiling.filing_date,
+                SecFiling.report_date,
+                fsds_period_end.label("fsds_period_end"),
+            )
+            .join(Company, Company.id == SecFiling.company_id)
+            .where(*filters)
+            .order_by(
+                SecFiling.filing_date.desc(),
+                SecFiling.accession_number.desc(),
+                Company.cik.desc().nulls_last(),
+                SecFiling.id,
+            )
+            .limit(limit)
+            .offset(offset)
+        ).all()
+        return FilingIndexResult(
+            rows=tuple(
+                FilingIndexRow(
+                    accession_number=row.accession_number,
+                    company_cik=row.company_cik,
+                    form=row.form,
+                    filing_date=row.filing_date,
+                    report_date=row.report_date,
+                    fsds_period_end=row.fsds_period_end,
+                )
+                for row in rows
+            ),
+            total=total or 0,
+        )
 
     def filing_fact_contexts(self, accession_number: str) -> list[FilingFactContext]:
         """Every stored filing row of the accession (a joint filing can have several), by id."""

@@ -8,7 +8,7 @@ HTTP semantics: ``200`` for every valid request, **including domain refusals** (
 ``MISSING``, ``WRONG_UNIT``, ``COMPARATIVE_PERIOD_MISMATCH``, ...: they are observations, not missing
 resources); ``422`` for a malformed accession or a missing/invalid ``period_class`` / ``eps_kind``
 (both are required, nothing is defaulted or inferred from the form); ``503`` only when the database
-is unavailable. There is no filings index yet.
+is unavailable. ``GET /filings`` (see :mod:`quantforge.api.v1.filings`) lists the accessions.
 """
 
 from __future__ import annotations
