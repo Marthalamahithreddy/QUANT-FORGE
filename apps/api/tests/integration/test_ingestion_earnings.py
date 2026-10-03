@@ -46,7 +46,7 @@ from quantforge.ingestion.service import EarningsIngestionService
 from quantforge.ingestion.sources import get_or_create_data_source
 from quantforge.models.company import Company
 from quantforge.models.earnings import EarningsEvent
-from quantforge.models.enums import EarningsTiming, IngestionStatus, SecurityType
+from quantforge.models.enums import AvailabilityBasis, EarningsTiming, IngestionStatus, SecurityType
 from quantforge.models.ingestion import IngestionRun
 from quantforge.models.security import Exchange, Listing, Security
 from quantforge.providers.base import RawCapture
@@ -125,6 +125,8 @@ def _event(**overrides: object) -> CanonicalEarningsEvent:
         "observed_at": None,
     }
     fields.update(overrides)
+    if fields.get("observed_at") is not None:
+        fields.setdefault("observed_at_basis", AvailabilityBasis.SOURCE_PUBLICATION)
     return CanonicalEarningsEvent(**fields)  # type: ignore[arg-type]
 
 
@@ -587,6 +589,8 @@ def _finnhub_event(**overrides: object) -> CanonicalEarningsEvent:
         "hour": "amc",
     }
     fields.update(overrides)
+    if fields.get("observed_at") is not None:
+        fields.setdefault("observed_at_basis", AvailabilityBasis.SOURCE_PUBLICATION)
     decoded = decode_json_document(json.dumps(fields).encode())
     assert isinstance(decoded, dict)
     entry = FinnhubEarningsCalendarEntry.model_validate(decoded)

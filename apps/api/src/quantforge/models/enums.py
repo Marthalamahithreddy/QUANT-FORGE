@@ -154,6 +154,59 @@ class PriceBasis(StrEnum):
 RESEARCH_PRICE_BASIS: Final = PriceBasis.SPLIT_ADJUSTED
 
 
+class AvailabilityBasis(StrEnum):
+    """What an ``observed_at`` timestamp *proves* -- separate from whether it may be used.
+
+    A bare timestamp cannot say whether it is a provider's own statement of
+    when a result was published, the acceptance time of a regulatory filing, or
+    something weaker, and those prove different things. This names the evidence;
+    :data:`quantforge.research.availability.APPROVED_AVAILABILITY_BASES` decides
+    which kinds QuantForge will treat as point-in-time availability. A member
+    existing here never makes it tradable.
+
+    ``observed_at`` and ``observed_at_basis`` are NULL together or present
+    together (a database CHECK): a timestamp without a stated meaning, or a
+    meaning with no timestamp, is never stored. A date-only value is not an
+    instant and is never stored in ``observed_at``.
+    """
+
+    #: The source itself states an exact instant at which *this observation* was
+    #: published. The only way a provider timestamp may be recorded as
+    #: availability: a mapper may use it only for a field its documentation
+    #: defines that way -- never a record-modified/updated time, a scheduled
+    #: time, a date normalised to midnight, or an inference from BMO/AMC.
+    SOURCE_PUBLICATION = "SOURCE_PUBLICATION"
+
+    #: The time EDGAR accepted a specific SEC submission (accession). Proves the
+    #: filing existed on EDGAR by about then -- NOT that it was the first public
+    #: disclosure (a press release may precede an 8-K by up to four business
+    #: days) and NOT that the market learned of it at that instant. Defined so
+    #: filing evidence is named exactly; not yet approved for point-in-time use.
+    SEC_FILING_ACCEPTANCE = "SEC_FILING_ACCEPTANCE"
+
+
+class SecFormType(StrEnum):
+    """The SEC form types QuantForge ingests as filing metadata.
+
+    Deliberately narrow: only the forms a filing-based earnings analysis could
+    need. An ``8-K`` is merely a filing -- it can report many unrelated events,
+    and nothing here says it contains earnings. Amendments are their own
+    members because each amendment is a separate accession with its own
+    acceptance time.
+    """
+
+    FORM_10K = "10-K"
+    FORM_10K_A = "10-K/A"
+    FORM_10Q = "10-Q"
+    FORM_10Q_A = "10-Q/A"
+    FORM_8K = "8-K"
+    FORM_8K_A = "8-K/A"
+
+    @property
+    def is_amendment(self) -> bool:
+        return self.value.endswith("/A")
+
+
 class ProviderType(StrEnum):
     """The kind of organisation behind a :class:`DataSource`.
 
@@ -219,5 +272,7 @@ IDENTIFIER_TYPE_LENGTH = 32
 EARNINGS_TIMING_LENGTH = 32
 PROVIDER_TYPE_LENGTH = 32
 PRICE_BASIS_LENGTH = 32
+AVAILABILITY_BASIS_LENGTH = 32
+SEC_FORM_LENGTH = 16
 #: Lifecycle status of an ingestion run; see ``IngestionStatus``.
 INGESTION_STATUS_LENGTH = 16

@@ -20,7 +20,7 @@ from quantforge.ingestion.canonical import (
     CanonicalEquityReference,
     ResolvedVenue,
 )
-from quantforge.models.enums import EarningsTiming, PriceBasis
+from quantforge.models.enums import AvailabilityBasis, EarningsTiming, PriceBasis
 
 XNAS = ResolvedVenue(mic="XNAS", name="NasdaqGS", timezone_name="America/New_York")
 
@@ -184,6 +184,8 @@ def _reference(**overrides: object) -> CanonicalEquityReference:
         "currency_code": "USD",
     }
     fields.update(overrides)
+    if fields.get("observed_at") is not None:
+        fields.setdefault("observed_at_basis", AvailabilityBasis.SOURCE_PUBLICATION)
     return CanonicalEquityReference(**fields)  # type: ignore[arg-type]
 
 
@@ -259,6 +261,8 @@ def _event(**overrides: object) -> CanonicalEarningsEvent:
         "currency": "USD",
     }
     fields.update(overrides)
+    if fields.get("observed_at") is not None:
+        fields.setdefault("observed_at_basis", AvailabilityBasis.SOURCE_PUBLICATION)
     return CanonicalEarningsEvent(**fields)  # type: ignore[arg-type]
 
 

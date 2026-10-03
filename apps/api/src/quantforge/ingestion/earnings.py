@@ -119,6 +119,7 @@ def earnings_fingerprint(event: CanonicalEarningsEvent) -> str:
         estimated_revenue=event.estimated_revenue,
         currency=event.currency,
         observed_at=event.observed_at,
+        observed_at_basis=event.observed_at_basis,
     )
 
 
@@ -302,6 +303,9 @@ class EarningsIngestor:
             source_id=source_id,
             fingerprint=earnings_fingerprint(event),
             observed_at=event.observed_at,
+            observed_at_basis=(
+                event.observed_at_basis.value if event.observed_at_basis is not None else None
+            ),
             ingested_at=self._now,
             # Stamped at construction so the row and the run that produced it
             # commit or roll back as one fact.

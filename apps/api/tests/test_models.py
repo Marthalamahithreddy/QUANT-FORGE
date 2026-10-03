@@ -221,8 +221,8 @@ def test_metadata_contains_exactly_the_known_tables() -> None:
     expected size so a failure says how far off the schema is.
     """
     assert set(Base.metadata.tables) == set(ALL_TABLES)
-    assert len(Base.metadata.tables) == 11
-    assert len(DOMAIN_TABLES) == 10
+    assert len(Base.metadata.tables) == 12
+    assert len(DOMAIN_TABLES) == 11
     assert len(OPERATIONAL_TABLES) == 1
 
 
@@ -265,7 +265,13 @@ def test_no_table_carries_a_company_ticker_surrogate() -> None:
 MUTABLE_TABLES = ["company", "security", "exchange", "listing", "benchmark", "earnings_event"]
 #: Rows that are immutable *facts* about the world, recorded once. Corrections
 #: arrive as a new source-attributed row so the first observation is never lost.
-IMMUTABLE_TABLES = ["data_source", "security_identifier", "daily_price_bar", "benchmark_price_bar"]
+IMMUTABLE_TABLES = [
+    "data_source",
+    "security_identifier",
+    "daily_price_bar",
+    "benchmark_price_bar",
+    "sec_filing",
+]
 
 
 @pytest.mark.parametrize("table_name", MUTABLE_TABLES + IMMUTABLE_TABLES)

@@ -21,7 +21,13 @@ from sqlalchemy.orm import Session
 from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
 from quantforge.models.company import Company
 from quantforge.models.earnings import EarningsEvent
-from quantforge.models.enums import EarningsTiming, PriceBasis, ProviderType, SecurityType
+from quantforge.models.enums import (
+    AvailabilityBasis,
+    EarningsTiming,
+    PriceBasis,
+    ProviderType,
+    SecurityType,
+)
 from quantforge.models.market import DailyPriceBar
 from quantforge.models.provenance import DataSource
 from quantforge.models.security import Exchange, Listing, Security
@@ -182,6 +188,8 @@ def _event(
         "source_id": source.id,
     }
     fields.update(overrides)
+    if fields.get("observed_at") is not None:
+        fields.setdefault("observed_at_basis", AvailabilityBasis.SOURCE_PUBLICATION)
     row = EarningsEvent(**fields)
     db_session.add(row)
     db_session.commit()
@@ -552,6 +560,7 @@ def test_point_in_time_eligible_event(
         timing=EarningsTiming.BEFORE_MARKET,
         event_date=sessions[2],
         observed_at=observed,
+        observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION,
     )
 
     result = analyze_earnings_event(
@@ -656,6 +665,7 @@ def test_the_study_respects_the_externally_selected_revision_not_a_future_one(
         reported_eps=Decimal("1.00"),
         estimated_eps=Decimal("1.00"),
         observed_at=datetime(2026, 3, 4, 20, 0, tzinfo=UTC),
+        observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION,
     )
     restatement = _event(
         company,
@@ -666,6 +676,7 @@ def test_the_study_respects_the_externally_selected_revision_not_a_future_one(
         reported_eps=Decimal("0.50"),  # a much worse restated figure
         estimated_eps=Decimal("1.00"),
         observed_at=datetime(2026, 4, 1, tzinfo=UTC),  # after decision_time
+        observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION,
     )
 
     selected = select_known_as_of([preliminary, restatement], as_of=decision_time)

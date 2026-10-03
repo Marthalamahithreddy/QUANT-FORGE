@@ -14,7 +14,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from quantforge.models.earnings import EarningsEvent
-from quantforge.models.enums import EarningsTiming
+from quantforge.models.enums import AvailabilityBasis, EarningsTiming
 from quantforge.research.availability import (
     PointInTimeEligibility,
     ResearchMode,
@@ -38,6 +38,8 @@ def _event(**overrides: object) -> EarningsEvent:
         "observed_at": None,
     }
     fields.update(overrides)
+    if fields.get("observed_at") is not None:
+        fields.setdefault("observed_at_basis", AvailabilityBasis.SOURCE_PUBLICATION)
     return EarningsEvent(**fields)
 
 
@@ -46,12 +48,16 @@ def _event(**overrides: object) -> EarningsEvent:
 
 def test_descriptive_mode_is_not_applicable_regardless_of_observed_at() -> None:
     assert (
-        classify_point_in_time_eligibility(ResearchMode.DESCRIPTIVE, observed_at=None)
+        classify_point_in_time_eligibility(
+            ResearchMode.DESCRIPTIVE, observed_at=None, observed_at_basis=None
+        )
         is PointInTimeEligibility.NOT_APPLICABLE
     )
     assert (
         classify_point_in_time_eligibility(
-            ResearchMode.DESCRIPTIVE, observed_at=datetime(2026, 6, 15, tzinfo=UTC)
+            ResearchMode.DESCRIPTIVE,
+            observed_at=datetime(2026, 6, 15, tzinfo=UTC),
+            observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION,
         )
         is PointInTimeEligibility.NOT_APPLICABLE
     )
@@ -60,7 +66,9 @@ def test_descriptive_mode_is_not_applicable_regardless_of_observed_at() -> None:
 def test_point_in_time_mode_with_no_observed_at_is_ineligible() -> None:
     """observed_at=NULL must never silently become historically tradable."""
     assert (
-        classify_point_in_time_eligibility(ResearchMode.POINT_IN_TIME, observed_at=None)
+        classify_point_in_time_eligibility(
+            ResearchMode.POINT_IN_TIME, observed_at=None, observed_at_basis=None
+        )
         is PointInTimeEligibility.INELIGIBLE_NO_AVAILABILITY_EVIDENCE
     )
 
@@ -68,7 +76,9 @@ def test_point_in_time_mode_with_no_observed_at_is_ineligible() -> None:
 def test_point_in_time_mode_with_a_known_observed_at_is_eligible() -> None:
     assert (
         classify_point_in_time_eligibility(
-            ResearchMode.POINT_IN_TIME, observed_at=datetime(2026, 6, 15, 20, 5, tzinfo=UTC)
+            ResearchMode.POINT_IN_TIME,
+            observed_at=datetime(2026, 6, 15, 20, 5, tzinfo=UTC),
+            observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION,
         )
         is PointInTimeEligibility.ELIGIBLE
     )

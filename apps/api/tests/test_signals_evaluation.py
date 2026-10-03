@@ -21,7 +21,7 @@ from decimal import Decimal
 
 import pytest
 
-from quantforge.models.enums import EarningsTiming
+from quantforge.models.enums import AvailabilityBasis, EarningsTiming
 from quantforge.research.abnormal_returns import compute_abnormal_return
 from quantforge.research.alignment import EventStudyAlignment
 from quantforge.research.availability import PointInTimeEligibility, ResearchMode
@@ -72,6 +72,7 @@ def _signal(**overrides: object) -> EpsSurpriseSignal:
         "event_date": _EVENT_DATE,
         "timing": EarningsTiming.BEFORE_MARKET,
         "observed_at": None,
+        "observed_at_basis": None,
         "exchange_mic": "XNYS",
         "effective_session": _ANCHOR,
         "status": EpsSurpriseSignalStatus.AVAILABLE,
@@ -232,7 +233,7 @@ def test_evaluation_leaves_the_signals_observed_at_untouched() -> None:
         stock_prices={sessions[0]: Decimal("100"), sessions[1]: Decimal("110")},
         benchmark_prices={sessions[0]: Decimal("50"), sessions[1]: Decimal("52")},
     )
-    signal = _signal(observed_at=observed)
+    signal = _signal(observed_at=observed, observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION)
 
     evaluate_eps_surprise_signal(signal, outcomes)
 

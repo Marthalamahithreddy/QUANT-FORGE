@@ -98,7 +98,7 @@ _SAFE_SEGMENT = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 #: ``finnhub`` is earnings-only (Massive's own earnings endpoint is
 #: entitlement-blocked); it does not replace Massive for reference/daily-bar
 #: data, which stays under ``massive``.
-_ALLOWED_PROVIDERS = frozenset({"finnhub", "massive"})
+_ALLOWED_PROVIDERS = frozenset({"finnhub", "massive", "sec-edgar"})
 
 #: Hex characters of a digest shown in a log line. Identifiers, not provenance:
 #: the full 64-character digest is what names a file and what is persisted, and

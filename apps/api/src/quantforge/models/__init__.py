@@ -27,18 +27,22 @@ from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
 from quantforge.models.company import Company
 from quantforge.models.earnings import EarningsEvent
 from quantforge.models.enums import (
+    AvailabilityBasis,
     EarningsTiming,
     IdentifierType,
     IngestionStatus,
+    PriceBasis,
     ProviderType,
+    SecFormType,
     SecurityType,
 )
+from quantforge.models.filing import SecFiling
 from quantforge.models.ingestion import IngestionRun
 from quantforge.models.market import DailyPriceBar
 from quantforge.models.provenance import DataSource
 from quantforge.models.security import Exchange, Listing, Security, SecurityIdentifier
 
-#: The ten financial-domain tables, in dependency order. Useful for introspection
+#: The financial-domain tables, in dependency order. Useful for introspection
 #: and for asserting in tests that nothing unexpected was declared.
 DOMAIN_TABLES: tuple[str, ...] = (
     "data_source",
@@ -51,6 +55,7 @@ DOMAIN_TABLES: tuple[str, ...] = (
     "benchmark",
     "benchmark_price_bar",
     "earnings_event",
+    "sec_filing",
 )
 
 #: Operational tables. Not financial data: these record what the ingestion
@@ -66,6 +71,7 @@ __all__ = [
     "ALL_TABLES",
     "DOMAIN_TABLES",
     "OPERATIONAL_TABLES",
+    "AvailabilityBasis",
     "Benchmark",
     "BenchmarkPriceBar",
     "Company",
@@ -79,7 +85,10 @@ __all__ = [
     "IngestionRun",
     "IngestionStatus",
     "Listing",
+    "PriceBasis",
     "ProviderType",
+    "SecFiling",
+    "SecFormType",
     "Security",
     "SecurityIdentifier",
     "SecurityType",

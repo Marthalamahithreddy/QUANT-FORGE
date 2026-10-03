@@ -31,12 +31,14 @@ from quantforge.ingestion.service import IngestionService, UnknownListingError
 from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
 from quantforge.models.company import Company
 from quantforge.models.enums import IngestionStatus, PriceBasis
+from quantforge.models.filing import SecFiling
 from quantforge.models.ingestion import IngestionRun
 from quantforge.models.market import DailyPriceBar
 from quantforge.models.provenance import DataSource
 from quantforge.models.security import Listing, Security
 from quantforge.providers.errors import ProviderConfigurationError
 from quantforge.providers.massive.client import MassiveClient, MassiveConfig
+from quantforge.providers.sec.client import SecClient
 
 pytestmark = pytest.mark.integration
 
@@ -806,6 +808,23 @@ def test_a_response_that_contradicts_the_requested_basis_stores_nothing(
         assert session.query(DailyPriceBar).count() == 0
         failed = session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).one()
         assert "refusing to ingest" in (failed.error_message or "")
+        assert failed.raw_artifact_path, "the mismatched response is kept as evidence"
+        assert failed.records_written == 0
+    manifest = (configured / failed.raw_artifact_path).read_text()
+    assert "daily-bars" in manifest
+    assert "daily-bars-rejected" in manifest, "stored apart from accepted artifacts"
+    artifacts = [p for p in configured.rglob("*.json") if "manifest" not in str(p)]
+    assert all("daily-bars-rejected" in str(p) for p in artifacts if "reference" not in str(p))
+    mismatched = [
+        p
+        for p in artifacts
+        if isinstance(json.loads(p.read_text()), dict)
+        and json.loads(p.read_text()).get("adjusted") is True
+    ]
+    assert mismatched, "the raw bytes of the contradicting response were stored"
+    for path in configured.rglob("*"):
+        if path.is_file():
+            assert "test-key-not-real" not in path.read_text(), path
 
 
 def test_an_unknown_price_basis_is_a_usage_error(configured: Path) -> None:
@@ -1051,3 +1070,151 @@ def test_a_stale_failed_run_marker_never_authorises_a_commit_after_a_pre_run_fai
         assert FAILED_RUN_RECORDED not in session.info
         cli._commit_failed_run(session)  # no marker -> rolls back rather than committing
         assert session.scalar(sa.select(sa.func.count()).select_from(IngestionRun)) == 0
+
+
+def test_a_raw_store_failure_while_keeping_evidence_never_masks_the_mismatch(
+    configured: Path,
+    empty_database: None,
+    serve: Any,
+    integration_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    serve(_basis_aware_handler([], bars=BARS_PAYLOAD))
+    assert cli.main(["ingestion", "reference", "AAPL"]) == cli.EXIT_OK
+    serve(_basis_aware_handler([], bars=BARS_PAYLOAD, lie_about_adjusted=True))
+    real = RawResponseStore.store_all
+
+    def broken(self: RawResponseStore, captures: Any) -> Any:
+        if captures and captures[0].dataset.endswith("-rejected"):
+            raise OSError("disk full")
+        return real(self, captures)
+
+    monkeypatch.setattr(RawResponseStore, "store_all", broken)
+
+    code = cli.main([*_DAILY_ARGV, "--price-basis", "as-traded"])
+
+    assert code == cli.EXIT_RUN_FAILED, "still the clean provider failure, not a traceback"
+    assert "refusing to ingest" in capsys.readouterr().err
+    with Session(integration_engine) as session:
+        failed = session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).one()
+        assert "refusing to ingest" in (failed.error_message or "")
+        assert session.query(DailyPriceBar).count() == 0
+
+
+# ── SEC filing metadata (no network: a mock transport stands in for data.sec.gov) ──
+
+_SEC_UA = "QuantForgeCliTest ops@example.com"
+_SEC_BODY = json.dumps(
+    {
+        "cik": "320193",
+        "filings": {
+            "recent": {
+                "accessionNumber": ["0000320193-24-000010", "0000320193-24-000011"],
+                "form": ["10-Q", "4"],
+                "filingDate": ["2024-05-03", "2024-05-03"],
+                "reportDate": ["2024-03-30", ""],
+                "acceptanceDateTime": ["2024-05-03T16:30:22.000Z", "2024-05-03T16:31:00.000Z"],
+                "primaryDocument": ["q.htm", "x.xml"],
+                "items": ["", ""],
+            }
+        },
+    }
+).encode()
+
+
+@pytest.fixture
+def sec_transport(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[httpx.Request]]:
+    """Make the CLI's SEC client talk to a mock transport, recording the requests."""
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, content=_SEC_BODY)
+
+    real = cli._sec_client
+
+    def factory(settings: Any) -> Any:
+        client = real(settings)
+        return SecClient(client._config, transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(cli, "_sec_client", factory)
+    yield requests
+
+
+def _company_with_cik(engine: Engine, cik: str = "0000320193") -> None:
+    with Session(engine) as session:
+        session.add(Company(legal_name="SEC Probe Inc.", display_name="SEC Probe", cik=cik))
+        session.commit()
+
+
+def test_sec_filings_requires_a_declared_identity(
+    configured: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("QF_SEC_USER_AGENT", raising=False)
+    get_settings.cache_clear()
+
+    code = cli.main(["ingestion", "sec-filings", "320193"])
+
+    assert code == cli.EXIT_USAGE
+    assert "QF_SEC_USER_AGENT" in capsys.readouterr().err
+
+
+def test_sec_filings_ingests_metadata_and_declares_the_identity(
+    configured: Path,
+    empty_database: None,
+    monkeypatch: pytest.MonkeyPatch,
+    sec_transport: list[httpx.Request],
+    integration_engine: Engine,
+) -> None:
+    monkeypatch.setenv("QF_SEC_USER_AGENT", _SEC_UA)
+    get_settings.cache_clear()
+    _company_with_cik(integration_engine)
+
+    code = cli.main(["ingestion", "sec-filings", "320193"])
+
+    assert code == cli.EXIT_OK
+    assert sec_transport[0].headers["User-Agent"] == _SEC_UA
+    assert sec_transport[0].url.path == "/submissions/CIK0000320193.json"
+    with Session(integration_engine) as session:
+        filing = session.query(SecFiling).one()  # Form 4 is not a supported form
+        assert filing.accession_number == "0000320193-24-000010"
+        run = session.query(IngestionRun).filter_by(dataset="sec-filings").one()
+        assert run.status is IngestionStatus.SUCCEEDED
+        assert run.provider == "sec-edgar"
+        assert "ops@example.com" not in json.dumps(run.request_parameters)
+    for path in configured.rglob("*"):
+        if path.is_file():
+            assert "ops@example.com" not in path.read_text(), "the identity is never stored"
+    assert (configured / "sec-edgar").is_dir()
+
+
+def test_sec_filings_for_an_unknown_cik_is_a_usage_error_with_a_durable_failed_run(
+    configured: Path,
+    empty_database: None,
+    monkeypatch: pytest.MonkeyPatch,
+    sec_transport: list[httpx.Request],
+    integration_engine: Engine,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("QF_SEC_USER_AGENT", _SEC_UA)
+    get_settings.cache_clear()
+
+    code = cli.main(["ingestion", "sec-filings", "320193"])
+
+    assert code == cli.EXIT_USAGE
+    assert "no stored company has CIK 0000320193" in capsys.readouterr().err
+    assert sec_transport == [], "no request is made for a registrant we do not hold"
+    with Session(integration_engine) as session:
+        assert session.query(Company).count() == 0
+        assert session.query(SecFiling).count() == 0
+        assert session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).count() == 1
+
+
+def test_a_malformed_cik_argument_is_a_usage_error(
+    configured: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("QF_SEC_USER_AGENT", _SEC_UA)
+    get_settings.cache_clear()
+
+    assert cli.main(["ingestion", "sec-filings", "not-a-cik"]) == cli.EXIT_USAGE

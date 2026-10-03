@@ -12,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal, Self
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Environment = Literal["local", "development", "staging", "production"]
@@ -43,6 +43,7 @@ DEFAULT_MASSIVE_BASE_URL = "https://api.massive.com"
 #: configured plan, so Finnhub is a second, earnings-only provider -- it does
 #: not replace Massive for reference/daily-bar data.
 DEFAULT_FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
+DEFAULT_SEC_BASE_URL = "https://data.sec.gov"
 
 #: This file's own location: ``apps/api/src/quantforge/core/config.py``.
 #: Climbing five parents reaches the repository root -- the directory
@@ -129,7 +130,27 @@ class Settings(BaseSettings):
     finnhub_api_key: SecretStr | None = None
     finnhub_base_url: str = DEFAULT_FINNHUB_BASE_URL
 
-    @field_validator("massive_base_url", "finnhub_base_url")
+    #: SEC EDGAR needs no key, but its fair-access policy requires every request to
+    #: declare who is making it in the ``User-Agent`` (an application name plus a
+    #: contact, e.g. ``"MyApp admin@example.com"``). Supplied by the operator via
+    #: ``QF_SEC_USER_AGENT``; deliberately never defaulted or hard-coded, so no
+    #: personal contact lives in source. Optional so every other part of the
+    #: application starts without it; only a live SEC call requires it.
+    #: A ``SecretStr`` because the contact is typically a personal email: it must not
+    #: appear in a settings repr, dump or log.
+    sec_user_agent: SecretStr | None = None
+    sec_base_url: str = DEFAULT_SEC_BASE_URL
+    sec_request_timeout_seconds: float = Field(default=20.0, gt=0)
+    #: Transient-failure attempts only (a 429/403 from the SEC is a signal to slow
+    #: down, not to hammer), so the default is small.
+    sec_max_retries: int = Field(default=2, ge=0, le=5)
+    #: Minimum seconds between requests. The SEC allows at most 10 requests per
+    #: second per user; 0.25 s (4/s) stays well inside that, and the client raises any value
+    #: below 0.2 s to 0.2 s (a 2x margin) -- clamped there, not rejected here, so a
+    #: stale setting can never stop the rest of the application starting.
+    sec_min_request_interval_seconds: float = Field(default=0.25, gt=0, le=60)
+
+    @field_validator("massive_base_url", "finnhub_base_url", "sec_base_url")
     @classmethod
     def _validate_provider_base_url(cls, value: str) -> str:
         """Reject a non-HTTP base URL early, and strip a trailing slash.
@@ -142,6 +163,14 @@ class Settings(BaseSettings):
             message = f"provider base URL must be an http(s) URL, got {value!r}."
             raise ValueError(message)
         return stripped.rstrip("/")
+
+    @field_validator("sec_user_agent", mode="before")
+    @classmethod
+    def _blank_user_agent_is_unset(cls, value: object) -> object:
+        """Treat an empty or whitespace-only identity as absent (``QF_SEC_USER_AGENT=``)."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @field_validator("massive_api_key", "finnhub_api_key", mode="before")
     @classmethod

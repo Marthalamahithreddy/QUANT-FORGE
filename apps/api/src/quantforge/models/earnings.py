@@ -56,7 +56,9 @@ from quantforge.models.base import (
     utcnow,
 )
 from quantforge.models.enums import (
+    AVAILABILITY_BASIS_LENGTH,
     EARNINGS_TIMING_LENGTH,
+    AvailabilityBasis,
     EarningsTiming,
     enum_check,
     enum_type,
@@ -82,6 +84,7 @@ def earnings_event_fingerprint(  # noqa: PLR0913 - eleven factual fields are the
     estimated_revenue: Decimal | None,
     currency: str | None,
     observed_at: datetime | None,
+    observed_at_basis: AvailabilityBasis | None,
 ) -> str:
     """Deterministic SHA-256 over the factual fields of one observation.
 
@@ -126,6 +129,10 @@ def earnings_event_fingerprint(  # noqa: PLR0913 - eleven factual fields are the
         currency,
         _canonical_instant(observed_at),
     ]
+    # Appended only when present, so every row written before the basis existed
+    # (all of which have none) keeps exactly the fingerprint it was stored with.
+    if observed_at_basis is not None:
+        parts.append(observed_at_basis.value)
     # JSON with separators and ASCII output is deterministic across runs and
     # processes: no dict ordering, no locale, no trailing whitespace. The list's
     # order is fixed above, so position carries each field's meaning.
@@ -190,6 +197,12 @@ class EarningsEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "earnings_event"
     __table_args__ = (
         enum_check("timing", EarningsTiming),
+        enum_check("observed_at_basis", AvailabilityBasis),
+        # The timestamp and what it proves are stored together or not at all.
+        sa.CheckConstraint(
+            "(observed_at IS NULL) = (observed_at_basis IS NULL)",
+            name="observed_at_basis_pairing",
+        ),
         sa.CheckConstraint(
             f"fiscal_year BETWEEN {MIN_FISCAL_YEAR} AND {MAX_FISCAL_YEAR}",
             name="fiscal_year_range",
@@ -328,6 +341,14 @@ class EarningsEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             "means undisclosed, not 'equal to ingested_at'."
         ),
     )
+    observed_at_basis: Mapped[AvailabilityBasis | None] = mapped_column(
+        enum_type(AvailabilityBasis, name="availability_basis", length=AVAILABILITY_BASIS_LENGTH),
+        nullable=True,
+        doc=(
+            "What observed_at proves (see AvailabilityBasis). NULL exactly when "
+            "observed_at is NULL; never set without a timestamp or vice versa."
+        ),
+    )
     ingested_at: Mapped[datetime] = mapped_column(
         timestamptz(),
         nullable=False,
@@ -390,6 +411,7 @@ def _derive_earnings_fingerprint(
         estimated_revenue=target.estimated_revenue,
         currency=target.currency,
         observed_at=target.observed_at,
+        observed_at_basis=target.observed_at_basis,
     )
 
 

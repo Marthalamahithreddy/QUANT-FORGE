@@ -75,7 +75,7 @@ from enum import StrEnum
 from sqlalchemy.orm import Session
 
 from quantforge.models.earnings import EarningsEvent
-from quantforge.models.enums import EarningsTiming
+from quantforge.models.enums import AvailabilityBasis, EarningsTiming
 from quantforge.research.alignment import EventStudyAlignment, align_earnings_event
 from quantforge.research.availability import (
     PointInTimeEligibility,
@@ -198,6 +198,10 @@ class EpsSurpriseSignal:
     #: never reconstructed from ``timing``. Immutable provenance of the
     #: revision this signal was built from.
     observed_at: datetime | None
+    #: What ``observed_at`` proves (copied from the selected event; ``None``
+    #: exactly when ``observed_at`` is). Eligibility is decided from the pair by
+    #: :func:`quantforge.research.availability.is_point_in_time_availability_eligible`.
+    observed_at_basis: AvailabilityBasis | None
     #: MIC of the historically resolved listing's exchange (``None`` when no
     #: listing resolved). Identifies which market's session clock applies.
     exchange_mic: str | None
@@ -358,7 +362,9 @@ def generate_eps_surprise_signal(
         ordinary "cannot be determined" case -- see
         :class:`EpsSurpriseSignalStatus` for the full set of honest refusals.
     """
-    eligibility = classify_point_in_time_eligibility(mode, observed_at=event.observed_at)
+    eligibility = classify_point_in_time_eligibility(
+        mode, observed_at=event.observed_at, observed_at_basis=event.observed_at_basis
+    )
     observed_at = _observed_at_utc(event)
     alignment = align_earnings_event(session, event, mode=mode, security_id=security_id)
 
@@ -378,6 +384,7 @@ def generate_eps_surprise_signal(
             event_date=event.event_date,
             timing=event.timing,
             observed_at=observed_at,
+            observed_at_basis=event.observed_at_basis,
             exchange_mic=alignment.listing_resolution.exchange_mic,
             effective_session=None,
             status=override_status,
@@ -394,6 +401,7 @@ def generate_eps_surprise_signal(
         reported_eps=event.reported_eps,
         estimated_eps=event.estimated_eps,
         observed_at=event.observed_at,
+        observed_at_basis=event.observed_at_basis,
         mode=mode,
     )
     status, direction, signal_value = _signal_outcome_from_eps_surprise(eps_surprise)
@@ -409,6 +417,7 @@ def generate_eps_surprise_signal(
         event_date=event.event_date,
         timing=event.timing,
         observed_at=observed_at,
+        observed_at_basis=event.observed_at_basis,
         exchange_mic=alignment.listing_resolution.exchange_mic,
         effective_session=effective_session,
         status=status,

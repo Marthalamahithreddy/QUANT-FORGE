@@ -153,6 +153,33 @@ itself** — the real index dataset is unavailable under the configured Massive
 plan. See [`apps/api/README.md`](apps/api/README.md#ingestion) for the full
 detail.
 
+## Availability evidence and SEC filing metadata
+
+`earnings_event.observed_at` is only meaningful with `observed_at_basis`
+(`AvailabilityBasis`), stored together or not at all (a database CHECK):
+
+- `SOURCE_PUBLICATION` — the source itself states when this observation was
+  published. The only basis currently approved for point-in-time/execution use.
+- `SEC_FILING_ACCEPTANCE` — EDGAR accepted a specific filing then. Defined, but
+  **not approved** for point-in-time use yet (the exact timezone reading has not
+  been validated against live SEC data, and no filing-based signal defines the
+  strategy it would serve). It proves acceptance by EDGAR — not first public
+  disclosure; a press release can precede an 8-K by up to four business days.
+
+Which bases count is decided in one place
+(`research/availability.py: APPROVED_AVAILABILITY_BASES`). Finnhub and Massive
+leave both fields NULL, so no current earnings row is point-in-time eligible.
+
+`quantforge ingestion sec-filings <CIK>` stores SEC filing **metadata only**
+(accession, form, filing/report dates, EDGAR acceptance time, primary document,
+8-K item codes) in `sec_filing` (10-K, 10-Q, 8-K and their amendments, each
+amendment its own row), for the stored company carrying that `company.cik`. It
+needs `QF_SEC_USER_AGENT` (an application name plus a contact, per the SEC's
+fair-access policy; never defaulted or stored). Acceptance times are read as
+America/New_York wall-clock time (not trusted as UTC) and cross-checked against
+EDGAR's 06:00–22:00 hours and 5:30 p.m. filing-date rule; a record that fails is
+rejected, never guessed. No EPS, signal or document download exists yet.
+
 ## Research, signals, and backtest layers
 
 Three packages in `apps/api/src/quantforge/`, each strictly downstream of the
@@ -256,7 +283,8 @@ drifted from the applied schema, and the test suite runs it as a gate. Five
 revisions follow the empty `0001`: the financial domain (`0002`), ingestion
 runs / issuer CIK (`0003`), earnings ingestion persistence (`0004`), and the
 earnings `event_date`/`event_timestamp` correction (`0005`), and explicit price
-basis on both bar tables (`0006`, current head). The research, signal, and
+basis on both bar tables (`0006`), an availability basis on earnings events
+(`0007`), and SEC filing metadata (`0008`, current head). The research, signal, and
 backtest layers are all computed, not persisted.
 
 ## Health endpoints

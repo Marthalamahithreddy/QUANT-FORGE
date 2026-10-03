@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -64,6 +64,7 @@ from quantforge.models.enums import PriceBasis
 from quantforge.models.security import Exchange, Listing
 from quantforge.providers.base import MarketDataProvider, RawCapture
 from quantforge.providers.earnings import EarningsProvider
+from quantforge.providers.errors import ProviderBasisMismatchError
 from quantforge.providers.massive.dto import MassiveTickerDetailsDTO
 from quantforge.providers.massive.mapper import to_canonical_reference
 
@@ -266,9 +267,14 @@ class IngestionService:
             now=self._now,
         ) as run:
             source = get_or_create_data_source(self._session, name=self._provider.name)
-            result = await self._provider.get_daily_bars(
-                ticker, start, end, venue=venue, price_basis=price_basis
-            )
+            try:
+                result = await self._provider.get_daily_bars(
+                    ticker, start, end, venue=venue, price_basis=price_basis
+                )
+            except ProviderBasisMismatchError as mismatch:
+                # Still a failure -- but keep the offending bytes as evidence.
+                self._record_rejected(run, mismatch.captures)
+                raise
             self._record(run, result.captures)
 
             ingestor = DailyBarIngestor(self._session, now=self._now, run=run.row)
@@ -356,9 +362,13 @@ class IngestionService:
                 currency=currency,
                 source_id=source.id,
             )
-            result = await self._provider.get_daily_bars(
-                symbol, start, end, venue=BENCHMARK_VENUE, price_basis=price_basis
-            )
+            try:
+                result = await self._provider.get_daily_bars(
+                    symbol, start, end, venue=BENCHMARK_VENUE, price_basis=price_basis
+                )
+            except ProviderBasisMismatchError as mismatch:
+                self._record_rejected(run, mismatch.captures)
+                raise
             self._record(run, result.captures)
 
             ingestor = BenchmarkBarIngestor(self._session, now=self._now)
@@ -448,6 +458,9 @@ class IngestionService:
         """Persist the raw responses and point the run at the manifest."""
         _record_captures(run, self._store, captures)
 
+    def _record_rejected(self, run: RunRecorder, captures: Sequence[RawCapture]) -> None:
+        store_rejected_captures(run, self._store, captures)
+
     def _today(self) -> date:
         return self._now.astimezone(UTC).date()
 
@@ -455,6 +468,26 @@ class IngestionService:
 def _begin_attempt(session: Session) -> None:
     """Forget any failed-run marker an earlier attempt left on a reused session."""
     session.info.pop(FAILED_RUN_RECORDED, None)
+
+
+def store_rejected_captures(
+    run: RunRecorder, store: RawResponseStore, captures: Sequence[RawCapture]
+) -> None:
+    """Keep a rejected response's bytes as evidence, apart from accepted artifacts.
+
+    Stored under ``<dataset>-rejected`` so the content-addressed store can never
+    dedup them onto (or be scanned as) a valid artifact, and best effort: a
+    storage error here is logged and must never replace the primary failure the
+    caller is about to re-raise. Shared by every ingestion path that keeps
+    rejected evidence, so the policy lives in one place.
+    """
+    rejected = [replace(capture, dataset=f"{capture.dataset}-rejected") for capture in captures]
+    if not rejected:
+        return
+    try:
+        run.record_captures(store.store_all(rejected))
+    except Exception:
+        logger.exception("could not store the rejected provider response as evidence")
 
 
 def _record_captures(

@@ -32,7 +32,7 @@ pytestmark = pytest.mark.integration
 API_ROOT = Path(__file__).resolve().parents[2]
 
 SCRATCH_DB_NAME = "quantforge_migrations_test"
-HEAD = "0006"
+HEAD = "0008"
 PRIOR = "0005"
 #: Revision before 0005 -- the 0005 tests below downgrade past 0006 to reach it.
 PRE_0005 = "0004"
@@ -121,7 +121,9 @@ def test_upgrade_to_head_produces_the_expected_chain(
 
     scripts = ScriptDirectory.from_config(config)
     chain = [script.revision for script in scripts.walk_revisions()]
-    assert chain == [HEAD, PRIOR, PRE_0005, "0003", "0002", "0001"], f"unexpected chain {chain}"
+    assert chain == [HEAD, "0007", "0006", PRIOR, PRE_0005, "0003", "0002", "0001"], (
+        f"unexpected chain {chain}"
+    )
     assert scripts.get_current_head() == HEAD
 
 
@@ -531,3 +533,161 @@ def test_0006_downgrade_refuses_while_as_traded_rows_exist_then_restores_old_key
     finally:
         command.upgrade(config, HEAD)
         _purge_seed(scratch_database, ids)
+
+
+# ── 0007: availability basis; 0008: SEC filing metadata ─────────────────────
+
+
+def _insert_earnings(
+    engine: Engine, ids: dict[str, uuid.UUID], *, basis_sql: str, observed_sql: str, tag: str
+) -> None:
+    columns = "observed_at_basis, " if basis_sql != "OMIT" else ""
+    values = f"{basis_sql}, " if basis_sql != "OMIT" else ""
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO earnings_event (id, company_id, fiscal_year, event_date, timing, "
+                f"source_id, fingerprint, observed_at, {columns}ingested_at, created_at, updated_at) "
+                "VALUES (gen_random_uuid(), :company, 2024, '2024-03-15', 'UNKNOWN', :source, "
+                f":fingerprint, {observed_sql}, {values}now(), now(), now())"
+            ),
+            {**ids, "fingerprint": tag.ljust(64, "0")},
+        )
+
+
+def test_0007_refuses_to_guess_a_basis_for_an_existing_timestamp(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, HEAD)
+    command.downgrade(config, "0006")
+    assert "observed_at_basis" not in _column_names(scratch_database, "earnings_event")
+    ids = _seed_entities(scratch_database)
+    try:
+        _insert_earnings(scratch_database, ids, basis_sql="OMIT", observed_sql="now()", tag="a")
+
+        with pytest.raises(Exception, match="already have an observed_at"):
+            command.upgrade(config, "0007")
+        assert _current_version(scratch_database) == "0006"
+
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text("DELETE FROM earnings_event WHERE company_id = :company"), ids
+            )
+        _insert_earnings(scratch_database, ids, basis_sql="OMIT", observed_sql="NULL", tag="b")
+        command.upgrade(config, HEAD)  # NULL timestamps need no basis: the upgrade is safe
+
+        with scratch_database.connect() as connection:
+            basis: list[object] = list(
+                connection.execute(
+                    sa.text(
+                        "SELECT observed_at_basis FROM earnings_event WHERE company_id = :company"
+                    ),
+                    ids,
+                ).scalars()
+            )
+        assert basis == [None], "existing rows keep NULL/NULL"
+    finally:
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text("DELETE FROM earnings_event WHERE company_id = :company"), ids
+            )
+        _purge_seed(scratch_database, ids)
+        command.upgrade(config, HEAD)
+
+
+def test_0007_constraints_enforce_the_timestamp_basis_pairing(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    command.upgrade(_alembic_config(_scratch_url(postgres_admin_url)), HEAD)
+    ids = _seed_entities(scratch_database)
+    try:
+        _insert_earnings(scratch_database, ids, basis_sql="NULL", observed_sql="NULL", tag="c")
+        _insert_earnings(
+            scratch_database, ids, basis_sql="'SOURCE_PUBLICATION'", observed_sql="now()", tag="d"
+        )
+        _insert_earnings(
+            scratch_database,
+            ids,
+            basis_sql="'SEC_FILING_ACCEPTANCE'",
+            observed_sql="now()",
+            tag="e",
+        )
+        with pytest.raises(sa.exc.IntegrityError, match="observed_at_basis_pairing"):
+            _insert_earnings(scratch_database, ids, basis_sql="NULL", observed_sql="now()", tag="f")
+        with pytest.raises(sa.exc.IntegrityError, match="observed_at_basis_pairing"):
+            _insert_earnings(
+                scratch_database,
+                ids,
+                basis_sql="'SOURCE_PUBLICATION'",
+                observed_sql="NULL",
+                tag="g",
+            )
+        with pytest.raises(sa.exc.IntegrityError, match="observed_at_basis_enum_values"):
+            _insert_earnings(
+                scratch_database, ids, basis_sql="'FIRST_PUBLIC'", observed_sql="now()", tag="h"
+            )
+    finally:
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text("DELETE FROM earnings_event WHERE company_id = :company"), ids
+            )
+        _purge_seed(scratch_database, ids)
+
+
+def test_0007_downgrade_refuses_while_a_row_carries_a_basis(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, HEAD)
+    ids = _seed_entities(scratch_database)
+    try:
+        _insert_earnings(
+            scratch_database, ids, basis_sql="'SOURCE_PUBLICATION'", observed_sql="now()", tag="i"
+        )
+        with pytest.raises(Exception, match="carry an observed_at_basis"):
+            command.downgrade(config, "0006")
+        assert _current_version(scratch_database) == HEAD
+
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text("DELETE FROM earnings_event WHERE company_id = :company"), ids
+            )
+        command.downgrade(config, "0006")
+        assert "observed_at_basis" not in _column_names(scratch_database, "earnings_event")
+    finally:
+        _purge_seed(scratch_database, ids)
+        command.upgrade(config, HEAD)
+
+
+def test_0008_creates_sec_filing_and_its_downgrade_refuses_while_rows_exist(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, HEAD)
+    assert {"accession_number", "accepted_at", "filing_date", "company_id"} <= _column_names(
+        scratch_database, "sec_filing"
+    )
+    ids = _seed_entities(scratch_database)
+    try:
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO sec_filing (id, company_id, accession_number, form, filing_date, "
+                    "accepted_at, source_id, ingested_at, created_at) VALUES (gen_random_uuid(), "
+                    ":company, '0000320193-24-000010', '10-Q', '2024-05-03', now(), :source, "
+                    "now(), now())"
+                ),
+                ids,
+            )
+        with pytest.raises(Exception, match="sec_filing row"):
+            command.downgrade(config, "0007")
+        assert _current_version(scratch_database) == HEAD
+
+        with scratch_database.begin() as connection:
+            connection.execute(sa.text("DELETE FROM sec_filing WHERE company_id = :company"), ids)
+        command.downgrade(config, "0007")
+        assert "sec_filing" not in _table_names(scratch_database)
+    finally:
+        _purge_seed(scratch_database, ids)
+        command.upgrade(config, HEAD)

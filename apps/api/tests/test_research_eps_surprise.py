@@ -12,6 +12,7 @@ from decimal import Decimal
 
 import pytest
 
+from quantforge.models.enums import AvailabilityBasis
 from quantforge.research.availability import ResearchMode
 from quantforge.research.eps_surprise import (
     EpsSurpriseStatus,
@@ -133,6 +134,7 @@ def test_descriptive_mode_uses_the_observation_regardless_of_observed_at() -> No
         reported_eps=Decimal("1.20"),
         estimated_eps=Decimal("1.00"),
         observed_at=None,
+        observed_at_basis=None,
         mode=ResearchMode.DESCRIPTIVE,
     )
     assert result.status is EpsSurpriseStatus.AVAILABLE
@@ -145,6 +147,7 @@ def test_point_in_time_mode_rejects_a_null_observed_at() -> None:
         reported_eps=Decimal("1.20"),
         estimated_eps=Decimal("1.00"),
         observed_at=None,
+        observed_at_basis=None,
         mode=ResearchMode.POINT_IN_TIME,
     )
     assert result.status is EpsSurpriseStatus.NOT_POINT_IN_TIME_ELIGIBLE
@@ -162,6 +165,7 @@ def test_point_in_time_mode_accepts_a_known_observed_at() -> None:
         reported_eps=Decimal("1.20"),
         estimated_eps=Decimal("1.00"),
         observed_at=observed,
+        observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION,
         mode=ResearchMode.POINT_IN_TIME,
     )
     assert result.status is EpsSurpriseStatus.AVAILABLE
@@ -175,6 +179,7 @@ def test_missing_reported_eps_is_not_masked_by_the_point_in_time_gate(mode: Rese
         reported_eps=None,
         estimated_eps=Decimal("1.00"),
         observed_at=datetime(2026, 6, 15, 20, 5, tzinfo=UTC),
+        observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION,
         mode=mode,
     )
     assert result.status is EpsSurpriseStatus.MISSING_REPORTED_EPS

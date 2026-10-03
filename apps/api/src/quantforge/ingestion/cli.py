@@ -42,6 +42,12 @@ from quantforge.core.config import Settings, get_settings
 from quantforge.db.session import get_session_factory
 from quantforge.ingestion.benchmark import BenchmarkBarConflictError, BenchmarkIdentityConflict
 from quantforge.ingestion.daily import ProviderDataConflict
+from quantforge.ingestion.filings import (
+    AllFilingRecordsRejectedError,
+    FilingIngestionService,
+    SecFilingConflictError,
+    UnknownRegistrantError,
+)
 from quantforge.ingestion.raw_store import RawResponseStore
 from quantforge.ingestion.runs import FAILED_RUN_RECORDED, RunOutcome
 from quantforge.ingestion.service import IngestionService, UnknownListingError
@@ -53,6 +59,7 @@ from quantforge.providers.errors import (
     ProviderError,
 )
 from quantforge.providers.massive.client import MassiveClient, MassiveConfig
+from quantforge.providers.sec.client import SecClient, SecConfig, normalise_cik
 
 __all__ = ["main"]
 
@@ -197,6 +204,21 @@ def build_parser() -> argparse.ArgumentParser:
     _add_price_basis_argument(benchmark)
     benchmark.set_defaults(handler=_cmd_benchmark)
 
+    sec = commands.add_parser(
+        "sec-filings",
+        help="fetch SEC filing metadata (10-K/10-Q/8-K and amendments) for a stored company",
+        description=(
+            "Fetch filing metadata -- accession, form, filing/report dates, EDGAR acceptance "
+            "time, primary document -- from the SEC submissions API for the stored company "
+            "that carries this CIK. Metadata only: no filing documents, no EPS. Requires "
+            "QF_SEC_USER_AGENT (an application name plus a contact), per the SEC's "
+            "fair-access policy. The acceptance time proves EDGAR acceptance, not first "
+            "public disclosure."
+        ),
+    )
+    sec.add_argument("cik", help="the registrant's CIK, 1-10 digits (zero-padded automatically)")
+    sec.set_defaults(handler=_cmd_sec_filings)
+
     runs = commands.add_parser(
         "runs",
         help="list recent ingestion runs, newest first",
@@ -311,6 +333,27 @@ def _cmd_benchmark(args: argparse.Namespace, settings: Settings) -> int:
     print(
         f"\n{request.symbol} ({request.name}) {request.start}..{request.end}: "
         f"received={outcome.records_received} written={outcome.records_written} "
+        f"skipped={outcome.records_skipped} failed={outcome.records_failed}"
+    )
+    return _print_outcome(outcome)
+
+
+def _cmd_sec_filings(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        cik = normalise_cik(args.cik)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
+    async def run() -> RunOutcome:
+        async with _sec_client(settings) as client:
+            return await _ingest_sec_filings(
+                settings=settings, client=client, cik=cik, now=datetime.now(UTC)
+            )
+
+    outcome = asyncio.run(run())
+    print(
+        f"\nCIK {cik}: received={outcome.records_received} written={outcome.records_written} "
         f"skipped={outcome.records_skipped} failed={outcome.records_failed}"
     )
     return _print_outcome(outcome)
@@ -466,6 +509,36 @@ def _commit_failed_run(session: Session) -> None:
         session.rollback()
 
 
+def _sec_client(settings: Settings) -> SecClient:
+    """Build the SEC adapter, failing clearly if no identity is configured."""
+    config = SecConfig(
+        user_agent=settings.sec_user_agent,
+        base_url=settings.sec_base_url,
+        request_timeout=settings.sec_request_timeout_seconds,
+        max_retries=settings.sec_max_retries,
+        min_request_interval=settings.sec_min_request_interval_seconds,
+    )
+    config.require_user_agent()
+    return SecClient(config)
+
+
+async def _ingest_sec_filings(
+    *, settings: Settings, client: SecClient, cik: str, now: datetime
+) -> RunOutcome:
+    factory = get_session_factory(settings)
+    with factory() as session:
+        service = FilingIngestionService(
+            session=session, provider=client, store=_store(settings), now=now
+        )
+        try:
+            outcome = await service.ingest_filings(cik)
+        except BaseException:
+            _commit_failed_run(session)
+            raise
+        session.commit()
+        return outcome
+
+
 def _store(settings: Settings) -> RawResponseStore:
     return RawResponseStore(root=Path(settings.ingestion_raw_root))
 
@@ -562,9 +635,16 @@ def _classify(exc: Exception) -> int:  # noqa: PLR0911 - one return per distinct
     a configuration problem, and both are subclasses of the broader provider and
     lookup errors, so the specific cases have to be tried first.
     """
-    if isinstance(exc, UnknownListingError):
+    if isinstance(exc, UnknownListingError | UnknownRegistrantError):
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
+    if isinstance(exc, AllFilingRecordsRejectedError):
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_RUN_FAILED
+    if isinstance(exc, SecFilingConflictError):
+        print(f"error: {exc}", file=sys.stderr)
+        print("nothing was overwritten; reconcile the source before re-running", file=sys.stderr)
+        return EXIT_RUN_FAILED
     if isinstance(exc, BenchmarkIdentityConflict):
         # Like UnknownListingError, this is the caller needing to say which
         # existing identity is meant (or use a different symbol/name), not a

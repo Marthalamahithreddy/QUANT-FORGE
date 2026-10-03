@@ -27,7 +27,7 @@ from quantforge.backtest.contracts import (
 )
 from quantforge.backtest.execution import assess_execution_eligibility
 from quantforge.market import ExchangeCalendarsSessionCalendar
-from quantforge.models.enums import EarningsTiming
+from quantforge.models.enums import AvailabilityBasis, EarningsTiming
 from quantforge.research.availability import PointInTimeEligibility, ResearchMode
 from quantforge.signals.eps_surprise import (
     EpsSurpriseDirection,
@@ -58,6 +58,7 @@ def _signal(**overrides: object) -> EpsSurpriseSignal:
         "event_date": _FRIDAY,
         "timing": EarningsTiming.BEFORE_MARKET,
         "observed_at": _FRIDAY_OPEN - timedelta(hours=2),
+        "observed_at_basis": AvailabilityBasis.SOURCE_PUBLICATION,
         "exchange_mic": "XNYS",
         "effective_session": _FRIDAY,
         "status": EpsSurpriseSignalStatus.AVAILABLE,
@@ -70,6 +71,8 @@ def _signal(**overrides: object) -> EpsSurpriseSignal:
         "reason": "test signal",
     }
     fields.update(overrides)
+    if fields["observed_at"] is None and "observed_at_basis" not in overrides:
+        fields["observed_at_basis"] = None
     return EpsSurpriseSignal(**fields)  # type: ignore[arg-type]
 
 

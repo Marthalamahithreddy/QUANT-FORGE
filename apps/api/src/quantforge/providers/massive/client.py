@@ -51,6 +51,7 @@ from quantforge.providers.base import (
 )
 from quantforge.providers.errors import (
     ProviderAuthenticationError,
+    ProviderBasisMismatchError,
     ProviderConfigurationError,
     ProviderNotFoundError,
     ProviderRateLimitError,
@@ -385,7 +386,11 @@ class MassiveClient:
                 )
             )
 
-            _require_requested_adjustment(page.document, price_basis)
+            try:
+                _require_requested_adjustment(page.document, price_basis)
+            except ProviderBasisMismatchError as mismatch:
+                mismatch.captures = tuple(captures)
+                raise
             results = _results_of(page.document)
             if results is None:
                 break
@@ -398,7 +403,11 @@ class MassiveClient:
             # A provider-built next_url is not trusted to carry the adjustment
             # mode through: pin it, so a later page cannot silently come back in
             # a different basis from the first.
-            next_path = _pin_adjusted_parameter(following, price_basis)
+            try:
+                next_path = _pin_adjusted_parameter(following, price_basis)
+            except ProviderBasisMismatchError as mismatch:
+                mismatch.captures = tuple(captures)
+                raise
             # A next_url carries its own query string; re-sending the original
             # params would duplicate them.
             next_params = {}
@@ -573,7 +582,7 @@ def _require_requested_adjustment(document: JsonValue, price_basis: PriceBasis) 
             f"but the response states adjusted={str(stated).lower()}; refusing to "
             "ingest bars under a basis the provider did not confirm"
         )
-        raise ProviderResponseError(message)
+        raise ProviderBasisMismatchError(message)
 
 
 def _pin_adjusted_parameter(next_path: str, price_basis: PriceBasis) -> str:
@@ -592,7 +601,7 @@ def _pin_adjusted_parameter(next_path: str, price_basis: PriceBasis) -> str:
             f"next_url carries adjusted={carried} but {price_basis.value} "
             f"(adjusted={expected}) was requested; refusing to follow it"
         )
-        raise ProviderResponseError(message)
+        raise ProviderBasisMismatchError(message)
     return next_path
 
 

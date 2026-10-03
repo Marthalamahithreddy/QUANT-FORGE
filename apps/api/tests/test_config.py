@@ -254,3 +254,42 @@ def test_ingestion_raw_root_is_overridable_via_environment(
     resolved = Settings(_env_file=None)
 
     assert resolved.ingestion_raw_root == override
+
+
+# ── SEC identity (never defaulted, never hard-coded) ─────────────────────────
+
+
+def test_the_sec_identity_is_unset_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("QF_SEC_USER_AGENT", raising=False)
+
+    assert Settings(_env_file=None).sec_user_agent is None
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_sec_identity_is_treated_as_unset(
+    monkeypatch: pytest.MonkeyPatch, blank: str
+) -> None:
+    monkeypatch.setenv("QF_SEC_USER_AGENT", blank)
+
+    assert Settings(_env_file=None).sec_user_agent is None
+
+
+def test_a_configured_sec_identity_and_defaults_are_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("QF_SEC_USER_AGENT", "MyApp admin@example.com")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.sec_user_agent is not None
+    assert settings.sec_user_agent.get_secret_value() == "MyApp admin@example.com"
+    assert "admin@example.com" not in repr(settings), "the contact is a secret"
+    assert settings.sec_base_url == "https://data.sec.gov"
+    assert settings.sec_min_request_interval_seconds <= 0.5  # well under the 10 req/s limit
+
+
+def test_no_personal_contact_is_hard_coded_in_the_sec_adapter_source() -> None:
+    from pathlib import Path  # noqa: PLC0415
+
+    root = Path(__file__).resolve().parents[1] / "src" / "quantforge"
+    for path in (*root.glob("providers/sec/*.py"), root / "core" / "config.py"):
+        text = path.read_text()
+        assert "gmail.com" not in text and "mahith" not in text.lower(), path

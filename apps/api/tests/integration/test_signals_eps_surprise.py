@@ -19,7 +19,13 @@ from quantforge.backtest import ExecutionEligibilityStatus, assess_execution_eli
 from quantforge.market import ExchangeCalendarsSessionCalendar
 from quantforge.models.company import Company
 from quantforge.models.earnings import EarningsEvent
-from quantforge.models.enums import EarningsTiming, PriceBasis, ProviderType, SecurityType
+from quantforge.models.enums import (
+    AvailabilityBasis,
+    EarningsTiming,
+    PriceBasis,
+    ProviderType,
+    SecurityType,
+)
 from quantforge.models.market import DailyPriceBar
 from quantforge.models.provenance import DataSource
 from quantforge.models.security import Exchange, Listing, Security
@@ -126,6 +132,8 @@ def _event(
         "source_id": source.id,
     }
     fields.update(overrides)
+    if fields.get("observed_at") is not None:
+        fields.setdefault("observed_at_basis", AvailabilityBasis.SOURCE_PUBLICATION)
     row = EarningsEvent(**fields)
     db_session.add(row)
     db_session.commit()
@@ -333,6 +341,7 @@ def test_point_in_time_mode_accepts_a_known_observed_at(
         source,
         db_session,
         observed_at=observed,
+        observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION,
         reported_eps=Decimal("1.2000"),
         estimated_eps=Decimal("1.0000"),
     )
@@ -355,6 +364,7 @@ def test_a_future_revision_cannot_influence_an_earlier_signal(
         source,
         db_session,
         observed_at=early_observed,
+        observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION,
         reported_eps=Decimal("1.1000"),
         estimated_eps=Decimal("1.0000"),
     )
@@ -369,6 +379,7 @@ def test_a_future_revision_cannot_influence_an_earlier_signal(
         event_date=date(2026, 1, 7),
         timing=EarningsTiming.AFTER_MARKET,
         observed_at=datetime(2026, 2, 1, tzinfo=UTC),
+        observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION,
         reported_eps=Decimal("0.5000"),
         estimated_eps=Decimal("1.0000"),
         source_id=source.id,
@@ -648,6 +659,7 @@ def test_a_future_revision_cannot_change_an_earlier_signals_observed_at(
             event_date=date(2026, 1, 7),
             timing=EarningsTiming.AFTER_MARKET,
             observed_at=datetime(2026, 2, 1, tzinfo=UTC),
+            observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION,
             reported_eps=Decimal("0.5000"),
             estimated_eps=Decimal("1.0000"),
             source_id=source.id,
@@ -723,6 +735,7 @@ def test_historical_event_uses_the_venue_valid_then_not_the_current_listing(
         db_session,
         event_date=date(2020, 1, 7),
         observed_at=datetime(2020, 1, 7, 21, tzinfo=UTC),
+        observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION,
     )
 
     signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)
@@ -765,6 +778,7 @@ def test_end_to_end_after_market_friday_event_gets_a_monday_open_candidate(
         event_date=date(2024, 3, 15),
         timing=EarningsTiming.AFTER_MARKET,
         observed_at=datetime(2024, 3, 15, 20, 30, tzinfo=UTC),
+        observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION,
     )
 
     signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)
@@ -805,6 +819,7 @@ def test_end_to_end_unsupported_venue_is_refused(
         db_session,
         timing=EarningsTiming.AFTER_MARKET,
         observed_at=datetime(2026, 1, 7, 21, tzinfo=UTC),
+        observed_at_basis=AvailabilityBasis.SOURCE_PUBLICATION,
     )
 
     signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)

@@ -20,7 +20,13 @@ from sqlalchemy.orm import Session
 
 from quantforge.models.company import Company
 from quantforge.models.earnings import EarningsEvent
-from quantforge.models.enums import EarningsTiming, PriceBasis, ProviderType, SecurityType
+from quantforge.models.enums import (
+    AvailabilityBasis,
+    EarningsTiming,
+    PriceBasis,
+    ProviderType,
+    SecurityType,
+)
 from quantforge.models.market import DailyPriceBar
 from quantforge.models.provenance import DataSource
 from quantforge.models.security import Exchange, Listing, Security
@@ -134,6 +140,8 @@ def _event(
         "source_id": source.id,
     }
     fields.update(overrides)
+    if fields.get("observed_at") is not None:
+        fields.setdefault("observed_at_basis", AvailabilityBasis.SOURCE_PUBLICATION)
     row = EarningsEvent(**fields)
     db_session.add(row)
     db_session.commit()

@@ -27,15 +27,54 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
+from typing import Final
 
 from quantforge.models.earnings import EarningsEvent
+from quantforge.models.enums import AvailabilityBasis
 
 __all__ = [
+    "APPROVED_AVAILABILITY_BASES",
     "PointInTimeEligibility",
     "ResearchMode",
     "classify_point_in_time_eligibility",
+    "is_point_in_time_availability_eligible",
     "select_known_as_of",
 ]
+
+#: The availability evidence QuantForge treats as "known at ``observed_at``" for a
+#: point-in-time/execution decision. The ONE place this is decided -- nothing
+#: else compares a basis directly.
+#:
+#: * ``SOURCE_PUBLICATION`` is approved: the source itself states when this
+#:   observation was published.
+#: * ``SEC_FILING_ACCEPTANCE`` is deliberately NOT approved yet. It is a sound
+#:   "the filing was on EDGAR by about T" bound for a filing-availability
+#:   strategy, but (a) the exact timezone reading of EDGAR's acceptance time has
+#:   not been validated against live SEC data (the PDS spec labels it "EST"
+#:   while EDGAR's operating rules are in prevailing Eastern time), and (b) no
+#:   filing-based signal exists to define the strategy it would be approved
+#:   *for*. Adding it here is a one-line, reviewed change once both are settled.
+APPROVED_AVAILABILITY_BASES: Final[frozenset[AvailabilityBasis]] = frozenset(
+    {AvailabilityBasis.SOURCE_PUBLICATION}
+)
+
+
+def is_point_in_time_availability_eligible(
+    observed_at: datetime | None,
+    observed_at_basis: AvailabilityBasis | None,
+) -> bool:
+    """Whether a timestamp and its stated meaning may support a point-in-time claim.
+
+    True only when a timestamp exists, it states what it proves, and that kind
+    of evidence is in :data:`APPROVED_AVAILABILITY_BASES`. A timestamp with no
+    basis, a basis with no timestamp, and an unapproved basis are all False --
+    ``observed_at IS NOT NULL`` alone is never enough.
+    """
+    return (
+        observed_at is not None
+        and observed_at_basis is not None
+        and observed_at_basis in APPROVED_AVAILABILITY_BASES
+    )
 
 
 class ResearchMode(StrEnum):
@@ -70,16 +109,23 @@ class PointInTimeEligibility(StrEnum):
     #: The observation must not silently qualify as tradable.
     INELIGIBLE_NO_AVAILABILITY_EVIDENCE = "INELIGIBLE_NO_AVAILABILITY_EVIDENCE"
 
+    #: A timestamp exists but its basis is missing or not approved for
+    #: point-in-time use (see ``APPROVED_AVAILABILITY_BASES``). Evidence exists;
+    #: it just does not prove what a tradability claim needs.
+    INELIGIBLE_UNAPPROVED_AVAILABILITY_BASIS = "INELIGIBLE_UNAPPROVED_AVAILABILITY_BASIS"
+
 
 def classify_point_in_time_eligibility(
     mode: ResearchMode,
     *,
     observed_at: datetime | None,
+    observed_at_basis: AvailabilityBasis | None,
 ) -> PointInTimeEligibility:
     """Classify whether an observation may be used as point-in-time tradable.
 
-    ``observed_at`` is the only availability evidence this schema carries
-    (see ``EarningsEvent.observed_at``'s own documentation); there is no
+    ``observed_at`` together with its ``observed_at_basis`` is the only
+    availability evidence this schema carries (see
+    ``EarningsEvent.observed_at``'s own documentation); there is no
     fallback to ``ingested_at``, which records when QuantForge fetched the
     fact, not when the source made it public. Treating the two as
     interchangeable is exactly the kind of look-ahead bias this function
@@ -89,6 +135,8 @@ def classify_point_in_time_eligibility(
         return PointInTimeEligibility.NOT_APPLICABLE
     if observed_at is None:
         return PointInTimeEligibility.INELIGIBLE_NO_AVAILABILITY_EVIDENCE
+    if not is_point_in_time_availability_eligible(observed_at, observed_at_basis):
+        return PointInTimeEligibility.INELIGIBLE_UNAPPROVED_AVAILABILITY_BASIS
     return PointInTimeEligibility.ELIGIBLE
 
 
@@ -123,7 +171,11 @@ def select_known_as_of(
         not "there is no data".
     """
     known = [
-        event for event in events if event.observed_at is not None and event.observed_at <= as_of
+        event
+        for event in events
+        if event.observed_at is not None
+        and is_point_in_time_availability_eligible(event.observed_at, event.observed_at_basis)
+        and event.observed_at <= as_of
     ]
     if not known:
         return None

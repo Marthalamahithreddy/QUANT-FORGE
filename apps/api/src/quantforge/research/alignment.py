@@ -145,7 +145,9 @@ def align_earnings_event(
         The computed :class:`EventStudyAlignment`.
     """
     timing = event.timing
-    eligibility = classify_point_in_time_eligibility(mode, observed_at=event.observed_at)
+    eligibility = classify_point_in_time_eligibility(
+        mode, observed_at=event.observed_at, observed_at_basis=event.observed_at_basis
+    )
     listing_resolution = resolve_company_listing_for_date(
         session,
         company_id=event.company_id,
@@ -186,8 +188,9 @@ def align_earnings_event(
                 first_post_event_session=None,
                 status=AlignmentStatus.NOT_POINT_IN_TIME_ELIGIBLE,
                 reason=(
-                    "observed_at is NULL and no other availability evidence exists; "
-                    "a point-in-time tradability claim cannot be supported"
+                    "no approved availability evidence exists (observed_at is NULL, or "
+                    "its basis is missing or not approved); a point-in-time tradability "
+                    "claim cannot be supported"
                 ),
             )
 

@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from quantforge.models.base import (
     CURRENCY_LENGTH,
@@ -15,7 +15,7 @@ from quantforge.models.base import (
     MIN_FISCAL_QUARTER,
     MIN_FISCAL_YEAR,
 )
-from quantforge.models.enums import EarningsTiming
+from quantforge.models.enums import AvailabilityBasis, EarningsTiming
 from quantforge.schemas.common import CodeValidatingSchema, OrmReadSchema, as_utc_aware
 
 __all__ = ["EarningsEventCreate", "EarningsEventRead"]
@@ -61,6 +61,7 @@ class EarningsEventCreate(CodeValidatingSchema):
     currency: str | None = Field(default=None, max_length=CURRENCY_LENGTH)
     source_id: UUID
     observed_at: datetime | None = None
+    observed_at_basis: AvailabilityBasis | None = None
     ingested_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @field_validator("event_timestamp")
@@ -89,6 +90,14 @@ class EarningsEventCreate(CodeValidatingSchema):
         """Require ``ingested_at`` to be tz-aware."""
         return as_utc_aware(value)
 
+    @model_validator(mode="after")
+    def _check_observed_at_pairing(self) -> EarningsEventCreate:
+        """``observed_at`` and what it proves are supplied together or not at all."""
+        if (self.observed_at is None) != (self.observed_at_basis is None):
+            message = "observed_at and observed_at_basis must be set together or both omitted."
+            raise ValueError(message)
+        return self
+
 
 class EarningsEventRead(OrmReadSchema):
     """Read model for a reported earnings result.
@@ -111,6 +120,7 @@ class EarningsEventRead(OrmReadSchema):
     currency: str | None
     source_id: UUID
     observed_at: datetime | None
+    observed_at_basis: AvailabilityBasis | None
     ingested_at: datetime
     created_at: datetime
     updated_at: datetime

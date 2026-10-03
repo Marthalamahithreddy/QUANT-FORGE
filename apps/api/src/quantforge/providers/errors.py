@@ -20,8 +20,15 @@ credential disclosure.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from quantforge.providers.base import RawCapture
+
 __all__ = [
     "ProviderAuthenticationError",
+    "ProviderBasisMismatchError",
     "ProviderConfigurationError",
     "ProviderError",
     "ProviderNotFoundError",
@@ -34,7 +41,15 @@ __all__ = [
 
 
 class ProviderError(Exception):
-    """Base class for every failure originating in a provider adapter."""
+    """Base class for every failure originating in a provider adapter.
+
+    ``captures`` is the raw response evidence an adapter had in hand when it
+    failed (empty by default). A caller may store it, apart from accepted
+    artifacts, before re-raising: a malformed or contradictory response is
+    exactly what an operator needs the bytes of.
+    """
+
+    captures: Sequence[RawCapture] = ()
 
 
 class ProviderConfigurationError(ProviderError):
@@ -117,6 +132,21 @@ class ProviderResponseError(ProviderError):
 
     def __init__(self, message: str) -> None:
         super().__init__(f"malformed provider response: {message}")
+
+
+class ProviderBasisMismatchError(ProviderResponseError):
+    """A response (or its next-page link) contradicts the requested price basis.
+
+    Still a failure: nothing from the mismatched response may become a canonical
+    bar. ``captures`` carries the raw responses fetched so far, *including* the
+    offending one, so the caller can store them as evidence before re-raising --
+    an anomalous provider response is exactly what an operator needs the bytes
+    of. Request parameters in a capture never contain a credential (the key is a
+    header), and the exception message names only the requested/stated values.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
 
 
 class ProviderPayloadError(ProviderError):

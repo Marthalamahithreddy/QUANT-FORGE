@@ -21,7 +21,7 @@ from decimal import Decimal
 from quantforge.ingestion.canonical import CanonicalEarningsEvent
 from quantforge.ingestion.earnings import earnings_fingerprint
 from quantforge.models.earnings import earnings_event_fingerprint
-from quantforge.models.enums import EarningsTiming
+from quantforge.models.enums import AvailabilityBasis, EarningsTiming
 
 
 def _event(**overrides: object) -> CanonicalEarningsEvent:
@@ -40,6 +40,8 @@ def _event(**overrides: object) -> CanonicalEarningsEvent:
         "observed_at": None,
     }
     fields.update(overrides)
+    if fields.get("observed_at") is not None:
+        fields.setdefault("observed_at_basis", AvailabilityBasis.SOURCE_PUBLICATION)
     return CanonicalEarningsEvent(**fields)  # type: ignore[arg-type]
 
 
@@ -150,6 +152,7 @@ def test_model_and_canonical_derivations_agree() -> None:
         estimated_revenue=event.estimated_revenue,
         currency=event.currency,
         observed_at=event.observed_at,
+        observed_at_basis=event.observed_at_basis,
     )
 
 

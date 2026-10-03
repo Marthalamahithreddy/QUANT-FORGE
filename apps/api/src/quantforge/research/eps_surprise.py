@@ -26,6 +26,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
+from quantforge.models.enums import AvailabilityBasis
 from quantforge.research.availability import (
     PointInTimeEligibility,
     ResearchMode,
@@ -153,6 +154,7 @@ def compute_eps_surprise_for_observation(
     reported_eps: Decimal | None,
     estimated_eps: Decimal | None,
     observed_at: datetime | None,
+    observed_at_basis: AvailabilityBasis | None,
     mode: ResearchMode,
 ) -> EpsSurpriseResult:
     """Compute an EPS surprise subject to the Step 8.1 point-in-time gate.
@@ -171,7 +173,9 @@ def compute_eps_surprise_for_observation(
     are still echoed back: they are input facts from the row the caller
     already selected, not a derived point-in-time claim.
     """
-    eligibility = classify_point_in_time_eligibility(mode, observed_at=observed_at)
+    eligibility = classify_point_in_time_eligibility(
+        mode, observed_at=observed_at, observed_at_basis=observed_at_basis
+    )
     if mode is ResearchMode.POINT_IN_TIME and eligibility is not PointInTimeEligibility.ELIGIBLE:
         return EpsSurpriseResult(
             status=EpsSurpriseStatus.NOT_POINT_IN_TIME_ELIGIBLE,
@@ -180,8 +184,9 @@ def compute_eps_surprise_for_observation(
             absolute_surprise=None,
             surprise_ratio=None,
             reason=(
-                "observed_at is NULL and no other availability evidence exists; "
-                "a point-in-time EPS-surprise claim cannot be supported"
+                "no approved availability evidence exists (observed_at is NULL, or its "
+                "basis is missing or not approved); a point-in-time EPS-surprise claim "
+                "cannot be supported"
             ),
         )
     return compute_eps_surprise(reported_eps=reported_eps, estimated_eps=estimated_eps)

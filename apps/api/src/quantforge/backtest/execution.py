@@ -69,7 +69,11 @@ from quantforge.backtest.contracts import (
 )
 from quantforge.market import MarketSession, SessionCalendar, SessionLookup, SessionLookupStatus
 from quantforge.models.enums import EarningsTiming
-from quantforge.research.availability import PointInTimeEligibility, ResearchMode
+from quantforge.research.availability import (
+    PointInTimeEligibility,
+    ResearchMode,
+    is_point_in_time_availability_eligible,
+)
 from quantforge.signals.eps_surprise import EpsSurpriseSignal, EpsSurpriseSignalStatus
 
 __all__ = ["assess_execution_eligibility"]
@@ -101,6 +105,7 @@ def _result(
         research_mode=signal.research_mode,
         point_in_time_eligibility=signal.point_in_time_eligibility,
         observed_at=signal.observed_at,
+        observed_at_basis=signal.observed_at_basis,
         status=status,
         candidate_execution_session=session.trading_date if session else None,
         candidate_execution_price_type=price_type,
@@ -148,8 +153,9 @@ def _signal_refusal(signal: EpsSurpriseSignal) -> ExecutionEligibility | None:
         return _result(
             signal,
             ExecutionEligibilityStatus.NOT_POINT_IN_TIME_ELIGIBLE,
-            "observed_at is NULL and no other availability evidence exists; "
-            "a point-in-time tradability claim cannot be supported",
+            "no approved availability evidence exists (observed_at is NULL, or its basis "
+            "is missing or not approved); a point-in-time tradability claim cannot be "
+            "supported",
         )
     if signal.timing is EarningsTiming.UNKNOWN:
         return _result(
@@ -197,14 +203,18 @@ def assess_execution_eligibility(
     if refusal is not None:
         return refusal
 
-    # Defensive: an ELIGIBLE signal always carries observed_at. If a malformed
-    # one does not, refuse rather than compare against nothing.
+    # Defensive: an ELIGIBLE signal always carries approved availability
+    # evidence. If a malformed one does not (no timestamp, or a basis that is
+    # missing or not approved), refuse rather than compare against nothing.
     observed_at = signal.observed_at
-    if observed_at is None:
+    if observed_at is None or not is_point_in_time_availability_eligible(
+        observed_at, signal.observed_at_basis
+    ):
         return _result(
             signal,
             ExecutionEligibilityStatus.NOT_POINT_IN_TIME_ELIGIBLE,
-            "the signal carries no observed_at; availability cannot be established",
+            "the signal carries no approved availability evidence; availability cannot be "
+            "established",
         )
     if observed_at.tzinfo is None:
         message = f"signal.observed_at must be timezone-aware, got naive {observed_at!r}"

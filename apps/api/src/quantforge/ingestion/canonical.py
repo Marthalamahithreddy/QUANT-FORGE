@@ -29,20 +29,28 @@ numbers that are simply incorrect, which is far more dangerous than a crash.
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 from typing import Final
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from quantforge.models.enums import EarningsTiming, PriceBasis
+from quantforge.models.enums import AvailabilityBasis, EarningsTiming, PriceBasis, SecFormType
+from quantforge.models.filing import (
+    ACCESSION_PATTERN,
+    EDGAR_ERA_START,
+    ITEMS_LENGTH,
+    PRIMARY_DOCUMENT_LENGTH,
+)
 
 __all__ = [
     "CanonicalDailyBar",
     "CanonicalEarningsEvent",
     "CanonicalEquityReference",
+    "CanonicalSecFiling",
     "ReferenceResolution",
     "ResolvedVenue",
 ]
@@ -101,6 +109,10 @@ def _require_range(value: int, low: int, high: int, field_name: str) -> None:
 
 
 def _require_aware(instant: datetime, field_name: str) -> None:
+    # A plain ``date`` is not an instant (and has no tzinfo): a date-only value is
+    # never accepted where an instant is required, nor promoted to midnight.
+    if not isinstance(instant, datetime):
+        raise ValueError(f"{field_name} must be a datetime instant, got {type(instant).__name__}")
     if instant.tzinfo is None:
         raise ValueError(f"{field_name} must be timezone-aware")
 
@@ -432,8 +444,16 @@ class CanonicalEarningsEvent:
     currency: str | None = None
 
     #: When the source indicated this event became public, if genuinely known.
-    #: Never manufactured; ``None`` means undisclosed.
+    #: Never manufactured; ``None`` means undisclosed. Present only together with
+    #: ``observed_at_basis`` -- a timestamp must say what it proves.
     observed_at: datetime | None = None
+
+    #: What ``observed_at`` proves (:class:`AvailabilityBasis`). ``None`` exactly
+    #: when ``observed_at`` is ``None``. A mapper may only choose
+    #: ``SOURCE_PUBLICATION`` for a field its provider documents as the
+    #: observation's publication instant; a date-only value, a record-modified
+    #: time or a BMO/AMC tag is never an ``observed_at``.
+    observed_at_basis: AvailabilityBasis | None = None
 
     def __post_init__(self) -> None:
         _require_blank_free(self.ticker, "canonical earnings event requires a non-blank ticker")
@@ -466,6 +486,11 @@ class CanonicalEarningsEvent:
             _require_currency(self.currency)
         if self.observed_at is not None:
             _require_aware(self.observed_at, "observed_at")
+        if (self.observed_at is None) != (self.observed_at_basis is None):
+            message = "observed_at and observed_at_basis must be set together or both be None"
+            raise ValueError(message)
+        if self.observed_at_basis is not None:
+            _require_member(self.observed_at_basis, AvailabilityBasis, "observed_at_basis")
 
 
 @dataclass(frozen=True, slots=True)
@@ -495,3 +520,71 @@ class ReferenceResolution:
 
     #: True when new rows were created, False when existing ones were reused.
     created: bool
+
+
+_CIK_PATTERN = re.compile(r"^[0-9]{10}$")
+_ACCESSION_PATTERN = re.compile(ACCESSION_PATTERN)
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalSecFiling:
+    """One SEC submission's metadata, provider-independent and ready to persist.
+
+    Source facts only: no EPS, no surprise, no signal direction, no session, no
+    price and no execution eligibility. An ``8-K`` is a filing; nothing here says
+    it reports earnings.
+
+    * ``accession_number`` is the immutable identity, dashed
+      (``0000320193-24-000123``). It is *not* the registrant's CIK -- its
+      leading filer id can be a filing agent -- so ``cik`` is carried
+      separately as the registrant the metadata was fetched for.
+    * ``accepted_at`` is the instant EDGAR accepted the submission, UTC. It
+      proves acceptance by EDGAR, not first public disclosure.
+    * ``filing_date`` (the date the SEC deems the filing made) and
+      ``report_date`` (the source's report date) are dates, never instants, and
+      neither is ever promoted to an ``accepted_at``.
+    """
+
+    cik: str
+    accession_number: str
+    form: SecFormType
+    filing_date: date
+    accepted_at: datetime
+    report_date: date | None = None
+    primary_document: str | None = None
+    #: The source's 8-K item codes verbatim, e.g. ``"2.02,9.01"``; ``None`` if absent.
+    items: str | None = None
+
+    def __post_init__(self) -> None:
+        if not _CIK_PATTERN.fullmatch(self.cik):
+            message = f"cik must be exactly 10 digits (zero-padded), got {self.cik!r}"
+            raise ValueError(message)
+        if not _ACCESSION_PATTERN.fullmatch(self.accession_number):
+            message = f"accession_number must look like 0000320193-24-000123, got {self.accession_number!r}"
+            raise ValueError(message)
+        _require_member(self.form, SecFormType, "form")
+        if type(self.filing_date) is not date:
+            message = f"filing_date must be a plain date, got {type(self.filing_date).__name__}"
+            raise ValueError(message)
+        if self.report_date is not None and type(self.report_date) is not date:
+            message = f"report_date must be a plain date, got {type(self.report_date).__name__}"
+            raise ValueError(message)
+        if self.accepted_at.tzinfo is None or self.accepted_at.utcoffset() != timedelta(0):
+            message = f"accepted_at must be a timezone-aware UTC datetime, got {self.accepted_at!r}"
+            raise ValueError(message)
+        if self.filing_date < EDGAR_ERA_START:
+            message = f"filing_date {self.filing_date} predates EDGAR ({EDGAR_ERA_START})"
+            raise ValueError(message)
+        for field_name, limit in (
+            ("primary_document", PRIMARY_DOCUMENT_LENGTH),
+            ("items", ITEMS_LENGTH),
+        ):
+            value = getattr(self, field_name)
+            if value is None:
+                continue
+            if not value.strip():
+                message = f"{field_name} must be None or non-blank"
+                raise ValueError(message)
+            if len(value) > limit:
+                message = f"{field_name} is longer than the stored limit of {limit} characters"
+                raise ValueError(message)

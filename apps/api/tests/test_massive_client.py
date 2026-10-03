@@ -25,6 +25,7 @@ from quantforge.ingestion.canonical import ResolvedVenue
 from quantforge.models.enums import PriceBasis
 from quantforge.providers.errors import (
     ProviderAuthenticationError,
+    ProviderBasisMismatchError,
     ProviderConfigurationError,
     ProviderRateLimitError,
     ProviderResponseError,
@@ -890,3 +891,47 @@ async def test_a_next_url_with_the_matching_basis_is_followed_unchanged() -> Non
     )
 
     assert seen == ["true", "true"]
+
+
+@pytest.mark.anyio
+async def test_a_basis_mismatch_error_carries_the_offending_raw_capture() -> None:
+    body = json.dumps(_bars_document(adjusted=False)).encode()
+    client = _client(lambda _r: httpx.Response(200, content=body))
+
+    with pytest.raises(ProviderBasisMismatchError) as caught:
+        await client.get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+        )
+
+    captures = caught.value.captures
+    assert [capture.body for capture in captures] == [body], "the offending bytes are evidence"
+    assert "test-key-0123456789" not in json.dumps(
+        [dict(capture.request_parameters) for capture in captures]
+    )
+    assert isinstance(caught.value, ProviderResponseError), "still the same failure class"
+
+
+@pytest.mark.anyio
+async def test_a_next_page_mismatch_carries_every_page_fetched_so_far() -> None:
+    pages = iter(
+        [
+            _bars_document(adjusted=True, next_url="https://api.massive.com/v2/aggs/n?cursor=c"),
+            _bars_document(adjusted=False),
+        ]
+    )
+    client = _client(lambda _r: _json(next(pages)))
+
+    with pytest.raises(ProviderBasisMismatchError) as caught:
+        await client.get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+        )
+
+    assert len(caught.value.captures) == 2

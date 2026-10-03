@@ -14,6 +14,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
+from quantforge.models.enums import AvailabilityBasis
 from quantforge.research.availability import PointInTimeEligibility, ResearchMode
 from quantforge.signals.eps_surprise import EpsSurpriseDirection, SignalType
 
@@ -109,6 +110,7 @@ class ExecutionEligibility:
     research_mode: ResearchMode
     point_in_time_eligibility: PointInTimeEligibility
     observed_at: datetime | None
+    observed_at_basis: AvailabilityBasis | None
     status: ExecutionEligibilityStatus
     candidate_execution_session: date | None
     candidate_execution_price_type: ExecutionPriceType | None

@@ -250,12 +250,15 @@ def analyze_earnings_event(  # noqa: PLR0913 - one explicit knob per independent
     validate_horizons(horizons)
     horizons_list = list(horizons)
 
-    eligibility = classify_point_in_time_eligibility(mode, observed_at=event.observed_at)
+    eligibility = classify_point_in_time_eligibility(
+        mode, observed_at=event.observed_at, observed_at_basis=event.observed_at_basis
+    )
 
     eps_surprise = compute_eps_surprise_for_observation(
         reported_eps=event.reported_eps,
         estimated_eps=event.estimated_eps,
         observed_at=event.observed_at,
+        observed_at_basis=event.observed_at_basis,
         mode=mode,
     )
 
