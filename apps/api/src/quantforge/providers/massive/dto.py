@@ -27,7 +27,8 @@ inside the class. Everywhere above the adapter it is ``bar.open``, never
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+import re
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Final
 
@@ -38,6 +39,7 @@ from quantforge.providers.errors import ProviderPayloadError
 __all__ = [
     "MASSIVE_SECURITY_TYPE_BY_CODE",
     "MassiveDailyBarDTO",
+    "MassiveSplitDTO",
     "MassiveTickerDetailsDTO",
 ]
 
@@ -262,4 +264,68 @@ class MassiveDailyBarDTO(_MassiveModel):
             return cls.model_validate(payload)
         except Exception as exc:
             message = f"invalid daily aggregate: {exc}"
+            raise ProviderPayloadError(message, identifier=identifier) from exc
+
+
+_ISO_DATE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+class MassiveSplitDTO(_MassiveModel):
+    """One entry from ``GET /stocks/v1/splits``.
+
+    Orientation (Massive's documentation): ``split_from`` is the old share count
+    and ``split_to`` the new one -- "in a 2-for-1 split, split_from would be 1".
+    ``execution_date`` is the date the split takes effect. ``id`` is the provider's
+    unique split identifier, and is required here although the schema marks it
+    optional: a record with no identity cannot be stored idempotently.
+    ``historical_adjustment_factor`` is a cumulative price-adjustment helper, not
+    part of the fact, and is deliberately not read -- QuantForge adjusts nothing.
+
+    Only exact numbers are accepted for the ratio: the client decodes JSON with
+    ``parse_float=Decimal`` so a fractional ratio arrives as a ``Decimal`` built
+    from the provider's own digits. A string, a boolean or a binary float is
+    rejected rather than coerced.
+    """
+
+    provider_split_id: str = Field(alias="id")
+    ticker: str
+    execution_date: date
+    old_shares: Decimal = Field(alias="split_from")
+    new_shares: Decimal = Field(alias="split_to")
+    adjustment_type: str
+
+    @field_validator("provider_split_id", "ticker", "adjustment_type", mode="before")
+    @classmethod
+    def _require_non_blank_string(cls, value: object) -> str:
+        if not isinstance(value, str) or not value.strip():
+            message = "must be a non-blank string"
+            raise ValueError(message)
+        return value.strip()
+
+    @field_validator("execution_date", mode="before")
+    @classmethod
+    def _require_iso_date(cls, value: object) -> date:
+        if not isinstance(value, str) or not _ISO_DATE.fullmatch(value):
+            message = f"execution_date must be a YYYY-MM-DD string, got {value!r}"
+            raise ValueError(message)
+        return date.fromisoformat(value)
+
+    @field_validator("old_shares", "new_shares", mode="before")
+    @classmethod
+    def _require_exact_number(cls, value: object) -> Decimal:
+        if isinstance(value, bool) or not isinstance(value, int | Decimal):
+            message = f"split ratio must be an exact JSON number, got {type(value).__name__}"
+            raise ValueError(message)
+        return Decimal(value)
+
+    @classmethod
+    def from_provider(cls, payload: Any, *, identifier: str | None = None) -> MassiveSplitDTO:
+        """Build a DTO from one decoded ``results`` element."""
+        if not isinstance(payload, dict):
+            message = f"expected an object, got {type(payload).__name__}"
+            raise ProviderPayloadError(message, identifier=identifier)
+        try:
+            return cls.model_validate(payload)
+        except Exception as exc:
+            message = f"invalid split record: {exc}"
             raise ProviderPayloadError(message, identifier=identifier) from exc

@@ -31,7 +31,7 @@ import logging
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +51,17 @@ from quantforge.ingestion.filings import (
 from quantforge.ingestion.raw_store import RawResponseStore
 from quantforge.ingestion.runs import FAILED_RUN_RECORDED, RunOutcome
 from quantforge.ingestion.service import IngestionService, UnknownListingError
+from quantforge.ingestion.splits import (
+    COVERAGE_SAFETY_MARGIN_DAYS,
+    AmbiguousSplitSecurityError,
+    IncompleteSplitFetchError,
+    InvalidSplitRangeError,
+    RetiredTickerCoverageError,
+    SplitIngestionService,
+    StockSplitConflictError,
+    UnknownSplitTickerError,
+    UnmappedSplitError,
+)
 from quantforge.models.enums import PriceBasis
 from quantforge.models.ingestion import IngestionRun
 from quantforge.providers.errors import (
@@ -68,6 +79,11 @@ logger = logging.getLogger("quantforge.ingestion.cli")
 EXIT_OK = 0
 EXIT_RUN_FAILED = 1
 EXIT_USAGE = 2
+
+#: Massive's Basic plan serves only about two years of split history. Coverage claimed
+#: for older dates on such a plan would be false, and the plan cannot be detected from
+#: a response, so an older start needs the operator to attest to a full-history plan.
+_BASIC_PLAN_SPLIT_HISTORY_DAYS = 700
 
 
 def _iso_date(value: str) -> date:
@@ -219,6 +235,40 @@ def build_parser() -> argparse.ArgumentParser:
     sec.add_argument("cik", help="the registrant's CIK, 1-10 digits (zero-padded automatically)")
     sec.set_defaults(handler=_cmd_sec_filings)
 
+    splits = commands.add_parser(
+        "stock-splits",
+        help="fetch a ticker's historical stock splits and record split coverage",
+        description=(
+            "Fetch every split Massive holds for one ticker (Massive /stocks/v1/splits), store "
+            "those in the inclusive date range against the security that held the ticker on "
+            "each split's execution date, and -- only if the whole fetch is complete and "
+            "clean -- record split COVERAGE for the range. Coverage is what lets a later "
+            "'no split found' mean 'no split existed'. --end must be at least "
+            f"{COVERAGE_SAFETY_MARGIN_DAYS} days before today. Coverage is recorded only through a "
+            "current ticker of the security. The ticker "
+            "must already be ingested by 'quantforge ingestion reference'. Nothing is "
+            "adjusted. One ticker per run; this is not a bulk download."
+        ),
+    )
+    splits.add_argument("ticker", type=_ticker, help="e.g. NVDA")
+    splits.add_argument("--start", required=True, type=_iso_date, help="inclusive YYYY-MM-DD")
+    splits.add_argument(
+        "--end",
+        required=True,
+        type=_iso_date,
+        help=f"inclusive YYYY-MM-DD, at least {COVERAGE_SAFETY_MARGIN_DAYS} days before today",
+    )
+    splits.add_argument(
+        "--full-history-plan",
+        action="store_true",
+        help=(
+            "state that your Massive plan serves all split history. Required when --start is "
+            "more than about two years ago (over 700 days), because the Basic plan returns only two years and "
+            "coverage claimed beyond that would be false"
+        ),
+    )
+    splits.set_defaults(handler=_cmd_stock_splits)
+
     runs = commands.add_parser(
         "runs",
         help="list recent ingestion runs, newest first",
@@ -355,6 +405,37 @@ def _cmd_sec_filings(args: argparse.Namespace, settings: Settings) -> int:
     print(
         f"\nCIK {cik}: received={outcome.records_received} written={outcome.records_written} "
         f"skipped={outcome.records_skipped} failed={outcome.records_failed}"
+    )
+    return _print_outcome(outcome)
+
+
+def _cmd_stock_splits(args: argparse.Namespace, settings: Settings) -> int:
+    if args.end < args.start:
+        print(f"error: --end {args.end} is before --start {args.start}", file=sys.stderr)
+        return EXIT_USAGE
+    now = datetime.now(UTC)
+    oldest_safe = now.date() - timedelta(days=_BASIC_PLAN_SPLIT_HISTORY_DAYS)
+    # The plan cannot be detected from a response, so an older start needs the operator to
+    # attest to a full-history plan. The service enforces the bound it is given.
+    history_start = None if args.full_history_plan else oldest_safe
+
+    async def run() -> RunOutcome:
+        async with _client(settings) as client:
+            return await _ingest_stock_splits(
+                settings=settings,
+                client=client,
+                ticker=args.ticker,
+                start=args.start,
+                end=args.end,
+                now=now,
+                provider_history_start=history_start,
+            )
+
+    outcome = asyncio.run(run())
+    print(
+        f"\n{args.ticker} splits {args.start}..{args.end}: received={outcome.records_received} "
+        f"written={outcome.records_written} skipped={outcome.records_skipped} "
+        f"failed={outcome.records_failed}"
     )
     return _print_outcome(outcome)
 
@@ -539,6 +620,32 @@ async def _ingest_sec_filings(
         return outcome
 
 
+async def _ingest_stock_splits(  # noqa: PLR0913 - one keyword per request field
+    *,
+    settings: Settings,
+    client: MassiveClient,
+    ticker: str,
+    start: date,
+    end: date,
+    now: datetime,
+    provider_history_start: date | None,
+) -> RunOutcome:
+    factory = get_session_factory(settings)
+    with factory() as session:
+        service = SplitIngestionService(
+            session=session, provider=client, store=_store(settings), now=now
+        )
+        try:
+            outcome = await service.ingest_stock_splits(
+                ticker, start, end, provider_history_start=provider_history_start
+            )
+        except BaseException:
+            _commit_failed_run(session)
+            raise
+        session.commit()
+        return outcome
+
+
 def _store(settings: Settings) -> RawResponseStore:
     return RawResponseStore(root=Path(settings.ingestion_raw_root))
 
@@ -635,9 +742,25 @@ def _classify(exc: Exception) -> int:  # noqa: PLR0911 - one return per distinct
     a configuration problem, and both are subclasses of the broader provider and
     lookup errors, so the specific cases have to be tried first.
     """
-    if isinstance(exc, UnknownListingError | UnknownRegistrantError):
+    if isinstance(
+        exc,
+        UnknownListingError
+        | UnknownRegistrantError
+        | InvalidSplitRangeError
+        | RetiredTickerCoverageError
+        | AmbiguousSplitSecurityError
+        | UnknownSplitTickerError,
+    ):
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
+    if isinstance(exc, IncompleteSplitFetchError | UnmappedSplitError):
+        print(f"error: {exc}", file=sys.stderr)
+        print("no coverage was recorded", file=sys.stderr)
+        return EXIT_RUN_FAILED
+    if isinstance(exc, StockSplitConflictError):
+        print(f"error: {exc}", file=sys.stderr)
+        print("nothing was overwritten; reconcile the source before re-running", file=sys.stderr)
+        return EXIT_RUN_FAILED
     if isinstance(exc, AllFilingRecordsRejectedError):
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED

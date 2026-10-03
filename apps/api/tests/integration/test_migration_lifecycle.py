@@ -32,7 +32,7 @@ pytestmark = pytest.mark.integration
 API_ROOT = Path(__file__).resolve().parents[2]
 
 SCRATCH_DB_NAME = "quantforge_migrations_test"
-HEAD = "0008"
+HEAD = "0009"
 PRIOR = "0005"
 #: Revision before 0005 -- the 0005 tests below downgrade past 0006 to reach it.
 PRE_0005 = "0004"
@@ -121,7 +121,7 @@ def test_upgrade_to_head_produces_the_expected_chain(
 
     scripts = ScriptDirectory.from_config(config)
     chain = [script.revision for script in scripts.walk_revisions()]
-    assert chain == [HEAD, "0007", "0006", PRIOR, PRE_0005, "0003", "0002", "0001"], (
+    assert chain == [HEAD, "0008", "0007", "0006", PRIOR, PRE_0005, "0003", "0002", "0001"], (
         f"unexpected chain {chain}"
     )
     assert scripts.get_current_head() == HEAD
@@ -691,3 +691,72 @@ def test_0008_creates_sec_filing_and_its_downgrade_refuses_while_rows_exist(
     finally:
         _purge_seed(scratch_database, ids)
         command.upgrade(config, HEAD)
+
+
+def test_0009_creates_split_tables_and_its_downgrade_refuses_while_rows_exist(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, HEAD)
+    assert {"security_id", "execution_date", "old_shares", "new_shares"} <= _column_names(
+        scratch_database, "stock_split"
+    )
+    assert {"security_id", "covered_from", "covered_to"} <= _column_names(
+        scratch_database, "stock_split_coverage"
+    )
+    ids = _seed_entities(scratch_database)
+    try:
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO stock_split_coverage (id, security_id, source_id, "
+                    "provider_ticker, covered_from, covered_to, created_at) VALUES "
+                    "(gen_random_uuid(), :security, :source, 'T', '2024-01-01', '2024-02-01', now())"
+                ),
+                ids,
+            )
+        with pytest.raises(Exception, match="stock_split_coverage row"):
+            command.downgrade(config, "0008")
+        assert _current_version(scratch_database) == HEAD
+
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text("DELETE FROM stock_split_coverage WHERE security_id = :security"), ids
+            )
+        command.downgrade(config, "0008")
+        assert "stock_split" not in _table_names(scratch_database)
+        assert "stock_split_coverage" not in _table_names(scratch_database)
+    finally:
+        _purge_seed(scratch_database, ids)
+        command.upgrade(config, HEAD)
+
+
+def test_0009_constraints_reject_non_positive_ratios_and_inverted_coverage(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    command.upgrade(_alembic_config(_scratch_url(postgres_admin_url)), HEAD)
+    ids = _seed_entities(scratch_database)
+    try:
+        for old, new in ((0, 2), (1, 0), (-1, 2)):
+            with pytest.raises(sa.exc.IntegrityError), scratch_database.begin() as connection:
+                connection.execute(
+                    sa.text(
+                        "INSERT INTO stock_split (id, security_id, source_id, provider_split_id, "
+                        "provider_ticker, execution_date, old_shares, new_shares, "
+                        "adjustment_type, ingested_at, created_at) VALUES (gen_random_uuid(), "
+                        ":security, :source, 'x', 'T', '2024-06-10', :old, :new, "
+                        "'FORWARD_SPLIT', now(), now())"
+                    ),
+                    {**ids, "old": old, "new": new},
+                )
+        with pytest.raises(sa.exc.IntegrityError), scratch_database.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO stock_split_coverage (id, security_id, source_id, "
+                    "provider_ticker, covered_from, covered_to, created_at) VALUES "
+                    "(gen_random_uuid(), :security, :source, 'T', '2024-02-01', '2024-01-01', now())"
+                ),
+                ids,
+            )
+    finally:
+        _purge_seed(scratch_database, ids)

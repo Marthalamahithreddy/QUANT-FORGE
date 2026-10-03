@@ -38,7 +38,14 @@ from enum import StrEnum
 from typing import Final
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from quantforge.models.enums import AvailabilityBasis, EarningsTiming, PriceBasis, SecFormType
+from quantforge.models.corporate_action import PROVIDER_SPLIT_ID_LENGTH, PROVIDER_TICKER_LENGTH
+from quantforge.models.enums import (
+    AvailabilityBasis,
+    EarningsTiming,
+    PriceBasis,
+    SecFormType,
+    StockSplitAdjustmentType,
+)
 from quantforge.models.filing import (
     ACCESSION_PATTERN,
     EDGAR_ERA_START,
@@ -51,6 +58,7 @@ __all__ = [
     "CanonicalEarningsEvent",
     "CanonicalEquityReference",
     "CanonicalSecFiling",
+    "CanonicalStockSplit",
     "ReferenceResolution",
     "ResolvedVenue",
 ]
@@ -588,3 +596,76 @@ class CanonicalSecFiling:
             if len(value) > limit:
                 message = f"{field_name} is longer than the stored limit of {limit} characters"
                 raise ValueError(message)
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalStockSplit:
+    """One provider-stated share-count event, provider-independent and ready to resolve.
+
+    Orientation is explicit rather than inherited from a vendor's names:
+    ``old_shares`` is the number of shares before, ``new_shares`` the number after,
+    so the holder's share count is multiplied by ``new_shares / old_shares``. A
+    2-for-1 split is ``old_shares=1, new_shares=2``; a 1-for-10 reverse split is
+    ``old_shares=10, new_shares=1``. Direction is *not* assumed (``new_shares`` may
+    be smaller), and a fractional ratio (a stock dividend, 1 -> 1.027) is valid.
+
+    ``execution_date`` is the calendar date the split takes effect (all trading on
+    it is already adjusted). It is not an availability time: no announcement or
+    publication instant exists in the source, so none is carried. ``ticker`` is how
+    the provider named the issuer; it is resolved to a security through the listing
+    valid on ``execution_date`` and is never an identity.
+
+    Nothing here adjusts a price, a share count or a cost basis.
+    """
+
+    provider_split_id: str
+    ticker: str
+    execution_date: date
+    old_shares: Decimal
+    new_shares: Decimal
+    adjustment_type: StockSplitAdjustmentType
+
+    def __post_init__(self) -> None:
+        for name, limit in (
+            ("provider_split_id", PROVIDER_SPLIT_ID_LENGTH),
+            ("ticker", PROVIDER_TICKER_LENGTH),
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip() or value != value.strip():
+                message = f"{name} must be a non-blank string without surrounding whitespace"
+                raise ValueError(message)
+            if len(value) > limit:
+                message = f"{name} is longer than the stored limit of {limit} characters"
+                raise ValueError(message)
+        if self.ticker != self.ticker.upper():
+            message = f"ticker must be upper-case, got {self.ticker!r}"
+            raise ValueError(message)
+        if type(self.execution_date) is not date:
+            message = (
+                f"execution_date must be a plain date, got {type(self.execution_date).__name__}"
+            )
+            raise ValueError(message)
+        for name in ("old_shares", "new_shares"):
+            value = getattr(self, name)
+            if not isinstance(value, Decimal):
+                message = f"{name} must be a Decimal, got {type(value).__name__}"
+                raise ValueError(message)
+            if not value.is_finite() or value <= 0:
+                message = f"{name} must be a finite number greater than zero, got {value}"
+                raise ValueError(message)
+        _require_member(self.adjustment_type, StockSplitAdjustmentType, "adjustment_type")
+        # Orientation is the central risk of this contract, so the provider's own
+        # classification is checked against the ratio it sent. A contradiction means
+        # one of them is wrong (or the two are swapped), and which one cannot be told;
+        # storing either as a fact would make the guard's answer depend on a guess.
+        # A ratio of exactly 1 changes no share count and is not a split.
+        if self.new_shares == self.old_shares:
+            message = f"old_shares and new_shares are both {self.old_shares}: no share-count change"
+            raise ValueError(message)
+        shrinks = self.new_shares < self.old_shares
+        if shrinks != (self.adjustment_type is StockSplitAdjustmentType.REVERSE_SPLIT):
+            message = (
+                f"adjustment_type {self.adjustment_type.value} contradicts the ratio "
+                f"{self.old_shares} -> {self.new_shares}"
+            )
+            raise ValueError(message)

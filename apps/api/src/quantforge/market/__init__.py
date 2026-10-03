@@ -13,6 +13,13 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING, Any
 
+from quantforge.market.corporate_actions import (
+    CorporateActionGuardResult,
+    CoverageInterval,
+    GuardStatus,
+    SplitFact,
+    evaluate_split_guard,
+)
 from quantforge.market.sessions import (
     MarketSession,
     SessionCalendar,
@@ -25,11 +32,16 @@ if TYPE_CHECKING:
 
 __all__ = [
     "SUPPORTED_MICS",
+    "CorporateActionGuardResult",
+    "CoverageInterval",
     "ExchangeCalendarsSessionCalendar",
+    "GuardStatus",
     "MarketSession",
     "SessionCalendar",
     "SessionLookup",
     "SessionLookupStatus",
+    "SplitFact",
+    "evaluate_split_guard",
 ]
 
 _ADAPTER_EXPORTS = ("SUPPORTED_MICS", "ExchangeCalendarsSessionCalendar")

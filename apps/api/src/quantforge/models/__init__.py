@@ -25,6 +25,7 @@ from quantforge.models.base import (
 )
 from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
 from quantforge.models.company import Company
+from quantforge.models.corporate_action import StockSplit, StockSplitCoverage
 from quantforge.models.earnings import EarningsEvent
 from quantforge.models.enums import (
     AvailabilityBasis,
@@ -35,6 +36,7 @@ from quantforge.models.enums import (
     ProviderType,
     SecFormType,
     SecurityType,
+    StockSplitAdjustmentType,
 )
 from quantforge.models.filing import SecFiling
 from quantforge.models.ingestion import IngestionRun
@@ -56,6 +58,8 @@ DOMAIN_TABLES: tuple[str, ...] = (
     "benchmark_price_bar",
     "earnings_event",
     "sec_filing",
+    "stock_split",
+    "stock_split_coverage",
 )
 
 #: Operational tables. Not financial data: these record what the ingestion
@@ -92,6 +96,9 @@ __all__ = [
     "Security",
     "SecurityIdentifier",
     "SecurityType",
+    "StockSplit",
+    "StockSplitAdjustmentType",
+    "StockSplitCoverage",
     "TimestampMixin",
     "UUIDPrimaryKeyMixin",
     "new_uuid",

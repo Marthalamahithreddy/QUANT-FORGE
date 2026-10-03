@@ -33,6 +33,7 @@ constructed here passes only a status code and a static message upward.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import random
 from collections.abc import Callable, Mapping, Sequence
@@ -53,17 +54,24 @@ from quantforge.providers.errors import (
     ProviderAuthenticationError,
     ProviderBasisMismatchError,
     ProviderConfigurationError,
+    ProviderError,
     ProviderNotFoundError,
+    ProviderPayloadError,
     ProviderRateLimitError,
     ProviderResponseError,
     ProviderServerError,
     ProviderTransportError,
 )
 from quantforge.providers.json_decimal import JsonValue, decode_json_document
-from quantforge.providers.massive.dto import MassiveDailyBarDTO, MassiveTickerDetailsDTO
+from quantforge.providers.massive.dto import (
+    MassiveDailyBarDTO,
+    MassiveSplitDTO,
+    MassiveTickerDetailsDTO,
+)
 from quantforge.providers.massive.exchanges import VenueIdentity, resolve_venue
 from quantforge.providers.massive.mapper import (
     to_canonical_daily_bar,
+    to_canonical_stock_split,
 )
 from quantforge.providers.pacing import (
     BackoffPolicy,
@@ -72,6 +80,7 @@ from quantforge.providers.pacing import (
     parse_retry_after,
     retryable_statuses,
 )
+from quantforge.providers.splits import SplitsResult
 
 __all__ = ["PROVIDER_NAME", "MassiveClient", "MassiveConfig"]
 
@@ -86,6 +95,11 @@ PROVIDER_NAME: Final[str] = "massive"
 #: stored file can never accumulate a query string that grows a secret.
 _TICKER_DETAILS_PATH: Final[str] = "/v3/reference/tickers/{ticker}"
 _DAILY_BARS_PATH: Final[str] = "/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}"
+_SPLITS_PATH: Final[str] = "/stocks/v1/splits"
+
+#: Documented maximum for the splits endpoint. A ticker has a handful of splits, so
+#: one page is the norm; the limit is sent explicitly so it is visible here.
+_SPLITS_PAGE_LIMIT: Final[int] = 5000
 
 #: Identifies the client to the provider and to anyone reading provider logs.
 _USER_AGENT: Final[str] = "QuantForge/0.1 (+https://github.com/quantforge)"
@@ -428,6 +442,107 @@ class MassiveClient:
         ]
         resolved.sort(key=lambda bar: bar.trading_session_date)
         return DailyBarsResult(bars=resolved, captures=tuple(captures))
+
+    async def get_stock_splits(self, ticker: str) -> SplitsResult:
+        """Fetch every split Massive holds for ``ticker``, across all pages.
+
+        Queried by ticker alone, oldest first -- not by a date range -- so the
+        answer does not depend on the provider's date-filter syntax and a caller
+        can state coverage over any range inside the returned history. A record
+        that fails validation is reported in ``rejected`` rather than raised, so
+        one malformed record cannot hide the rest; a caller claiming completeness
+        must treat any rejection as disqualifying. Records the provider returns
+        for a *different* ticker (a cursor that lost its filter) are rejected too.
+
+        Pagination follows ``next_url`` (host discarded, as everywhere) up to
+        ``max_pages`` and refuses a repeated page. Every page is captured raw.
+        """
+        symbol = _normalise_ticker(ticker)
+        params: dict[str, str] = {
+            "ticker": symbol,
+            "limit": str(_SPLITS_PAGE_LIMIT),
+            "sort": "execution_date.asc",
+        }
+        captures: list[RawCapture] = []
+        try:
+            return await self._fetch_all_splits(symbol, params, captures)
+        except ProviderError as exc:
+            # Evidence gathered before a mid-pagination failure (a later page with no
+            # `results`, a loop, the page ceiling, a 5xx) is kept for the caller, never lost.
+            if not exc.captures:
+                exc.captures = tuple(captures)
+            raise
+
+    async def _fetch_all_splits(
+        self, symbol: str, params: dict[str, str], captures: list[RawCapture]
+    ) -> SplitsResult:
+        splits = []
+        rejected: list[str] = []
+        seen_pages: set[str] = set()
+        next_path: str | None = _SPLITS_PATH
+        next_params: Mapping[str, str] = params
+        captured_params: Mapping[str, str] = params
+
+        for page_number in range(1, self._config.max_pages + 1):
+            if next_path is None:  # pragma: no cover - defensive; set below
+                break
+            if next_path in seen_pages:
+                message = (
+                    f"provider pagination loop: {next_path!r} was already fetched. "
+                    "Refusing to request it again."
+                )
+                raise ProviderResponseError(message)
+            seen_pages.add(next_path)
+
+            page = await self._get_json(next_path, params=next_params, dataset="stock-splits")
+            captures.append(
+                _capture(
+                    dataset="stock-splits",
+                    endpoint=_SPLITS_PATH,
+                    request_parameters=captured_params,
+                    response=page,
+                    retrieved_at=self._now(),
+                )
+            )
+            results = _results_of(page.document)
+            for element in results or ():
+                try:
+                    dto = MassiveSplitDTO.from_provider(element, identifier=symbol)
+                    split = to_canonical_stock_split(dto)
+                except ProviderPayloadError as exc:
+                    rejected.append(str(exc))
+                    continue
+                if split.ticker != symbol:
+                    rejected.append(
+                        f"split {split.provider_split_id} is for ticker {split.ticker!r}, "
+                        f"but {symbol!r} was requested"
+                    )
+                    continue
+                splits.append(split)
+
+            next_path = _next_url_of(page.document)
+            if next_path is None:
+                break
+            next_params = {}
+            # The next page's evidence records its position and a digest of the provider's
+            # cursor URL -- never the URL itself, which is opaque, may be long, and could in
+            # principle carry a credential. The digest still distinguishes one page's request
+            # from another's.
+            captured_params = {
+                **params,
+                "page": str(page_number + 1),
+                "next_url_sha256": hashlib.sha256(next_path.encode()).hexdigest()[:32],
+            }
+        else:
+            message = (
+                f"stopped after {self._config.max_pages} pages without exhausting the "
+                "provider's pagination; raise QF_MASSIVE_MAX_PAGES if the history is "
+                "legitimately larger"
+            )
+            raise ProviderResponseError(message)
+
+        splits.sort(key=lambda split: (split.execution_date, split.provider_split_id))
+        return SplitsResult(splits=splits, rejected=tuple(rejected), captures=tuple(captures))
 
     # ── Internals ──────────────────────────────────────────────────────────
 

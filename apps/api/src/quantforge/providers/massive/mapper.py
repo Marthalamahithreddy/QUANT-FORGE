@@ -44,14 +44,16 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from quantforge.ingestion.canonical import (
     CanonicalDailyBar,
     CanonicalEquityReference,
+    CanonicalStockSplit,
     ResolvedVenue,
 )
-from quantforge.models.enums import PriceBasis
+from quantforge.models.enums import PriceBasis, StockSplitAdjustmentType
 from quantforge.providers.base import VenueView
 from quantforge.providers.errors import ProviderPayloadError
 from quantforge.providers.massive.dto import (
     MASSIVE_SECURITY_TYPE_BY_CODE,
     MassiveDailyBarDTO,
+    MassiveSplitDTO,
     MassiveTickerDetailsDTO,
 )
 from quantforge.providers.massive.exchanges import (
@@ -234,3 +236,41 @@ def session_date_for(venue: VenueView, instant: datetime) -> date:
     reference path and the bar path cannot disagree.
     """
     return instant.astimezone(_venue_timezone(venue)).date()
+
+
+#: Massive's ``adjustment_type`` vocabulary -> QuantForge's. Explicit, no default:
+#: a value Massive adds later must be reviewed, not mapped onto the nearest member.
+_SPLIT_ADJUSTMENT_TYPES: Final[dict[str, StockSplitAdjustmentType]] = {
+    "forward_split": StockSplitAdjustmentType.FORWARD_SPLIT,
+    "reverse_split": StockSplitAdjustmentType.REVERSE_SPLIT,
+    "stock_dividend": StockSplitAdjustmentType.STOCK_DIVIDEND,
+}
+
+
+def to_canonical_stock_split(dto: MassiveSplitDTO) -> CanonicalStockSplit:
+    """Map one Massive split record, keeping its orientation explicit.
+
+    ``split_from`` (old shares) becomes ``old_shares`` and ``split_to`` (new
+    shares) becomes ``new_shares``; the ratio is never inverted or simplified.
+    ``execution_date`` stays the calendar date it is -- it is not shifted to a
+    session and not promoted to an availability time.
+
+    Raises:
+        ProviderPayloadError: the adjustment type is not one QuantForge knows, or
+            the values fail the canonical invariants (a non-positive ratio, say).
+    """
+    adjustment = _SPLIT_ADJUSTMENT_TYPES.get(dto.adjustment_type.lower())
+    if adjustment is None:
+        message = f"unrecognised split adjustment_type {dto.adjustment_type!r}"
+        raise ProviderPayloadError(message, identifier=dto.provider_split_id)
+    try:
+        return CanonicalStockSplit(
+            provider_split_id=dto.provider_split_id,
+            ticker=dto.ticker.upper(),
+            execution_date=dto.execution_date,
+            old_shares=dto.old_shares,
+            new_shares=dto.new_shares,
+            adjustment_type=adjustment,
+        )
+    except ValueError as exc:
+        raise ProviderPayloadError(str(exc), identifier=dto.provider_split_id) from exc

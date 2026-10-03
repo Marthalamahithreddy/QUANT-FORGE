@@ -221,8 +221,8 @@ def test_metadata_contains_exactly_the_known_tables() -> None:
     expected size so a failure says how far off the schema is.
     """
     assert set(Base.metadata.tables) == set(ALL_TABLES)
-    assert len(Base.metadata.tables) == 12
-    assert len(DOMAIN_TABLES) == 11
+    assert len(Base.metadata.tables) == 14
+    assert len(DOMAIN_TABLES) == 13
     assert len(OPERATIONAL_TABLES) == 1
 
 
@@ -271,6 +271,8 @@ IMMUTABLE_TABLES = [
     "daily_price_bar",
     "benchmark_price_bar",
     "sec_filing",
+    "stock_split",
+    "stock_split_coverage",
 ]
 
 

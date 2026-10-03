@@ -224,6 +224,21 @@ class ProviderType(StrEnum):
     OTHER = "OTHER"
 
 
+class StockSplitAdjustmentType(StrEnum):
+    """How a provider classifies a share-count-changing corporate action.
+
+    Mirrors Massive's ``adjustment_type`` (``forward_split``, ``reverse_split``,
+    ``stock_dividend``), upper-cased to this module's vocabulary convention. All
+    three change the number of shares a holder owns, so all three are treated as
+    share-count events by the corporate-action guard. An unrecognised provider
+    value is rejected at the boundary, never mapped onto the nearest member.
+    """
+
+    FORWARD_SPLIT = "FORWARD_SPLIT"
+    REVERSE_SPLIT = "REVERSE_SPLIT"
+    STOCK_DIVIDEND = "STOCK_DIVIDEND"
+
+
 def enum_type(enum_cls: type[StrEnum], *, name: str, length: int) -> sa.Enum:
     """Return a non-native :class:`sqlalchemy.Enum` for ``enum_cls``.
 
@@ -274,5 +289,6 @@ PROVIDER_TYPE_LENGTH = 32
 PRICE_BASIS_LENGTH = 32
 AVAILABILITY_BASIS_LENGTH = 32
 SEC_FORM_LENGTH = 16
+SPLIT_ADJUSTMENT_TYPE_LENGTH = 16
 #: Lifecycle status of an ingestion run; see ``IngestionStatus``.
 INGESTION_STATUS_LENGTH = 16

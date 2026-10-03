@@ -180,6 +180,30 @@ America/New_York wall-clock time (not trusted as UTC) and cross-checked against
 EDGAR's 06:00–22:00 hours and 5:30 p.m. filing-date rule; a record that fails is
 rejected, never guessed. No EPS, signal or document download exists yet.
 
+## Historical stock splits and the corporate-action guard
+
+`quantforge ingestion stock-splits <TICKER> --start D --end D` fetches one ticker's
+splits from Massive (`/stocks/v1/splits`) into `stock_split` (migration `0009`), attached to the
+**security** that held the ticker on each split's execution date, never to a ticker or
+today's symbol. `old_shares` / `new_shares` follow Massive's `split_from` / `split_to` (a 2-for-1
+split is 1 → 2; a 1-for-10 reverse split is 10 → 1); the provider's classification must agree with
+the ratio or the record is rejected. `execution_date` is the effective date (all trading on it is
+already adjusted); it is **not** an availability time and no announcement time exists. Nothing is
+adjusted: no shares, prices or cost basis.
+
+An empty `stock_split` table does **not** mean no split happened. `stock_split_coverage` records the
+security/date ranges for which a complete, clean fetch ran (any rejected record fails the run and
+writes none); the range must end 7+ days before today, be inside the plan's history, and is recorded
+only through a *current* ticker of the security. `quantforge.market.evaluate_split_guard` /
+`StockSplitRepository.guard` refuse a holding from entry session `E` to exit session `X` iff a
+split takes effect on `S` with `E < S <= X` (`BLOCKED_BY_SPLIT`), and return `CLEAR` only when coverage proves
+`(E, X]` has none; otherwise `COVERAGE_UNAVAILABLE`. The guard is not wired into research or
+execution (no fill engine exists). Coverage depends on the stored listing history: reference
+ingestion sets a listing's `valid_from` to the date QuantForge first observed it, so a ticker cannot
+be shown to belong to a security before that date, and historical coverage is refused (safely) until
+real listing history exists. A split inside the requested range but outside the proven ticker
+period fails the run and records no coverage. The live Massive probe is outstanding (no key configured).
+
 ## Research, signals, and backtest layers
 
 Three packages in `apps/api/src/quantforge/`, each strictly downstream of the
@@ -284,7 +308,7 @@ revisions follow the empty `0001`: the financial domain (`0002`), ingestion
 runs / issuer CIK (`0003`), earnings ingestion persistence (`0004`), and the
 earnings `event_date`/`event_timestamp` correction (`0005`), and explicit price
 basis on both bar tables (`0006`), an availability basis on earnings events
-(`0007`), and SEC filing metadata (`0008`, current head). The research, signal, and
+(`0007`), SEC filing metadata (`0008`), and stock splits with split coverage (`0009`, current head). The research, signal, and
 backtest layers are all computed, not persisted.
 
 ## Health endpoints
