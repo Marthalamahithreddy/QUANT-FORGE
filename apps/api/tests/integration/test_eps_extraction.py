@@ -25,10 +25,13 @@ from tests.fsds_fixture import (
 )
 
 from quantforge.financials import (
+    ComparativeEpsObservation,
+    ComparativeEpsStatus,
     EpsFactObservation,
     EpsKind,
     EpsPeriodClass,
     EpsStatus,
+    extract_comparative_eps_observation,
     extract_eps_observation,
 )
 from quantforge.ingestion.financial_facts import FinancialFactIngestionService
@@ -456,3 +459,236 @@ def test_a_usd_per_shares_unit_is_not_accepted_through_ingestion_and_selection(
         accessions=(ACC_10Q,),
     )
     assert _extract(db_session, ACC_10Q).status is EpsStatus.WRONG_UNIT
+
+
+# ── same-accession comparative EPS (10.6H) ───────────────────────────────────────────────
+
+C = ComparativeEpsStatus
+
+
+def _comparative(
+    session: Session,
+    accession: str,
+    period: EpsPeriodClass = EpsPeriodClass.QUARTER,
+    kind: EpsKind = EpsKind.DILUTED,
+) -> ComparativeEpsObservation:
+    return extract_comparative_eps_observation(
+        session, accession, period_class=period, eps_kind=kind
+    )
+
+
+def test_a_simple_10q_comparative_is_selected_with_traceable_provenance(
+    db_session: Session, tmp_path: Path, filings: dict[str, SecFiling]
+) -> None:
+    _ingest(db_session, tmp_path, _nums())
+
+    result = _comparative(db_session, ACC_10Q)
+
+    assert result.status is C.AVAILABLE
+    assert result.comparative_value == Decimal(
+        "1.5200"
+    )  # the prior-year column: stored, not derived
+    assert result.current.value == Decimal("1.5300")
+    assert result.comparative_period_end == date(2023, 3, 31) and result.period_month_distance == 12
+    assert result.comparative_fact_id is not None
+    trace = FinancialFactRepository(db_session).trace(result.comparative_fact_id)
+    assert trace is not None and trace.accession_number == ACC_10Q
+
+
+def test_the_year_to_date_comparative_is_never_the_quarter_comparative(
+    db_session: Session, tmp_path: Path, filings: dict[str, SecFiling]
+) -> None:
+    nums = [
+        *_nums(),
+        _eps(ACC_10Q, "20230331", "2", "3.1000"),  # prior-year YTD
+    ]
+    _ingest(db_session, tmp_path, nums)
+    result = _comparative(db_session, ACC_10Q)
+    assert result.status is C.AVAILABLE and result.comparative_value == Decimal("1.5200")
+
+
+def test_a_10k_with_several_earlier_annual_columns_selects_the_one_12_month_ends_before(
+    db_session: Session, tmp_path: Path, filings: dict[str, SecFiling]
+) -> None:
+    nums = [
+        _eps(ACC_10K, "20230930", "4", "6.1300", version="us-gaap/2023"),
+        _eps(ACC_10K, "20220930", "4", "5.6700", version="us-gaap/2023"),
+        _eps(ACC_10K, "20210930", "4", "3.2800", version="us-gaap/2023"),
+    ]
+    _ingest(db_session, tmp_path, nums, accessions=(ACC_10K,))
+    result = _comparative(db_session, ACC_10K, EpsPeriodClass.ANNUAL)
+    assert result.status is C.AVAILABLE and result.comparative_value == Decimal("5.6700")
+    assert result.comparative_period_end == date(2022, 9, 30)
+
+
+def test_52_53_week_and_fiscal_year_change_relationships_are_refused_and_not_missing(
+    db_session: Session, tmp_path: Path, filings: dict[str, SecFiling]
+) -> None:
+    _ingest(
+        db_session,
+        tmp_path,
+        [
+            _eps(ACC_10Q, "20240331", "1", "1.5300"),
+            _eps(
+                ACC_10Q, "20230228", "1", "1.5200"
+            ),  # 13 months before: not the 12-month-end relationship
+            _eps(ACC_10K, "20230930", "4", "6.1300"),
+            _eps(ACC_10K, "20220131", "4", "5.0000"),  # 20 months: a fiscal-year change
+        ],
+        accessions=(ACC_10Q, ACC_10K),
+    )
+    quarter = _comparative(db_session, ACC_10Q)
+    annual = _comparative(db_session, ACC_10K, EpsPeriodClass.ANNUAL)
+    assert quarter.status is C.COMPARATIVE_PERIOD_MISMATCH
+    assert annual.status is C.COMPARATIVE_PERIOD_MISMATCH
+
+
+def test_the_real_11_month_52_53_week_pattern_is_refused_end_to_end(
+    db_session: Session, tmp_path: Path, filings: dict[str, SecFiling]
+) -> None:
+    _ingest(
+        db_session,
+        tmp_path,
+        [
+            _eps(ACC_10QA, "20240331", "1", "1.5400"),
+            _eps(ACC_10QA, "20230430", "1", "1.4900"),  # 11 month-ends before: the Costco pattern
+        ],
+        accessions=(ACC_10QA,),
+    )
+    result = _comparative(db_session, ACC_10QA)
+    assert result.status is C.COMPARATIVE_PERIOD_MISMATCH and result.comparative_fact is None
+    assert "11 months before" in result.reason
+
+
+def test_missing_wrong_unit_null_dimensional_and_ambiguous_comparatives_from_the_database(
+    db_session: Session, tmp_path: Path, filings: dict[str, SecFiling]
+) -> None:
+    _ingest(
+        db_session,
+        tmp_path,
+        [
+            _eps(ACC_10Q, "20240331", "1", "1.5300"),  # no earlier fact at all
+            _eps(ACC_10K, "20230930", "4", "6.1300", version="us-gaap/2023"),
+            _eps(ACC_10K, "20220930", "4", "5.6700", version="us-gaap/2023", uom="CAD"),
+            _eps(ACC_10QA, "20240331", "1", "1.5400"),
+            _eps(ACC_10QA, "20230331", "1", "", version="us-gaap/2023"),
+            _eps(ACC_10QA, "20230331", "1", "1.4900", version="us-gaap/2022"),
+        ],
+    )
+    assert _comparative(db_session, ACC_10Q).status is C.COMPARATIVE_MISSING
+    assert _comparative(db_session, ACC_10K, EpsPeriodClass.ANNUAL).status is (
+        C.COMPARATIVE_WRONG_UNIT
+    )
+    # a NULL and a numeric candidate at the validated period are ambiguous, not resolved
+    assert _comparative(db_session, ACC_10QA).status is C.COMPARATIVE_AMBIGUOUS
+
+
+def test_a_null_comparative_and_a_dimensional_only_comparative_from_the_database(
+    db_session: Session, tmp_path: Path, filings: dict[str, SecFiling]
+) -> None:
+    _ingest(
+        db_session,
+        tmp_path,
+        [
+            _eps(ACC_10Q, "20240331", "1", "1.5300"),
+            _eps(ACC_10Q, "20230331", "1", ""),
+            _eps(ACC_10QA, "20240331", "1", "1.5400"),
+            _eps(ACC_10QA, "20230331", "1", "9.9900", segments=CLASS_A),
+        ],
+    )
+    null = _comparative(db_session, ACC_10Q)
+    assert null.status is C.COMPARATIVE_NULL_VALUE and null.comparative_fact is not None
+    assert null.comparative_value is None
+    assert _comparative(db_session, ACC_10QA).status is C.COMPARATIVE_DIMENSIONAL_ONLY
+
+
+def test_original_and_amendment_have_independent_comparatives_with_no_supersession(
+    db_session: Session, tmp_path: Path, filings: dict[str, SecFiling]
+) -> None:
+    _ingest(
+        db_session,
+        tmp_path,
+        [
+            _eps(ACC_10Q, "20240331", "1", "1.5300"),
+            _eps(ACC_10Q, "20230331", "1", "1.5200"),
+            _eps(ACC_10QA, "20240331", "1", "1.5400"),
+            _eps(ACC_10QA, "20230331", "1", "1.4900"),
+        ],
+    )
+    assert _comparative(db_session, ACC_10Q).comparative_value == Decimal("1.5200")
+    assert _comparative(db_session, ACC_10QA).comparative_value == Decimal("1.4900")
+
+
+def test_the_comparative_is_never_borrowed_from_another_accession(
+    db_session: Session, tmp_path: Path, filings: dict[str, SecFiling]
+) -> None:
+    # ACC_10QA states a perfect prior-year fact; ACC_10Q does not: no cross-accession lookup.
+    _ingest(
+        db_session,
+        tmp_path,
+        [
+            _eps(ACC_10Q, "20240331", "1", "1.5300"),
+            _eps(ACC_10QA, "20240331", "1", "1.5400"),
+            _eps(ACC_10QA, "20230331", "1", "1.4900"),
+        ],
+    )
+    assert _comparative(db_session, ACC_10Q).status is C.COMPARATIVE_MISSING
+    assert _comparative(db_session, ACC_10QA).status is C.AVAILABLE
+
+
+def test_basic_and_diluted_comparative_needs_its_own_concept_in_the_database(
+    db_session: Session, tmp_path: Path, filings: dict[str, SecFiling]
+) -> None:
+    _ingest(
+        db_session,
+        tmp_path,
+        [
+            _eps(ACC_10Q, "20240331", "1", "2.0000", tag="EarningsPerShareBasicAndDiluted"),
+            _eps(ACC_10Q, "20230331", "1", "1.9000", tag="EarningsPerShareBasicAndDiluted"),
+            _eps(ACC_10Q, "20240331", "1", "1.5300"),
+            _eps(ACC_10Q, "20230331", "1", "1.5200"),
+        ],
+        accessions=(ACC_10Q,),
+    )
+    combined = _comparative(db_session, ACC_10Q, kind=EpsKind.BASIC_AND_DILUTED)
+    diluted = _comparative(db_session, ACC_10Q, kind=EpsKind.DILUTED)
+    assert combined.comparative_value == Decimal("1.9000")
+    assert diluted.comparative_value == Decimal("1.5200")
+
+
+def test_current_failures_and_unknown_accessions_propagate_as_current_unavailable(
+    db_session: Session, tmp_path: Path, filings: dict[str, SecFiling]
+) -> None:
+    _ingest(
+        db_session,
+        tmp_path,
+        [
+            _eps(ACC_10Q, "20240331", "1", "1.5300", uom="CAD"),  # wrong-unit current
+            _eps(ACC_10Q, "20230331", "1", "1.5200"),
+        ],
+        accessions=(ACC_10Q,),
+    )
+    wrong = _comparative(db_session, ACC_10Q)
+    assert wrong.status is C.CURRENT_UNAVAILABLE and wrong.current.status is EpsStatus.WRONG_UNIT
+    not_ingested = _comparative(db_session, ACC_10K, EpsPeriodClass.ANNUAL)
+    assert not_ingested.current.status is EpsStatus.NOT_INGESTED
+    unknown = _comparative(db_session, "0000111111-24-000001")
+    assert unknown.status is C.CURRENT_UNAVAILABLE and unknown.form is None
+    with pytest.raises(ValueError, match="accession_number must look like"):
+        _comparative(db_session, "not-an-accession")
+
+
+def test_comparative_extraction_writes_nothing_and_ignores_acceptance_times(
+    db_session: Session, tmp_path: Path, filings: dict[str, SecFiling]
+) -> None:
+    _ingest(db_session, tmp_path, _nums())
+    tables = (FinancialFact, FinancialFactSubmission, FinancialFactArtifact, SecFiling)
+    before = [db_session.query(table).count() for table in tables]
+    db_session.execute(sa.update(SecFiling).values(accepted_at=datetime(2099, 1, 1, tzinfo=UTC)))
+    db_session.commit()
+
+    result = _comparative(db_session, ACC_10Q)
+
+    assert result.comparative_value == Decimal("1.5200")
+    assert [db_session.query(table).count() for table in tables] == before
+    assert not db_session.new and not db_session.dirty and not db_session.deleted

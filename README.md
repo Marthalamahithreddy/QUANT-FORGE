@@ -308,6 +308,30 @@ endpoint, no UI; nothing imports it yet.
   filers (month-end rounding) and fiscal-year changes break that relationship, so a future selector must refuse those
   or find stronger context. No YoY, surprise or signal exists.
 
+### Same-accession comparative EPS (descriptive only)
+
+`select_comparative_eps` / `extract_comparative_eps_observation` (`financials/comparative_eps*.py`) return, for one
+accession, the current EPS observation plus **comparative EPS as presented in this filing**, or an explicit refusal
+(`ComparativeEpsObservation`, a pure selector plus a read-only adapter; no table, no migration). The comparative may be
+restated or reclassified and is **not** the originally reported prior-year EPS: no other accession is ever consulted.
+There is no growth, change, percentage, sign transition, direction, signal or availability claim.
+
+* **Current first:** the existing selector decides the current EPS; anything but `AVAILABLE` is `CURRENT_UNAVAILABLE`
+  carrying that status, and nothing earlier is searched.
+* **Candidates are stored facts, never generated dates:** same accession, exact current tag (no kind fallback), standard
+  `us-gaap/<year>` version (any release; extensions and custom tags are not mapped), the **same `qtrs`** (a year-to-date
+  amount is never a quarter) and an earlier period end (only these "structurally relevant" facts can make a comparative `MISSING` vs a period
+  mismatch; other concepts, other `qtrs` and other accessions never do). The observed period ends are then inspected: only a fact exactly
+  **12 month-ends** before the current one (`(cur.year - prior.year) * 12 + (cur.month - prior.month) == 12`, both
+  FSDS month-end dates; no day count) is accepted. Several earlier annual columns are normal, not ambiguity.
+* **Conservative, not universal:** real 2026q1 data showed 52/53-week filers (an 11-month rounded relationship) and
+  fiscal-year changes (9/16/18/20 months). They are refused as `COMPARATIVE_PERIOD_MISMATCH`, with no tolerance and no
+  issuer special-casing, so some filers get no comparative until stronger context evidence exists.
+* **Then:** dimensions/coreg (`COMPARATIVE_DIMENSIONAL_ONLY` / `COMPARATIVE_COREG_ONLY`), unit equal to the current unit
+  (`COMPARATIVE_WRONG_UNIT`, never converted, never "missing"), a single NULL (`COMPARATIVE_NULL_VALUE`), and exactly one
+  (`COMPARATIVE_AMBIGUOUS` otherwise, even with equal values or a NULL beside a number). `COMPARATIVE_MISSING` means no
+  earlier standard-us-gaap, same-concept, same-`qtrs` fact is stored (same-name extension facts are ignored, never mapped). An amendment is its own accession. The result is order-independent.
+
 ## Research, signals, and backtest layers
 
 Three packages in `apps/api/src/quantforge/`, each strictly downstream of the

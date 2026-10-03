@@ -80,6 +80,8 @@ __all__ = [
     "EpsKind",
     "EpsPeriodClass",
     "EpsStatus",
+    "is_generic_fact",
+    "is_us_gaap_version",
     "select_eps_fact",
 ]
 
@@ -146,8 +148,17 @@ _DURATION_QUARTERS: Final[dict[EpsPeriodClass, int]] = {
 _US_GAAP_VERSION: Final = re.compile(r"us-gaap/[0-9]{4}")
 
 
-def _is_us_gaap_version(version: str) -> bool:
+def is_us_gaap_version(version: str) -> bool:
     return _US_GAAP_VERSION.fullmatch(version) is not None
+
+
+def is_generic_fact(fact: EpsInputFact) -> bool:
+    """Eligible under the generic-EPS policy: empty ``segments`` AND empty ``coreg``.
+
+    "Non-dimensional under the FSDS representation", never "confirmed consolidated". Defined once
+    and shared by current and comparative EPS selection.
+    """
+    return fact.segments == "" and fact.coreg == ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,7 +339,7 @@ def select_eps_fact(  # noqa: PLR0911, PLR0913 - one return per named status; ke
         if f.tag == tag and f.duration_quarters == duration and f.period_end == period_end
     ]
 
-    standard = [f for f in slot if _is_us_gaap_version(f.taxonomy_version)]
+    standard = [f for f in slot if is_us_gaap_version(f.taxonomy_version)]
     if not standard:
         extension = [f for f in slot if ACCESSION_REGEX.fullmatch(f.taxonomy_version)]
         if extension:
@@ -340,7 +351,7 @@ def select_eps_fact(  # noqa: PLR0911, PLR0913 - one return per named status; ke
         elsewhere = [
             f
             for f in candidates
-            if f.tag == tag and _is_us_gaap_version(f.taxonomy_version) and f not in slot
+            if f.tag == tag and is_us_gaap_version(f.taxonomy_version) and f not in slot
         ]
         other = (
             f"; {len(elsewhere)} us-gaap {tag} fact(s) exist at other periods or durations and "
@@ -357,7 +368,7 @@ def select_eps_fact(  # noqa: PLR0911, PLR0913 - one return per named status; ke
 
     # Dimensions first: eligibility is about WHICH entity/context a fact describes, so a wrong
     # unit on the one entity-wide fact is reported as such, not hidden behind a variant.
-    plain = [f for f in standard if f.segments == "" and f.coreg == ""]
+    plain = [f for f in standard if is_generic_fact(f)]
     if not plain:
         if all(f.coreg != "" for f in standard):
             return refuse(

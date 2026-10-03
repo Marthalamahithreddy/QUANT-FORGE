@@ -1,9 +1,10 @@
 """Semantic financial layer: interpretations over stored, accession-bound financial facts.
 
 This package sits *above* :mod:`quantforge.repositories.financial_fact` (which only retrieves
-facts) and *below* anything that would compare or act on a figure. Today it holds one capability:
-accession-scoped EPS selection (:mod:`quantforge.financials.eps`), a pure function plus a thin
-database adapter (:mod:`quantforge.financials.eps_extraction`).
+facts) and *below* anything that would compare or act on a figure. It holds accession-scoped
+EPS selection (:mod:`quantforge.financials.eps`) and same-accession comparative EPS (:mod:`quantforge.financials.comparative_eps`, "comparative EPS as presented in this
+filing"), each a pure function plus a thin database adapter
+(:mod:`quantforge.financials.eps_extraction`, :mod:`quantforge.financials.comparative_eps_extraction`).
 
 It is descriptive accounting extraction: it never states when a fact was known, never reads a
 filing's acceptance time, never looks at another accession, and has no signal, growth, surprise,
@@ -16,6 +17,14 @@ import importlib
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from quantforge.financials.comparative_eps import (
+        ComparativeEpsObservation,
+        ComparativeEpsStatus,
+        select_comparative_eps,
+    )
+    from quantforge.financials.comparative_eps_extraction import (
+        extract_comparative_eps_observation,
+    )
     from quantforge.financials.eps import (
         EPS_CONCEPT_TAG,
         EPS_UNIT,
@@ -31,6 +40,10 @@ if TYPE_CHECKING:
 # Lazy (PEP 562), like the other domain packages: importing the pure selector must not load the
 # database adapter or its repositories.
 _EXPORTS: dict[str, str] = {
+    "ComparativeEpsObservation": "quantforge.financials.comparative_eps",
+    "ComparativeEpsStatus": "quantforge.financials.comparative_eps",
+    "extract_comparative_eps_observation": "quantforge.financials.comparative_eps_extraction",
+    "select_comparative_eps": "quantforge.financials.comparative_eps",
     "EPS_CONCEPT_TAG": "quantforge.financials.eps",
     "EPS_UNIT": "quantforge.financials.eps",
     "EpsFactObservation": "quantforge.financials.eps",
@@ -60,11 +73,15 @@ def __dir__() -> list[str]:
 __all__ = [
     "EPS_CONCEPT_TAG",
     "EPS_UNIT",
+    "ComparativeEpsObservation",
+    "ComparativeEpsStatus",
     "EpsFactObservation",
     "EpsInputFact",
     "EpsKind",
     "EpsPeriodClass",
     "EpsStatus",
+    "extract_comparative_eps_observation",
     "extract_eps_observation",
+    "select_comparative_eps",
     "select_eps_fact",
 ]
