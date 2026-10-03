@@ -112,6 +112,7 @@ def test_baseline_revision_exists_and_is_empty() -> None:
         "0009_stock_split.py",
         "0010_listing_history_fact.py",
         "0011_financial_fact.py",
+        "0012_fsds_accepted_text.py",
     ]
 
     source = revisions[0].read_text(encoding="utf-8")

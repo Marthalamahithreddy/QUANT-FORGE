@@ -314,7 +314,9 @@ def test_an_eps_like_custom_name_is_not_detected_or_mapped() -> None:
 # ── unit ─────────────────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("unit", ["USD", "shares", "pure", "USD/share", "usd/shares", "EUR/shares"])
+@pytest.mark.parametrize(
+    "unit", ["CAD", "EUR", "shares", "pure", "USD/shares", "USD/share", "usd", "USD "]
+)
 def test_a_wrong_unit_is_refused_even_when_the_tag_matches(unit: str) -> None:
     result = select([fact(unit=unit)])
     assert_refused(result, EpsStatus.WRONG_UNIT)
@@ -322,20 +324,50 @@ def test_a_wrong_unit_is_refused_even_when_the_tag_matches(unit: str) -> None:
 
 
 def test_a_wrong_unit_on_the_entity_wide_fact_is_not_hidden_by_right_unit_variants() -> None:
-    wrong_plain = fact(unit="USD", value=Decimal("153.0000"))
+    wrong_plain = fact(unit="CAD", value=Decimal("153.0000"))
     class_a = fact(segments="ClassAxis=AMember;", value=Decimal("9.1"))
     coreg = fact(coreg="GuarantorSubsidiaryMember", value=Decimal("9.2"))
     for ordering in itertools.permutations([wrong_plain, class_a, coreg]):
         result = select(list(ordering))
         assert_refused(result, EpsStatus.WRONG_UNIT)
-        assert "USD" in result.reason
+        assert "CAD" in result.reason
 
 
 def test_the_right_unit_on_a_sibling_wins_over_a_wrong_unit_fact() -> None:
     right = fact(value=Decimal("1.5300"))
-    wrong = fact(unit="USD", value=Decimal("153.0000"))
+    wrong = fact(unit="CAD", value=Decimal("153.0000"))
     for ordering in itertools.permutations([right, wrong]):
         assert select(list(ordering)).value == Decimal("1.5300")
+
+
+def test_the_unit_is_the_bare_usd_currency_code_never_usd_per_shares() -> None:
+    assert EPS_UNIT == "USD"
+    assert select([fact(unit="USD")]).status is EpsStatus.AVAILABLE
+    assert_refused(select([fact(unit="USD/shares")]), EpsStatus.WRONG_UNIT)
+
+
+def test_a_usd_fact_of_another_concept_is_never_selected_just_because_it_is_usd() -> None:
+    for tag in ("NetIncomeLoss", "Revenues", "Assets", "CommonStockDividendsPerShareDeclared"):
+        assert_refused(select([fact(tag=tag, unit="USD")]), EpsStatus.MISSING)
+
+
+def test_cad_eps_is_wrong_unit_for_both_kinds_and_is_never_converted() -> None:
+    for kind, tag in ((EpsKind.DILUTED, DILUTED), (EpsKind.BASIC_AND_DILUTED, BASIC_AND_DILUTED)):
+        result = select([fact(tag=tag, unit="CAD", value=Decimal("1.2300"))], kind=kind)
+        assert_refused(result, EpsStatus.WRONG_UNIT)
+
+
+def test_usd_basic_and_diluted_is_available_only_when_that_kind_is_requested() -> None:
+    both = fact(tag=BASIC_AND_DILUTED, unit="USD", value=Decimal("2.0000"))
+    assert select([both], kind=EpsKind.BASIC_AND_DILUTED).status is EpsStatus.AVAILABLE
+    assert_refused(select([both], kind=EpsKind.DILUTED), EpsStatus.MISSING)
+
+
+def test_real_shaped_multi_axis_segments_and_a_real_shaped_coreg_stay_fail_closed() -> None:
+    segments = "ClassOfStock=CommonClassA;ConsolidatedEntities=ParentCompany;"  # Axis=Member; pairs
+    assert_refused(select([fact(segments=segments)]), EpsStatus.DIMENSIONAL_ONLY)
+    assert_refused(select([fact(coreg="ExampleOperatingPartnershipLP")]), EpsStatus.COREG_ONLY)
+    assert select([fact(), fact(segments=segments)]).value == Decimal("1.5300")
 
 
 # ── NULL ─────────────────────────────────────────────────────────────────────────────────
@@ -414,7 +446,7 @@ def test_a_result_never_depends_on_fact_order() -> None:
         fact(period_end=PRIOR_YEAR_END, value=Decimal("1.5200")),
         fact(segments="ClassAxis=AMember;", value=Decimal("9.0000")),
         fact(coreg="Guarantor", value=Decimal("8.0000")),
-        fact(unit="USD", value=Decimal("153.0000")),
+        fact(unit="CAD", value=Decimal("153.0000")),
         fact(tag=BASIC, value=Decimal("1.6000")),
         fact(taxonomy_version="0000320193-24-000010", value=Decimal("7.0000")),
     ]
@@ -528,7 +560,7 @@ def test_every_status_is_reachable_by_the_selector() -> None:
         select([fact()], form=SecFormType.FORM_8K).status,
         select([]).status,
         select([fact(taxonomy_version="0000320193-24-000010")]).status,
-        select([fact(unit="USD")]).status,
+        select([fact(unit="CAD")]).status,
         select([fact(segments="A=B;")]).status,
         select([fact(coreg="C")]).status,
         select([fact(value=None)]).status,
@@ -560,6 +592,8 @@ FORBIDDEN_FIELD_NAMES = {
     "accepted_at",
     "ingested_at",
     "pit_eligible",
+    "source_accepted",
+    "source_stated_accepted",
     "signal",
     "direction",
     "score",
@@ -652,10 +686,10 @@ def test_status_precedence_over_unit_null_and_dimensions() -> None:
     # generic NULL + dimensional numeric -> the generic fact is the candidate: NULL_VALUE
     assert select([fact(value=None), class_a]).status is EpsStatus.NULL_VALUE
     # generic correct-unit + dimensional variants (any unit) -> generic selected
-    wrong_unit_variant = fact(segments="ClassAxis=BMember;", unit="USD")
+    wrong_unit_variant = fact(segments="ClassAxis=BMember;", unit="CAD")
     assert select([fact(), class_a, wrong_unit_variant]).value == Decimal("1.5300")
     # coreg-only correct unit -> COREG_ONLY; coreg-only wrong unit is still COREG_ONLY
     assert select([fact(coreg="G")]).status is EpsStatus.COREG_ONLY
-    assert select([fact(coreg="G", unit="USD")]).status is EpsStatus.COREG_ONLY
+    assert select([fact(coreg="G", unit="CAD")]).status is EpsStatus.COREG_ONLY
     # generic wrong-unit + dimensional correct-unit -> WRONG_UNIT
-    assert select([fact(unit="USD"), class_a]).status is EpsStatus.WRONG_UNIT
+    assert select([fact(unit="CAD"), class_a]).status is EpsStatus.WRONG_UNIT

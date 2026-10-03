@@ -114,3 +114,37 @@ def test_fact_ingestion_does_not_touch_the_sec_acceptance_semantics() -> None:
     assert "parse_acceptance_datetime" not in ingestion
     assert "AvailabilityBasis" not in ingestion
     assert "APPROVED_AVAILABILITY_BASES" not in ingestion
+
+
+PARSERS = {"strptime", "fromisoformat", "to_datetime", "parse", "parse_acceptance_datetime"}
+
+
+def test_the_fsds_accepted_text_is_read_by_nothing_but_its_parser_canonical_type_writer_and_model() -> (
+    None
+):
+    """Widening or changing how ``accepted`` is stored must never turn it into evidence."""
+    allowed = {
+        "providers/sec/fsds.py",
+        "ingestion/canonical.py",
+        "ingestion/financial_facts.py",
+        "models/financial_fact.py",
+    }
+    readers = []
+    for path in SRC.rglob("*.py"):
+        relative = str(path.relative_to(SRC))
+        text = path.read_text(encoding="utf-8")
+        if ("source_accepted" in text or "source_stated_accepted" in text) and (
+            relative not in allowed
+        ):
+            readers.append(relative)
+    assert readers == []
+    # and the stored text is never parsed into a datetime anywhere it is handled
+    for relative in allowed:
+        tree = ast.parse((SRC / relative).read_text(encoding="utf-8"))
+        parses = [
+            n
+            for n in ast.walk(tree)
+            if (isinstance(n, ast.Attribute) and n.attr in PARSERS)
+            or (isinstance(n, ast.Name) and n.id in PARSERS)
+        ]
+        assert parses == [], relative

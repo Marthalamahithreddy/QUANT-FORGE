@@ -101,7 +101,11 @@ FACT_VALUE_PRECISION = 28
 FACT_VALUE_SCALE = 4
 FISCAL_PERIOD_LENGTH = 2
 FISCAL_YEAR_END_LENGTH = 4
-SOURCE_ACCEPTED_LENGTH = 19
+#: ``accepted`` is stored as the source's own text, never parsed. The SEC documents it as
+#: ``yyyy-mm-dd hh:mm:ss`` (19), but real FSDS rows (2026q1) carry ``yyyy-mm-dd hh:mm:ss.0`` (21),
+#: so the schema must not encode the sampled length. 64 is a conservative bound for a short
+#: source-text field (the same width the schema uses for other short provenance strings).
+SOURCE_ACCEPTED_LENGTH = 64
 ADDITIONAL_CIKS_LENGTH = 120
 #: Sanity bounds on a period end, mirroring the listing-history date CHECK.
 _DATE_FLOOR = "DATE '1900-01-01'"
@@ -243,9 +247,10 @@ class FinancialFactSubmission(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         sa.String(SOURCE_ACCEPTED_LENGTH),
         nullable=True,
         doc=(
-            "The artifact's acceptance string, verbatim ('yyyy-mm-dd hh:mm:ss', timezone not "
-            "stated by the source). Never parsed into an instant and never availability "
-            "evidence; SecFiling.accepted_at is the filing's acceptance record."
+            "The artifact's acceptance text, verbatim and uninterpreted (real packages state "
+            "'yyyy-mm-dd hh:mm:ss.0'; the timezone is not stated). Never parsed, normalised or "
+            "timezone-annotated, and never availability evidence; SecFiling.accepted_at is the "
+            "filing's acceptance record."
         ),
     )
     coregistrant_count: Mapped[int] = mapped_column(

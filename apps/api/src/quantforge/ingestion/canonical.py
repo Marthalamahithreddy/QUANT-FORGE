@@ -810,9 +810,6 @@ _TAG_PATTERN: Final = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
 _VERSION_PATTERN: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
 _MAX_FACT_INTEGER_DIGITS: Final = FACT_VALUE_PRECISION - FACT_VALUE_SCALE
 _FACT_VALUE_QUANTUM: Final = Decimal(1).scaleb(-FACT_VALUE_SCALE)
-_SOURCE_ACCEPTED_PATTERN: Final = re.compile(
-    r"[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}"
-)
 _FISCAL_YEAR_END_PATTERN: Final = re.compile(r"[0-9]{4}")
 _FISCAL_PERIOD_PATTERN: Final = re.compile(r"[A-Z0-9]{2}")
 #: Single-valued ``qtrs`` ceiling. The source rounds to whole quarters and 0 is a point in time;
@@ -876,7 +873,7 @@ class CanonicalFinancialFact:
       it is never mapped to a calendar quarter.
     * ``duration_quarters`` is the span in whole quarters; 0 is a point in time. A quarter and a
       year-to-date amount of one concept are different facts.
-    * ``unit`` is verbatim (``USD``, ``shares``, ``USD/shares``, ``pure``). Units are never
+    * ``unit`` is verbatim (``USD``, ``CAD``, ``shares``, ``pure``). Units are never
       converted or merged.
     * ``segments`` and ``coreg`` carry the source's dimension and co-registrant text verbatim
       (non-ASCII allowed, bounded in bytes because they sit in the identity index), ``""`` when the source states none. ``""`` is absence of a stated value; it is NOT the label
@@ -961,7 +958,7 @@ class CanonicalFactSubmission:
     """What a structured source stated about one filing, alongside its facts.
 
     ``form``, ``filing_date`` and ``cik`` exist to be *checked against the stored filing*, never
-    to create one. ``source_stated_accepted`` is the source's own acceptance string, verbatim and
+    to create one. ``source_stated_accepted`` is the source's own acceptance text, verbatim and
     never parsed into an instant: the source does not state its timezone, and it is not
     availability evidence (``SecFiling.accepted_at`` is the filing's acceptance record).
     """
@@ -1006,14 +1003,16 @@ class CanonicalFactSubmission:
         ):
             message = f"fiscal_year_end must be {FISCAL_YEAR_END_LENGTH} digits (mmdd), got {self.fiscal_year_end!r}"
             raise ValueError(message)
-        if self.source_stated_accepted is not None and not _SOURCE_ACCEPTED_PATTERN.fullmatch(
-            self.source_stated_accepted
-        ):
-            message = (
-                f"source_stated_accepted must be 'yyyy-mm-dd hh:mm:ss' "
-                f"({SOURCE_ACCEPTED_LENGTH} characters), got {self.source_stated_accepted!r}"
+        if self.source_stated_accepted is not None:
+            # Verbatim source text, deliberately NOT a datetime grammar: the SEC documents
+            # 'yyyy-mm-dd hh:mm:ss' but real rows state 'yyyy-mm-dd hh:mm:ss.0', and the timezone
+            # is not stated. Only non-empty, bounded, printable ASCII without surrounding space.
+            if not self.source_stated_accepted:
+                message = "source_stated_accepted must not be empty (use None when absent)"
+                raise ValueError(message)
+            _require_printable_ascii(
+                self.source_stated_accepted, "source_stated_accepted", SOURCE_ACCEPTED_LENGTH
             )
-            raise ValueError(message)
         if self.additional_ciks is not None:
             _require_printable_ascii(
                 self.additional_ciks, "additional_ciks", ADDITIONAL_CIKS_LENGTH

@@ -267,7 +267,7 @@ def test_submission_context_is_stored_verbatim_and_acceptance_text_is_not_an_ins
         "Q2",
         "0930",
     )
-    assert submission.source_accepted == "2024-05-03 16:30:22"
+    assert submission.source_accepted == "2024-05-03 16:30:22.0", "real form, exact text"
     assert isinstance(submission.source_accepted, str)
     # The filing's own acceptance record is a different, separately stored fact.
     assert filings[ACC_10Q].accepted_at == datetime(2024, 5, 3, 20, 30, 22, tzinfo=UTC)
@@ -442,7 +442,7 @@ def test_tripwire_a_later_accession_never_mutates_an_earlier_accessions_fact(
             version=GAAP,
             ddate="20240331",
             qtrs="1",
-            uom="USD/shares",
+            uom="USD",
             value="9.9999",
         ),
         num_row(adsh=later, tag="Assets", version=GAAP, ddate="20240331", qtrs="0", value="1.0000"),
@@ -500,7 +500,7 @@ def test_custom_standard_dimensional_and_coregistrant_facts_are_all_preserved_di
     assert eps_versions == {"us-gaap/2024", "us-gaap/2023"}
     revenues = {(f.segments, f.coreg): f.value for f in facts if f.tag == "Revenues"}
     assert len(revenues) == 3
-    assert {f.unit for f in facts} == {"USD", "USD/shares", "shares", "pure"}
+    assert {f.unit for f in facts} == {"USD", "shares", "pure"}
 
 
 def test_tag_alone_is_not_a_concept_the_query_requires_the_version(

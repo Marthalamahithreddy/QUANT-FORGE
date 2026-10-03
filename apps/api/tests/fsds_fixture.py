@@ -127,7 +127,7 @@ def default_subs() -> list[dict[str, str]]:
             form="10-Q",
             period="20240331",
             filed="20240503",
-            accepted="2024-05-03 16:30:22",
+            accepted="2024-05-03 16:30:22.0",
         ),
         sub_row(
             adsh=ACC_10K,
@@ -137,7 +137,7 @@ def default_subs() -> list[dict[str, str]]:
             fy="2023",
             fp="FY",
             filed="20231103",
-            accepted="2023-11-03 18:08:27",
+            accepted="2023-11-03 18:08:27.0",
             instance="exfi-20230930.htm",
         ),
         sub_row(
@@ -146,7 +146,7 @@ def default_subs() -> list[dict[str, str]]:
             form="10-Q/A",
             period="20240331",
             filed="20240517",
-            accepted="2024-05-17 09:12:40",
+            accepted="2024-05-17 09:12:40.0",
         ),
         sub_row(
             adsh=ACC_20F,
@@ -156,7 +156,7 @@ def default_subs() -> list[dict[str, str]]:
             fy="2023",
             fp="FY",
             filed="20240301",
-            accepted="2024-03-01 07:00:00",
+            accepted="2024-03-01 07:00:00.0",
         ),
         sub_row(
             adsh=ACC_OTHER,
@@ -165,7 +165,7 @@ def default_subs() -> list[dict[str, str]]:
             period="20240630",
             fp="Q2",
             filed="20240802",
-            accepted="2024-08-02 16:01:02",
+            accepted="2024-08-02 16:01:02.0",
         ),
     ]
 
@@ -181,7 +181,7 @@ def default_nums() -> list[dict[str, str]]:
             version=gaap,
             ddate="20240331",
             qtrs="1",
-            uom="USD/shares",
+            uom="USD",
             value="1.5300",
         ),
         num_row(
@@ -190,7 +190,7 @@ def default_nums() -> list[dict[str, str]]:
             version=gaap,
             ddate="20240331",
             qtrs="2",
-            uom="USD/shares",
+            uom="USD",
             value="3.9100",
         ),
         # prior-year comparative columns appear as their own facts
@@ -200,7 +200,7 @@ def default_nums() -> list[dict[str, str]]:
             version=gaap,
             ddate="20230331",
             qtrs="1",
-            uom="USD/shares",
+            uom="USD",
             value="1.5200",
         ),
         # negative, and a high-precision magnitude
@@ -282,7 +282,7 @@ def default_nums() -> list[dict[str, str]]:
             version="us-gaap/2023",
             ddate="20240331",
             qtrs="1",
-            uom="USD/shares",
+            uom="USD",
             value="1.5300",
         ),
         # -- the 10-K: an annual fact (qtrs=4) --
@@ -292,7 +292,7 @@ def default_nums() -> list[dict[str, str]]:
             version="us-gaap/2023",
             ddate="20230930",
             qtrs="4",
-            uom="USD/shares",
+            uom="USD",
             value="6.1300",
         ),
         # -- the amendment: same concept and period as the original, a different value --
@@ -302,7 +302,7 @@ def default_nums() -> list[dict[str, str]]:
             version=gaap,
             ddate="20240331",
             qtrs="1",
-            uom="USD/shares",
+            uom="USD",
             value="1.5400",
         ),
         # -- out of scope form, and an unselected registrant --

@@ -12,7 +12,8 @@ Sets", ``https://www.sec.gov/files/financial-statement-data-sets.pdf``)
 * A quarterly ZIP holds tab-delimited UTF-8 files ``sub.txt``, ``num.txt``, ``tag.txt`` and
   ``pre.txt``; the first line names the columns in lowercase.
 * **SUB** has one row per submission, keyed by ``adsh`` (the dashed accession).
-  ``accepted`` is ``yyyy-mm-dd hh:mm:ss`` with no stated timezone. ``period`` and ``fye`` are
+  ``accepted`` is documented as ``yyyy-mm-dd hh:mm:ss`` but REAL rows (2026q1) state
+  ``yyyy-mm-dd hh:mm:ss.0``; it has no stated timezone and is kept as verbatim text. ``period`` and ``fye`` are
   *rounded to the nearest month end*. ``prevrpt`` ("subsequently amended") is knowledge from
   AFTER the filing and is deliberately never read. There is no ``amended`` flag.
 * **NUM** has one row per distinct amount on the primary financial statements, keyed by
@@ -47,7 +48,7 @@ import zipfile
 import zlib
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import IO, Final
@@ -98,7 +99,6 @@ _DIGITS: Final = re.compile(r"[0-9]+")
 _YYYYMMDD: Final = re.compile(r"[0-9]{8}")
 #: Plain decimal text only: no exponent, no ``NaN``/``Infinity``, no digit-group underscores.
 _PLAIN_DECIMAL: Final = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)")
-_ACCEPTED_FORMAT: Final = "%Y-%m-%d %H:%M:%S"
 _COPY_CHUNK: Final = 1024 * 1024
 _MAX_REJECT_SAMPLES: Final = 20
 #: What a bad CRC, a truncated or an invalid deflate stream raise while a member is being read.
@@ -263,13 +263,7 @@ def _map_submission(
     def cell(name: str) -> str:
         return row[index[name]]
 
-    accepted = _optional(cell("accepted"))
-    if accepted is not None:
-        try:
-            datetime.strptime(accepted, _ACCEPTED_FORMAT)  # noqa: DTZ007 - format check only
-        except ValueError as exc:
-            message = f"accepted {accepted!r} is not 'yyyy-mm-dd hh:mm:ss'"
-            raise ValueError(message) from exc
+    accepted = _optional(cell("accepted"))  # verbatim text: never parsed, never normalised
     fiscal_year = _optional(cell("fy"))
     if fiscal_year is not None and not _DIGITS.fullmatch(fiscal_year):
         message = f"fy {fiscal_year!r} is not a year"

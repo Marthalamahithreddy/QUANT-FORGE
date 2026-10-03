@@ -81,7 +81,7 @@ def test_a_valid_sub_row_is_mapped_with_source_fields_verbatim(tmp_path: Path) -
         "0930",
     )
     # The acceptance string is carried verbatim as TEXT: it is never turned into an instant.
-    assert submission.source_stated_accepted == "2024-05-03 16:30:22"
+    assert submission.source_stated_accepted == "2024-05-03 16:30:22.0", "real form, verbatim"
     assert submission.coregistrant_count == 1
     assert submission.additional_ciks is None
 
@@ -117,8 +117,8 @@ def test_forms_outside_the_supported_set_are_reported_not_read(tmp_path: Path) -
         ({"period": "20240230"}, "valid calendar date"),
         ({"period": "2024-03-31"}, "yyyymmdd"),
         ({"filed": "20241301"}, "valid calendar date"),
-        ({"accepted": "2024-05-03T16:30:22"}, "yyyy-mm-dd hh:mm:ss"),
-        ({"accepted": "2024-13-03 16:30:22"}, "yyyy-mm-dd hh:mm:ss"),
+        ({"accepted": "x" * 65}, "longer than the stored limit"),
+        ({"accepted": "2024-05-03 16:30:22\u00a0"}, "printable ASCII"),
         ({"fy": "FY24"}, "not a year"),
         ({"nciks": "x"}, "not a count"),
         ({"nciks": "0"}, "coregistrant_count"),
@@ -244,7 +244,7 @@ def test_period_end_is_the_sources_month_end_never_a_calendar_quarter(tmp_path: 
 
 def test_units_are_preserved_and_never_converted(tmp_path: Path) -> None:
     facts, _ = _facts(build_package(tmp_path / "2024q2.zip"))
-    assert {f.unit for f in facts} == {"USD", "USD/shares", "shares", "pure"}
+    assert {f.unit for f in facts} == {"USD", "shares", "pure"}
 
 
 def test_custom_concepts_are_kept_under_their_defining_accession(tmp_path: Path) -> None:
@@ -615,3 +615,32 @@ def test_a_member_corrupted_inside_the_zip_is_a_package_error_not_a_raw_exceptio
     path.write_bytes(bytes(data))
     with FsdsPackage(path) as package, pytest.raises(FsdsPackageError, match="corrupt"):
         list(package.iter_facts(frozenset({ACC_10Q}), FsdsNumScan()))
+
+
+@pytest.mark.parametrize(
+    "accepted",
+    [
+        "2026-02-03 17:42:19.0",  # the form real 2026q1 rows use
+        "2026-02-03 17:42:19",  # the documented form
+        "2026-02-03T17:42:19Z",  # not a form the SEC states: kept verbatim, never judged or rewritten
+        "2026-13-99 99:99:99.000",  # never parsed, so never calendar-checked
+    ],
+)
+def test_accepted_is_kept_as_exact_source_text_with_no_normalisation_or_timezone(
+    tmp_path: Path, accepted: str
+) -> None:
+    subs = [
+        sub_row(
+            adsh=ACC_10Q,
+            cik="320193",
+            form="10-Q",
+            period="20240331",
+            filed="20240503",
+            accepted=accepted,
+        )
+    ]
+    package = build_package(tmp_path / "2024q2.zip", subs=subs, nums=[])
+    with FsdsPackage(package) as archive:
+        scan = archive.scan_submissions(FsdsSelection(accessions=frozenset({ACC_10Q})))
+    assert scan.rejected_count == 0
+    assert scan.submissions[ACC_10Q].source_stated_accepted == accepted

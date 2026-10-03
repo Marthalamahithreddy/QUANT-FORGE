@@ -27,12 +27,14 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy.engine import Engine
 
+from quantforge.models.financial_fact import SOURCE_ACCEPTED_LENGTH
+
 pytestmark = pytest.mark.integration
 
 API_ROOT = Path(__file__).resolve().parents[2]
 
 SCRATCH_DB_NAME = "quantforge_migrations_test"
-HEAD = "0011"
+HEAD = "0012"
 PRIOR = "0005"
 #: Revision before 0005 -- the 0005 tests below downgrade past 0006 to reach it.
 PRE_0005 = "0004"
@@ -123,6 +125,7 @@ def test_upgrade_to_head_produces_the_expected_chain(
     chain = [script.revision for script in scripts.walk_revisions()]
     assert chain == [
         HEAD,
+        "0011",
         "0010",
         "0009",
         "0008",
@@ -931,7 +934,7 @@ def test_0011_creates_the_fact_tables_and_its_downgrade_refuses_while_rows_exist
                     "INSERT INTO financial_fact (id, sec_filing_id, submission_id, tag, version, "
                     "period_end, duration_quarters, unit, segments, coreg, value, ingested_at, "
                     "created_at) SELECT gen_random_uuid(), s.sec_filing_id, s.id, "
-                    "'EarningsPerShareDiluted', 'us-gaap/2024', '2024-03-31', 1, 'USD/shares', "
+                    "'EarningsPerShareDiluted', 'us-gaap/2024', '2024-03-31', 1, 'USD', "
                     "'', '', 1.5300, now(), now() FROM financial_fact_submission s"
                 )
             )
@@ -958,6 +961,79 @@ def test_0011_creates_the_fact_tables_and_its_downgrade_refuses_while_rows_exist
         assert not tables & _table_names(scratch_database)
     finally:
         with scratch_database.begin() as connection:
+            connection.execute(sa.text("DELETE FROM sec_filing"))
+        _purge_seed(scratch_database, ids)
+        command.upgrade(config, HEAD)
+
+
+def test_0012_widens_source_accepted_keeps_real_text_and_downgrade_refuses_to_truncate(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, HEAD)
+
+    def length() -> int | None:
+        column = next(
+            c
+            for c in sa.inspect(scratch_database).get_columns("financial_fact_submission")
+            if c["name"] == "source_accepted"
+        )
+        return getattr(column["type"], "length", None)
+
+    assert length() == SOURCE_ACCEPTED_LENGTH == 64, "migration and model must agree"
+    ids = _seed_entities(scratch_database)
+    real_text = "2026-02-03 17:42:19.0"  # 21 characters: the real FSDS form
+    try:
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO sec_filing (id, company_id, accession_number, form, filing_date, "
+                    "accepted_at, source_id, ingested_at, created_at) VALUES (gen_random_uuid(), "
+                    ":company, '0000320193-24-000010', '10-Q', '2024-05-03', now(), :source, "
+                    "now(), now())"
+                ),
+                ids,
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO financial_fact_artifact (id, source_id, source_kind, "
+                    "artifact_name, sha256, byte_length, raw_artifact_path, member_digests, "
+                    "num_has_segments, ingested_at, created_at) VALUES (gen_random_uuid(), "
+                    ":source, 'SEC_FSDS', '2026q1', repeat('a', 64), 1, 'x', '{}'::jsonb, true, "
+                    "now(), now())"
+                ),
+                ids,
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO financial_fact_submission (id, artifact_id, sec_filing_id, "
+                    "period_end, coregistrant_count, source_accepted, created_at) SELECT "
+                    "gen_random_uuid(), a.id, f.id, '2024-03-31', 1, :accepted, now() "
+                    "FROM financial_fact_artifact a, sec_filing f"
+                ),
+                {"accepted": real_text},
+            )
+        with scratch_database.connect() as connection:
+            stored: str = connection.execute(
+                sa.text("SELECT source_accepted FROM financial_fact_submission")
+            ).scalar_one()
+        assert stored == real_text, "exact text, no truncation, no normalisation"
+
+        with pytest.raises(Exception, match="source_accepted longer than"):
+            command.downgrade(config, "0011")
+        assert _current_version(scratch_database) == HEAD
+        assert length() == 64
+
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text("UPDATE financial_fact_submission SET source_accepted = NULL")
+            )
+        command.downgrade(config, "0011")
+        assert length() == 19
+    finally:
+        with scratch_database.begin() as connection:
+            connection.execute(sa.text("DELETE FROM financial_fact_submission"))
+            connection.execute(sa.text("DELETE FROM financial_fact_artifact"))
             connection.execute(sa.text("DELETE FROM sec_filing"))
         _purge_seed(scratch_database, ids)
         command.upgrade(config, HEAD)

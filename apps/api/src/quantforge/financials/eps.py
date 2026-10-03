@@ -44,9 +44,12 @@ Selection (each stage is a refusal if nothing survives, never a guess)
    with no eligible fact the result is ``DIMENSIONAL_ONLY`` or ``COREG_ONLY`` and nothing is
    chosen from them. (In the pre-December-2024 FSDS layout dimensional rows were not compiled at
    all, so a filer with only class-specific EPS looks ``MISSING`` there, not ``DIMENSIONAL_ONLY``.)
-6. **Unit**, checked on the eligible (non-dimensional) facts, must be exactly ``USD/shares``. Any
-   other unit refuses (``WRONG_UNIT``); no alias list exists because none has been verified
-   against a real FSDS package.
+6. **Unit**, checked on the eligible (non-dimensional) facts, must be exactly ``USD``. Real FSDS
+   (2026q1) reports a per-share amount's unit as the bare currency code (``USD``; ``CAD`` also
+   occurs; ``USD/shares`` was not observed in the sampled 2026q1 package), so the exact concept identifies the accounting measure
+   and the unit only confirms the currency. Both are required: a ``USD`` fact is NOT EPS merely
+   because of its unit. Any other unit, including ``CAD`` and ``USD/shares``, refuses
+   (``WRONG_UNIT``); there is no alias list and no currency conversion.
 7. **Exactly one.** Two or more eligible facts (for example two taxonomy releases in one accession)
    are ``AMBIGUOUS`` even if their values agree: there is no first/last/largest tie-break and no
    collapsing of equal values. A NULL value on the single eligible fact is ``NULL_VALUE``; it is
@@ -80,8 +83,9 @@ __all__ = [
     "select_eps_fact",
 ]
 
-#: FSDS ``uom`` of a per-share amount. Anything else refuses.
-EPS_UNIT: Final = "USD/shares"
+#: FSDS ``uom`` of a USD per-share EPS fact: the bare currency code (observed in the real 2026q1
+#: package; other vintages are unsampled and would fail closed as WRONG_UNIT). The unit confirms the currency only; the exact EPS concept carries the meaning.
+EPS_UNIT: Final = "USD"
 
 
 class EpsPeriodClass(StrEnum):

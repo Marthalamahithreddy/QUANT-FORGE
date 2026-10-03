@@ -21,7 +21,7 @@ def _fact(**overrides: Any) -> CanonicalFinancialFact:
         "accession_number": ACC,
         "tag": "EarningsPerShareDiluted",
         "taxonomy_version": "us-gaap/2024",
-        "unit": "USD/shares",
+        "unit": "USD",
         "period_end": date(2024, 3, 31),
         "duration_quarters": 1,
         "value": Decimal("1.5300"),
@@ -114,7 +114,7 @@ def test_identity_components_distinguish_facts() -> None:
     base = _fact()
     assert base != _fact(duration_quarters=2)
     assert base != _fact(taxonomy_version="us-gaap/2023")
-    assert base != _fact(unit="USD")
+    assert base != _fact(unit="CAD")
     assert base != _fact(segments="ProductOrServiceAxis=IPhoneMember;")
     assert base != _fact(coreg="GuarantorSubsidiaryMember")
 
@@ -127,7 +127,7 @@ def _submission(**overrides: Any) -> CanonicalFactSubmission:
         "filing_date": date(2024, 5, 3),
         "period_end": date(2024, 3, 31),
         "coregistrant_count": 1,
-        "source_stated_accepted": "2024-05-03 16:30:22",
+        "source_stated_accepted": "2024-05-03 16:30:22.0",
     }
     fields.update(overrides)
     return CanonicalFactSubmission(**fields)
@@ -135,8 +135,16 @@ def _submission(**overrides: Any) -> CanonicalFactSubmission:
 
 def test_a_submission_keeps_the_sources_acceptance_text_unparsed() -> None:
     submission = _submission()
-    assert submission.source_stated_accepted == "2024-05-03 16:30:22"
+    assert submission.source_stated_accepted == "2024-05-03 16:30:22.0"
     assert isinstance(submission.source_stated_accepted, str)
+
+
+@pytest.mark.parametrize(
+    "accepted",
+    ["2024-05-03 16:30:22.0", "2024-05-03 16:30:22", "2024-05-03T16:30:22Z", "x" * 64, None],
+)
+def test_any_bounded_printable_acceptance_text_is_kept_verbatim(accepted: str | None) -> None:
+    assert _submission(source_stated_accepted=accepted).source_stated_accepted == accepted
 
 
 @pytest.mark.parametrize(
@@ -148,11 +156,15 @@ def test_a_submission_keeps_the_sources_acceptance_text_unparsed() -> None:
         {"fiscal_year": 1800},
         {"fiscal_period": "q2"},
         {"fiscal_year_end": "930"},
-        {"source_stated_accepted": "2024-05-03T16:30:22Z"},
+        {"source_stated_accepted": ""},
+        {"source_stated_accepted": "x" * 65},
+        {"source_stated_accepted": " 2024-05-03 16:30:22.0"},
+        {"source_stated_accepted": "2024-05-03 16:30:22.0\u00a0"},
+        {"source_stated_accepted": "2024-05-03\x0716:30:22"},
     ],
 )
 def test_invalid_submissions_are_refused(overrides: dict[str, Any]) -> None:
-    with pytest.raises(ValueError, match="must"):
+    with pytest.raises(ValueError, match=r"must|longer than"):
         _submission(**overrides)
 
 

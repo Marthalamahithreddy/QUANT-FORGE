@@ -267,11 +267,13 @@ SHA-256 identity; the ZIP itself lives in the raw store, streamed, never in a ro
 * TAG and PRE are not read (the version identifies extensions; statement classification belongs to a later
   selection layer). The `prevrpt` flag is never read: it encodes knowledge from after the filing. The SEC
   CompanyFacts API is never used as history. NUM `footnote` text is not stored (it is not part of the NUM key). No
-  signal, YoY, surprise or selection exists yet. No live SEC call has been made (no contact configured); the command
-  needs no network, and no real FSDS package has been run through it. Unverified against real data: duplicate NUM rows,
-  the real `segments` representation, non-ASCII `coreg`, whether real `value` text ever uses exponent notation (such a
-  row is rejected, loudly), the exact `accepted` text (only the documented 19-character form is accepted; a
-  fractional-second suffix would be rejected, loudly) and its timezone, and behaviour on a reprocessed package. Two
+  signal, YoY, surprise or selection exists yet. The adapter reads local files and needs no network. **Real-package
+  evidence (SEC `2026q1`, 5,311 10-K/10-Q-family filings, one official download):** `accepted` is stated as
+  `yyyy-mm-dd hh:mm:ss.0` (the readme documents 19 characters), so it is stored as verbatim source text in a
+  `VARCHAR(64)` (migration `0012`), never parsed, normalised or given a timezone (none is stated), and it is not
+  availability evidence. There is deliberately no shape check on it, so a systematic format change in a future
+  package would load without any reject. Still unverified: duplicate NUM rows, whether `value` text ever uses exponent notation (such a
+  row is rejected, loudly), and behaviour on a reprocessed package. Two
   concurrent runs ingesting one package name with different bytes are not serialised (single-operator CLI).
 
 ## Accession-scoped EPS extraction (descriptive only)
@@ -292,13 +294,19 @@ endpoint, no UI; nothing imports it yet.
   figure reported when basic and diluted are the same) is available only as the explicitly requested kind
   `BASIC_AND_DILUTED`, never as an automatic fallback and never labelled `DILUTED`. Only a fact with empty `segments`
   **and** empty `coreg` is eligible ("non-dimensional under the FSDS representation", not "confirmed consolidated");
-  the unit must be exactly `USD/shares`.
+  the unit must be exactly `USD`: real FSDS reports a per-share amount's unit as the bare currency code (`CAD` also
+  occurs; `USD/shares` was not observed in the sampled package, and another vintage using it would refuse as `WRONG_UNIT`), so selection needs the exact EPS concept **and** the `USD` unit (a `USD` fact is not EPS
+  merely because of its unit), and CAD or any other unit is `WRONG_UNIT` (no conversion).
 * **Statuses:** `AVAILABLE`, `NOT_INGESTED` (nothing stored; *not* "absent"), `UNSUPPORTED_FORM_PERIOD`, `MISSING`,
   `EXTENSION_ONLY`, `WRONG_UNIT`, `DIMENSIONAL_ONLY`, `COREG_ONLY`, `NULL_VALUE`, `AMBIGUOUS`. More than one eligible
   fact (for example two taxonomy releases in one accession) is `AMBIGUOUS` even when the values agree: no first/last/
   largest tie-break. The result never depends on fact order. An amendment is its own accession and is never preferred.
-* **Unverified:** no real FSDS package has been read, so the exact `USD/shares` spelling and the SUB-vs-NUM period-end
-  rounding agreement are assumptions (a mismatch refuses loudly, it does not guess). No YoY, surprise or signal exists.
+* **Real-data validation (2026q1):** `SUB.period` equals an EPS `ddate` in 99.93% of filings, `qtrs` 1/4 and the
+  dimension/co-registrant policy held, every EPS row carried exactly one us-gaap release, and class-specific EPS appears
+  through `ClassOfStock=...;` segments. Comparative selection is not built: 10-Qs normally show one earlier same-`qtrs`
+  fact, 10-Ks several, and a unique candidate 12 month-ends earlier usually identifies the comparative, but 52/53-week
+  filers (month-end rounding) and fiscal-year changes break that relationship, so a future selector must refuse those
+  or find stronger context. No YoY, surprise or signal exists.
 
 ## Research, signals, and backtest layers
 
@@ -404,7 +412,7 @@ revisions follow the empty `0001`: the financial domain (`0002`), ingestion
 runs / issuer CIK (`0003`), earnings ingestion persistence (`0004`), and the
 earnings `event_date`/`event_timestamp` correction (`0005`), and explicit price
 basis on both bar tables (`0006`), an availability basis on earnings events
-(`0007`), SEC filing metadata (`0008`), stock splits with split coverage (`0009`), sourced listing history (`0010`), and accession-bound financial facts (`0011`, current head). The research, signal, and
+(`0007`), SEC filing metadata (`0008`), stock splits with split coverage (`0009`), sourced listing history (`0010`), and accession-bound financial facts (`0011`), and the widened verbatim FSDS `accepted` text (`0012`, current head). The research, signal, and
 backtest layers are all computed, not persisted.
 
 ## Health endpoints

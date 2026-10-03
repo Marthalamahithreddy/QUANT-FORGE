@@ -50,7 +50,7 @@ NOW = datetime(2026, 10, 3, 12, 0, tzinfo=UTC)
 GAAP = "us-gaap/2024"
 EPS = "EarningsPerShareDiluted"
 CLASS_A = "StatementClassOfStockAxis=CommonClassAMember;"
-USD_PER_SHARE = "USD/shares"
+USD_UNIT = "USD"
 
 FILINGS = {
     ACC_10Q: (SecFormType.FORM_10Q, date(2024, 5, 3), datetime(2024, 5, 3, 20, 30, 22, tzinfo=UTC)),
@@ -74,7 +74,7 @@ def _eps(adsh: str, ddate: str, qtrs: str, value: str, **extra: str) -> dict[str
         version=extra.pop("version", GAAP),
         ddate=ddate,
         qtrs=qtrs,
-        uom=extra.pop("uom", USD_PER_SHARE),
+        uom=extra.pop("uom", USD_UNIT),
         value=value,
         **extra,
     )
@@ -250,7 +250,7 @@ def test_dimensional_only_coreg_only_and_wrong_unit_and_null_from_the_database(
         [
             _eps(ACC_10Q, "20240331", "1", "9.9900", segments=CLASS_A),
             _eps(ACC_10K, "20230930", "4", "8.8800", coreg="GuarantorSubsidiaryMember"),
-            _eps(ACC_10QA, "20240331", "1", "153.0000", uom="USD"),
+            _eps(ACC_10QA, "20240331", "1", "153.0000", uom="CAD"),
         ],
     )
     assert _extract(db_session, ACC_10Q).status is EpsStatus.DIMENSIONAL_ONLY
@@ -419,7 +419,7 @@ def test_a_wrong_unit_entity_wide_fact_is_not_masked_by_a_dimensional_variant(
         db_session,
         tmp_path,
         [
-            _eps(ACC_10Q, "20240331", "1", "153.0000", uom="USD"),
+            _eps(ACC_10Q, "20240331", "1", "153.0000", uom="CAD"),
             _eps(ACC_10Q, "20240331", "1", "9.9900", segments=CLASS_A),
         ],
         accessions=(ACC_10Q,),
@@ -443,3 +443,16 @@ def test_a_fact_bound_to_another_filing_is_refused_loudly(
     )
     with pytest.raises(RuntimeError, match="bound to another filing"):
         _extract(db_session, ACC_10Q)
+
+
+def test_a_usd_per_shares_unit_is_not_accepted_through_ingestion_and_selection(
+    db_session: Session, tmp_path: Path, filings: dict[str, SecFiling]
+) -> None:
+    # Real 2026q1 FSDS states the bare currency code; any other spelling fails closed.
+    _ingest(
+        db_session,
+        tmp_path,
+        [_eps(ACC_10Q, "20240331", "1", "1.5300", uom="USD/shares")],
+        accessions=(ACC_10Q,),
+    )
+    assert _extract(db_session, ACC_10Q).status is EpsStatus.WRONG_UNIT
