@@ -1,98 +1,128 @@
+import Link from "next/link";
+import type { ReactNode } from "react";
+
 import { AppShell } from "@/components/layout/app-shell";
-import { BackendStatusBadge } from "@/components/layout/topbar";
+import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
+import { getEarningsPage, getReadiness } from "@/lib/api/earnings";
 import { getBackendStatus } from "@/lib/api/health";
+import type { Tone } from "@/lib/availability";
+import { MISSING } from "@/lib/format";
+import type { DependencyState } from "@/types/earnings";
 
-const MILESTONE = {
-  title: "Foundation milestone",
-  summary:
-    "Platform scaffolding only. No market data, signals or backtests exist yet.",
-  complete: [
-    "FastAPI service with /health and /api/v1/health",
-    "Pydantic settings, lazy SQLAlchemy engine, empty declarative base",
-    "This research-terminal shell and its typed API client",
-  ],
-  pending: [
-    "Price, fundamental, filing and earnings ingestion",
-    "EPS-surprise factors and event studies",
-    "Backtests, abnormal returns and benchmarks",
-  ],
-} as const;
+function Panel({ title, children }: { readonly title: string; readonly children: ReactNode }) {
+  return (
+    <section aria-label={title} className="rounded-md border border-border-subtle bg-surface-1">
+      <h2 className="border-b border-border-subtle px-4 py-2 text-[11px] font-medium tracking-[0.14em] text-text-muted uppercase">
+        {title}
+      </h2>
+      <div className="p-4">{children}</div>
+    </section>
+  );
+}
 
-export default async function Home() {
+function Line({ label, children }: { readonly label: string; readonly children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-border-subtle py-2 last:border-b-0">
+      <dt className="text-sm text-text-secondary">{label}</dt>
+      <dd className="font-tabular text-sm text-text-primary">{children}</dd>
+    </div>
+  );
+}
+
+const dependencyBadge = (state: DependencyState) => {
+  const tone: Tone = state === "ok" ? "positive" : "negative";
+  return <Badge tone={tone}>{state === "ok" ? "Reachable" : "Unavailable"}</Badge>;
+};
+
+export default async function Overview() {
   // Resolved once per request on the server. Never polled, never faked.
-  const status = await getBackendStatus();
+  const [status, readiness, earnings] = await Promise.all([
+    getBackendStatus(),
+    getReadiness(),
+    getEarningsPage({ limit: 1 }),
+  ]);
 
   return (
     <AppShell status={status}>
-      <div className="mx-auto flex max-w-4xl flex-col gap-8">
-        <header className="flex flex-col gap-3">
-          <p className="font-mono text-xs tracking-[0.14em] text-text-muted uppercase">
-            Research Terminal
-          </p>
-          <h1 className="text-2xl font-semibold tracking-tight text-text-primary sm:text-3xl">
-            QuantForge
-          </h1>
-          <p className="max-w-2xl text-sm leading-relaxed text-text-secondary">
-            Event-driven equity research and quantitative backtesting.
-          </p>
-        </header>
+      <div className="mx-auto flex max-w-5xl flex-col gap-6">
+        <PageHeader
+          eyebrow="Research workspace"
+          title="Overview"
+          description="System state and data coverage, read from the QuantForge API. Nothing on this page is estimated."
+        />
 
-        <section aria-labelledby="milestone-heading" className="flex flex-col gap-3">
-          <h2
-            id="milestone-heading"
-            className="text-xs font-medium tracking-[0.14em] text-text-muted uppercase"
-          >
-            {MILESTONE.title}
-          </h2>
-          <p className="max-w-2xl text-sm leading-relaxed text-text-secondary">
-            {MILESTONE.summary}
-          </p>
-        </section>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Panel title="System">
+            <dl>
+              <Line label="API process">
+                {status.state === "connected" ? (
+                  <Badge tone="positive">Live · {status.health.version}</Badge>
+                ) : (
+                  <Badge tone="negative">Unavailable</Badge>
+                )}
+              </Line>
+              <Line label="Database">
+                {readiness.state === "ok" ? dependencyBadge(readiness.data.dependencies.database) : MISSING}
+              </Line>
+              <Line label="Redis">
+                {readiness.state === "ok" ? dependencyBadge(readiness.data.dependencies.redis) : MISSING}
+              </Line>
+            </dl>
+            {status.state === "unavailable" ? (
+              <p role="alert" className="mt-3 font-mono text-xs break-words text-text-muted">
+                {status.detail}
+              </p>
+            ) : null}
+            {readiness.state === "error" ? (
+              <p className="mt-3 text-xs text-text-muted">
+                Dependency readiness could not be read: {readiness.detail}
+              </p>
+            ) : null}
+          </Panel>
 
-        <section aria-labelledby="backend-heading" className="flex flex-col gap-3">
-          <h2
-            id="backend-heading"
-            className="text-xs font-medium tracking-[0.14em] text-text-muted uppercase"
-          >
-            Backend connectivity
-          </h2>
-          <BackendStatusBadge status={status} variant="block" />
-        </section>
+          <Panel title="Earnings data">
+            {earnings.state !== "ok" ? (
+              <p className="text-sm text-text-secondary">
+                Earnings coverage is unavailable because the API did not answer.
+              </p>
+            ) : earnings.data.total === 0 ? (
+              <p className="text-sm text-text-secondary">
+                No earnings events are stored yet. Coverage appears here once ingestion has
+                loaded events.
+              </p>
+            ) : (
+              <dl>
+                <Line label="Earnings observations stored">{earnings.data.total}</Line>
+                <Line label="Latest event date (incl. scheduled)">
+                  {earnings.data.items[0]?.event_date ?? MISSING}
+                </Line>
+              </dl>
+            )}
+            <p className="mt-3 text-sm">
+              <Link href="/earnings" className="text-accent hover:underline">
+                Open the earnings explorer →
+              </Link>
+            </p>
+          </Panel>
+        </div>
 
-        <section className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-md border border-border-subtle bg-surface-1 p-4">
-            <h3 className="text-sm font-medium text-text-primary">In place</h3>
-            <ul className="mt-3 flex flex-col gap-2">
-              {MILESTONE.complete.map((item) => (
-                <li
-                  key={item}
-                  className="flex gap-2 text-sm leading-relaxed text-text-secondary"
-                >
-                  <span aria-hidden="true" className="mt-2 size-1 shrink-0 rounded-full bg-status-ok" />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="rounded-md border border-border-subtle bg-surface-1 p-4">
-            <h3 className="text-sm font-medium text-text-primary">Not yet built</h3>
-            <ul className="mt-3 flex flex-col gap-2">
-              {MILESTONE.pending.map((item) => (
-                <li
-                  key={item}
-                  className="flex gap-2 text-sm leading-relaxed text-text-secondary"
-                >
-                  <span
-                    aria-hidden="true"
-                    className="mt-2 size-1 shrink-0 rounded-full bg-text-muted"
-                  />
-                  <span>{item}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
+        <Panel title="What is available">
+          <ul className="flex flex-col gap-2 text-sm text-text-secondary">
+            <li>
+              <span className="text-text-primary">Earnings explorer</span> — stored events with
+              reported and estimated EPS, availability evidence and the backend&apos;s
+              point-in-time classification.
+            </li>
+            <li>
+              <span className="text-text-primary">Research</span> — a description of the research
+              engine. Event-study results are not exposed by the API yet.
+            </li>
+            <li>
+              <span className="text-text-muted">Companies and Backtests</span> — not implemented.
+            </li>
+          </ul>
+        </Panel>
       </div>
     </AppShell>
   );

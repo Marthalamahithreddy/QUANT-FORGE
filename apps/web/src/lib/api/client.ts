@@ -32,6 +32,12 @@ export interface ApiGetOptions {
   readonly timeoutMs?: number;
   readonly headers?: Readonly<Record<string, string>>;
   readonly signal?: AbortSignal;
+  /**
+   * Non-2xx statuses whose JSON body is still a documented contract (e.g. the
+   * readiness probe answers 503 with a structured body). Every other non-2xx
+   * status throws.
+   */
+  readonly acceptStatuses?: readonly number[];
 }
 
 /** Joins a base URL and a path with exactly one separating slash. */
@@ -67,6 +73,7 @@ export async function apiGet<TResponse = unknown>(
     timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
     headers,
     signal,
+    acceptStatuses = [],
   } = options;
 
   const url = buildUrl(baseUrl, path);
@@ -88,7 +95,7 @@ export async function apiGet<TResponse = unknown>(
     );
   }
 
-  if (!response.ok) {
+  if (!response.ok && !acceptStatuses.includes(response.status)) {
     throw new ApiError(
       `Request to ${url} failed with HTTP ${response.status} ${response.statusText}`.trim(),
       { url, status: response.status },

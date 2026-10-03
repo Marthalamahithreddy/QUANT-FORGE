@@ -11,6 +11,12 @@ export const DEFAULT_API_BASE_URL = "http://localhost:8000";
 /** Path of the versioned health endpoint exposed by the FastAPI service. */
 export const API_HEALTH_PATH = "/api/v1/health";
 
+/** Path of the versioned readiness endpoint (database and Redis reachability). */
+export const API_READINESS_PATH = "/api/v1/health/ready";
+
+/** Path of the read-only earnings-event collection. */
+export const API_EARNINGS_PATH = "/api/v1/earnings-events";
+
 function parseBaseUrl(raw: string | undefined): string {
   const candidate =
     raw === undefined || raw.trim() === "" ? DEFAULT_API_BASE_URL : raw.trim();
@@ -37,9 +43,13 @@ function parseBaseUrl(raw: string | undefined): string {
 export interface AppEnv {
   readonly apiBaseUrl: string;
   readonly apiHealthPath: string;
+  readonly apiReadinessPath: string;
+  readonly apiEarningsPath: string;
 }
 
 export const env: AppEnv = Object.freeze({
   apiBaseUrl: parseBaseUrl(process.env.NEXT_PUBLIC_API_BASE_URL),
   apiHealthPath: API_HEALTH_PATH,
+  apiReadinessPath: API_READINESS_PATH,
+  apiEarningsPath: API_EARNINGS_PATH,
 });

@@ -20,19 +20,25 @@ describe("env", () => {
 });
 
 describe("navigation model", () => {
-  it("declares the six planned workspace sections", () => {
+  it("declares the workspace sections in order", () => {
     expect(NAV_ITEMS.map((item) => item.label)).toEqual([
       "Overview",
-      "Research",
       "Companies",
-      "Events",
-      "Signals",
+      "Earnings",
+      "Research",
       "Backtests",
     ]);
   });
 
-  it("marks only Overview as available", () => {
-    expect(NAV_ITEMS.filter((item) => item.status === "available")).toHaveLength(1);
+  it("enables only sections that have a real route", () => {
+    expect(
+      NAV_ITEMS.filter((item) => item.status === "available").map((item) => item.href),
+    ).toEqual(["/", "/earnings", "/research"]);
+  });
+
+  it("keeps Backtests and Companies unavailable", () => {
+    const planned = NAV_ITEMS.filter((item) => item.status === "planned").map((i) => i.label);
+    expect(planned).toEqual(["Companies", "Backtests"]);
   });
 
   it("gives no href to any planned section", () => {

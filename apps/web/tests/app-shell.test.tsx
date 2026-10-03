@@ -1,9 +1,12 @@
 import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { NAV_ITEMS } from "@/lib/navigation";
 import type { BackendStatus } from "@/types/api";
+
+const pathname = vi.hoisted(() => ({ current: "/" }));
+vi.mock("next/navigation", () => ({ usePathname: () => pathname.current }));
 
 const CONNECTED: BackendStatus = {
   state: "connected",
@@ -66,7 +69,7 @@ describe("AppShell", () => {
     }
   });
 
-  it("marks the available section as the current page", () => {
+  it("marks Overview as the current page on the root route", () => {
     render(
       <AppShell status={CONNECTED}>
         <p>content</p>
@@ -79,6 +82,33 @@ describe("AppShell", () => {
     expect(current).toHaveAttribute("aria-current", "page");
   });
 
+  it("links every available section and marks only the current one", () => {
+    pathname.current = "/earnings/abc";
+    render(
+      <AppShell status={CONNECTED}>
+        <p>content</p>
+      </AppShell>,
+    );
+
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    expect(within(nav).getByRole("link", { name: "Earnings" })).toHaveAttribute("aria-current", "page");
+    expect(within(nav).getByRole("link", { name: "Overview" })).not.toHaveAttribute("aria-current");
+    expect(within(nav).getByRole("link", { name: "Research" })).toHaveAttribute("href", "/research");
+    pathname.current = "/";
+  });
+
+  it("disables Backtests and Companies instead of linking them", () => {
+    render(
+      <AppShell status={CONNECTED}>
+        <p>content</p>
+      </AppShell>,
+    );
+
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    expect(within(nav).queryByRole("link", { name: /Backtests/ })).toBeNull();
+    expect(within(nav).queryByRole("link", { name: /Companies/ })).toBeNull();
+  });
+
   it("renders planned sections as disabled, non-navigable entries", () => {
     render(
       <AppShell status={CONNECTED}>
@@ -89,7 +119,7 @@ describe("AppShell", () => {
     const nav = screen.getByRole("navigation", { name: "Primary" });
     const planned = NAV_ITEMS.filter((item) => item.status === "planned");
 
-    expect(planned).toHaveLength(5);
+    expect(planned.map((item) => item.label)).toEqual(["Companies", "Backtests"]);
     for (const item of planned) {
       // A disabled row must not be a link: no route exists to navigate to.
       expect(
@@ -108,7 +138,7 @@ describe("AppShell", () => {
       </AppShell>,
     );
 
-    expect(screen.getAllByText("Planned")).toHaveLength(5);
+    expect(screen.getAllByText("Planned")).toHaveLength(2);
   });
 
   it("shows a connected backend state", () => {

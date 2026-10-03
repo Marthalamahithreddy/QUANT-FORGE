@@ -86,7 +86,7 @@ export function Topbar({ status }: TopbarProps) {
           <span className="text-sm font-semibold tracking-tight text-text-primary">
             QuantForge
           </span>
-          <span className="hidden font-mono text-xs text-text-muted sm:inline">
+          <span className="hidden text-xs text-text-muted sm:inline">
             Event-driven equity research
           </span>
         </div>
