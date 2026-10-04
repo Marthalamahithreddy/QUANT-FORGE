@@ -7,20 +7,42 @@ Only the supported forms are mapped; any other form is skipped, not failed.
 
 Acceptance time: what is and is not established
 -----------------------------------------------
-The SEC's EDGAR Public Dissemination Service specification defines Acceptance
-Time as the "Time (EST) at which the submission was accepted by EDGAR"
-(``HHMMSS``), and EDGAR's operating rules (6 a.m.-10 p.m., the 5:30 p.m. filing
-cut-off) are stated in Eastern time. The submissions JSON renders the same moment
-as ``2024-02-02T16:30:22.000Z``, and **no SEC document found defines that ``Z``
-as UTC**. It is therefore *not* trusted as UTC: the digits are read as an
-**America/New_York wall-clock time** (prevailing Eastern, so daylight saving is
-applied by the timezone rules, never by a fixed offset) and converted to UTC.
+**Official, for a different representation.** The SEC's EDGAR Public Dissemination
+Service specification defines Acceptance Time as the "Time (EST) at which the
+submission was accepted by EDGAR" (``HHMMSS``), and EDGAR's operating rules (6 a.m.
+-10 p.m., the 5:30 p.m. filing cut-off) are stated in Eastern time. That describes
+the SGML header / index-page clock, not this JSON.
 
-That reading is not certain: the spec's literal "EST" could mean fixed UTC-5 all
-year, which would shift summer instants by an hour. It cannot be settled offline,
-so the instant is stored as read and ``SEC_FILING_ACCEPTANCE`` stays *unapproved*
-for point-in-time use (see ``quantforge.research.availability``) until it has been
-checked against live SEC data.
+**Not documented: the submissions JSON field.** No SEC document found defines
+``acceptanceDateTime`` here -- not its timezone, not the trailing ``Z``, not the
+``.000`` precision. The official semantics are *unresolved*.
+
+**Empirical rule (not an official claim).** The bounded step-10.7A live check (fetched
+2026-10-04) compared 11 accessions (10-Q, 10-K, 10-K/A; January/February standard time
+and April/May daylight time) against the same accession's EDGAR index "Accepted" time
+and SGML header ``<ACCEPTANCE-DATETIME>``. In 11 of 11 the JSON value, read as **UTC**
+(``Z`` as ISO 8601 writes it), equals the index/header value read as
+**America/New_York** wall clock, to the second. Seven representative pairs (both
+offsets, 10-Q/10-K/10-K/A, one crossing UTC midnight) are pinned in the tests. :func:`parse_submissions_acceptance_datetime` applies exactly
+that rule, to this JSON only. It requires the explicit ``Z`` marker and refuses a
+value without one rather than assign it a zone. If SEC ever documents or changes the field, revisit.
+
+**History.** Before 10.7A.1 this module read the JSON digits as America/New_York wall
+clock and converted to UTC. That was wrong: the instants came out 5 hours (standard
+time) or 4 hours (daylight time) *later* than the acceptance the paired EDGAR
+representations show. The dev database was observed empty at that check (it could not
+be reached when the fix landed), so no affected stored row is currently known. If a row
+written by the old parser ever exists, re-ingesting that accession now raises
+``SecFilingConflictError`` (stored metadata is never overwritten): delete that row's
+data deliberately and re-ingest; there is no automatic backfill.
+
+**What the value is.** Filing-acceptance *metadata* only. It is neither
+``filing_public_at`` (EDGAR can disseminate later: a filing accepted after 5:30 p.m.
+Eastern is normally not disseminated until the next business day, and SEC publishes
+no first-availability timestamp), nor ``disclosure_observed_at``, nor
+``known_as_of``, nor a tradable time. ``SEC_FILING_ACCEPTANCE`` stays *unapproved*
+for point-in-time use (see ``quantforge.research.availability``). The FSDS
+``accepted`` text is a different source representation and is never read here.
 
 Plausibility is *reported*, never enforced
 ------------------------------------------
@@ -31,8 +53,9 @@ business day (the cut-off decides the filing **date**; EDGAR still accepts later
 in its hours). Exceptions exist (extended cut-offs for some forms, post-acceptance
 filing-date corrections, older operating hours), so a mismatch is a warning, not
 grounds to drop a source fact. Only what makes the instant itself unknowable --
-an unrecognised format, an impossible calendar time, a daylight-saving gap or
-fold -- is rejected.
+an unrecognised format (including a missing ``Z``) or an impossible calendar
+time -- is rejected. The Eastern conversion left in :func:`acceptance_anomalies` is
+only for that plausibility report, never for reading the instant.
 
 Nothing here says the acceptance instant is the first public disclosure of the
 content, and nothing synthesises a time from a date: a record without a usable
@@ -52,7 +75,7 @@ from quantforge.ingestion.canonical import CanonicalSecFiling
 from quantforge.models.enums import SecFormType
 from quantforge.providers.errors import ProviderPayloadError
 
-__all__ = ["acceptance_anomalies", "map_recent_filings", "parse_acceptance_datetime"]
+__all__ = ["acceptance_anomalies", "map_recent_filings", "parse_submissions_acceptance_datetime"]
 
 logger = logging.getLogger(__name__)
 
@@ -71,30 +94,38 @@ _EDGAR_FIRST_YEAR: Final = 1993
 _SYSTEMATIC_ANOMALY_FRACTION: Final = 0.5
 _SYSTEMATIC_ANOMALY_MIN_RECORDS: Final = 5
 
-_ACCEPTANCE = re.compile(
-    r"^(?P<y>\d{4})-(?P<mo>\d{2})-(?P<d>\d{2})T(?P<h>\d{2}):(?P<mi>\d{2}):(?P<s>\d{2})"
-    r"(?:\.(?P<frac>\d{1,6}))?Z?$"
+#: The submissions-JSON shape observed live: ``2026-01-30T11:01:32.000Z``. The ``Z`` is required.
+_SUBMISSIONS_ACCEPTANCE = re.compile(
+    r"(?P<y>[0-9]{4})-(?P<mo>[0-9]{2})-(?P<d>[0-9]{2})T"
+    r"(?P<h>[0-9]{2}):(?P<mi>[0-9]{2}):(?P<s>[0-9]{2})(?:\.(?P<frac>[0-9]{1,6}))?Z"
 )
 _SUPPORTED = {form.value: form for form in SecFormType}
 
 
-def parse_acceptance_datetime(raw: str) -> datetime:
-    """Return the UTC instant for an EDGAR acceptance string, or raise ``ValueError``.
+def parse_submissions_acceptance_datetime(raw: str) -> datetime:
+    """Return the UTC instant for a submissions-JSON ``acceptanceDateTime``, or raise ``ValueError``.
 
-    The digits are read as America/New_York wall-clock time (the trailing ``Z``, if
-    present, is not treated as a UTC marker -- see the module docstring). An
-    unrecognised format, an impossible calendar time, and an ambiguous or
-    non-existent local time (a daylight-saving transition hour) are rejected;
-    plausibility against EDGAR's hours and filing-date rule is reported separately
-    by :func:`acceptance_anomalies`, never enforced here.
+    Applies the *empirically validated* rule from the module docstring: the value
+    carries an explicit ``Z`` and is read as UTC. This is a representation rule
+    checked against paired EDGAR index/header values, **not** an official SEC
+    definition of the field, and it says nothing about public availability. Seconds
+    and any stated fractional seconds are kept; none are invented.
+
+    A value without the ``Z``, with any other offset, with surrounding whitespace, with a
+    non-ASCII or non-digit character, or naming an
+    impossible calendar time is rejected -- nothing is coerced. Plausibility against
+    EDGAR's hours and filing-date rule is reported separately by
+    :func:`acceptance_anomalies`, never enforced here.
     """
-    match = _ACCEPTANCE.fullmatch(raw.strip())
+    match = _SUBMISSIONS_ACCEPTANCE.fullmatch(raw)
     if match is None:
-        message = f"acceptanceDateTime {raw!r} is not a recognised EDGAR timestamp"
+        message = (
+            f"acceptanceDateTime {raw!r} is not a recognised submissions timestamp "
+            "(expected YYYY-MM-DDTHH:MM:SS[.fff]Z)"
+        )
         raise ValueError(message)
     try:
-        # Deliberately naive: this is the *local* Eastern wall time, localised below.
-        wall = datetime(  # noqa: DTZ001
+        instant = datetime(
             int(match["y"]),
             int(match["mo"]),
             int(match["d"]),
@@ -102,27 +133,14 @@ def parse_acceptance_datetime(raw: str) -> datetime:
             int(match["mi"]),
             int(match["s"]),
             int((match["frac"] or "").ljust(6, "0")),  # keep the sub-second part
+            tzinfo=UTC,
         )
     except ValueError as exc:
         message = f"acceptanceDateTime {raw!r} is not a valid calendar time: {exc}"
         raise ValueError(message) from exc
-
-    if wall.year < _EDGAR_FIRST_YEAR:
+    if instant.year < _EDGAR_FIRST_YEAR:
         message = f"acceptanceDateTime {raw!r} predates EDGAR ({_EDGAR_FIRST_YEAR})"
         raise ValueError(message)
-    first = wall.replace(tzinfo=EASTERN, fold=0)
-    try:
-        instant = first.astimezone(UTC)
-    except OverflowError as exc:
-        message = f"acceptanceDateTime {raw!r} is out of range"
-        raise ValueError(message) from exc
-    if instant.astimezone(EASTERN).replace(tzinfo=None) != wall:
-        message = f"acceptanceDateTime {raw!r} is a non-existent Eastern local time (DST gap)"
-        raise ValueError(message)
-    if first.utcoffset() != wall.replace(tzinfo=EASTERN, fold=1).utcoffset():
-        message = f"acceptanceDateTime {raw!r} is an ambiguous Eastern local time (DST fold)"
-        raise ValueError(message)
-
     return instant
 
 
@@ -130,7 +148,9 @@ def acceptance_anomalies(accepted_at: datetime, filing_date: date) -> tuple[str,
     """Describe where an acceptance deviates from EDGAR's *normal* behaviour (never rejects).
 
     Reported as warnings so a systematic mis-reading of the timezone stays visible
-    without discarding legitimate source facts (see the module docstring).
+    without discarding legitimate source facts (see the module docstring). The
+    Eastern conversion here compares an already-known instant with EDGAR's stated
+    Eastern rules; it is not how the instant is read.
     """
     wall = accepted_at.astimezone(EASTERN)
     notes: list[str] = []
@@ -249,7 +269,7 @@ def map_recent_filings(document: Any, *, cik: str) -> tuple[list[CanonicalSecFil
             if not isinstance(raw_accepted, str) or not raw_accepted.strip():
                 message = "no acceptanceDateTime (a time is never synthesised from a date)"
                 raise ValueError(message)
-            accepted_at = parse_acceptance_datetime(raw_accepted)
+            accepted_at = parse_submissions_acceptance_datetime(raw_accepted)
             _require_not_implausibly_early(accepted_at, filing_date, raw_accepted)
             candidate = CanonicalSecFiling(
                 cik=cik,

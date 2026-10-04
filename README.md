@@ -175,10 +175,17 @@ leave both fields NULL, so no current earnings row is point-in-time eligible.
 8-K item codes) in `sec_filing` (10-K, 10-Q, 8-K and their amendments, each
 amendment its own row), for the stored company carrying that `company.cik`. It
 needs `QF_SEC_USER_AGENT` (an application name plus a contact, per the SEC's
-fair-access policy; never defaulted or stored). Acceptance times are read as
-America/New_York wall-clock time (not trusted as UTC) and cross-checked against
-EDGAR's 06:00–22:00 hours and 5:30 p.m. filing-date rule; a record that fails is
-rejected, never guessed. No EPS, signal or document download exists yet.
+fair-access policy; never defaulted or stored). The submissions-JSON
+`acceptanceDateTime` (explicit `Z` required) is read as a UTC instant under an
+*empirically validated* rule (11 of 11 accessions in the 10.7A live check equal
+EDGAR's own index/header acceptance clock, read as America/New_York, to the
+second; seven representative pairs are pinned in the tests); SEC does
+not officially define that field, and the earlier reading of its digits as
+Eastern wall clock was wrong (4–5 hours late) and is gone. The value is
+acceptance **metadata** only, not public availability, and `SEC_FILING_ACCEPTANCE`
+stays unapproved. It is cross-checked against EDGAR's 06:00–22:00 hours and
+5:30 p.m. filing-date rule as warnings; a malformed record is rejected, never
+guessed. No EPS, signal or document download exists yet.
 
 ## Historical stock splits and the corporate-action guard
 

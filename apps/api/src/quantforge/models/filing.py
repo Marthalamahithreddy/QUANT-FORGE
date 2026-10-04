@@ -23,10 +23,10 @@ answerable.
 
 Timestamps
 ----------
-``accepted_at`` is the instant EDGAR accepted the submission, as a UTC
-``TIMESTAMPTZ``, converted from EDGAR's Eastern-time reading (see
-``quantforge.providers.sec.mapper``). It proves the filing was accepted by
-EDGAR then. It does **not** prove first public disclosure (a press release can
+``accepted_at`` is the acceptance instant the SEC submissions JSON states, as a UTC
+``TIMESTAMPTZ``, read under an empirically validated rule (see
+``quantforge.providers.sec.mapper``; the field's official definition is unresolved).
+It is acceptance metadata: it proves the filing was accepted by EDGAR then. It does **not** prove first public disclosure (a press release can
 precede an ``8-K`` by up to four business days) or when any market participant
 learned of the content, and it is deliberately not named ``first_public_at``.
 ``filing_date`` is the date the SEC deems the filing made (a filing accepted

@@ -111,12 +111,20 @@ def test_fact_modules_make_no_network_request_and_nothing_reads_the_companyfacts
 
 def test_fact_ingestion_does_not_touch_the_sec_acceptance_semantics() -> None:
     ingestion = (SRC / "ingestion/financial_facts.py").read_text(encoding="utf-8")
+    assert "parse_submissions_acceptance_datetime" not in ingestion
     assert "parse_acceptance_datetime" not in ingestion
     assert "AvailabilityBasis" not in ingestion
     assert "APPROVED_AVAILABILITY_BASES" not in ingestion
 
 
-PARSERS = {"strptime", "fromisoformat", "to_datetime", "parse", "parse_acceptance_datetime"}
+PARSERS = {
+    "strptime",
+    "fromisoformat",
+    "to_datetime",
+    "parse",
+    "parse_acceptance_datetime",
+    "parse_submissions_acceptance_datetime",
+}
 
 
 def test_the_fsds_accepted_text_is_read_by_nothing_but_its_parser_canonical_type_writer_and_model() -> (

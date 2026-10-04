@@ -566,8 +566,10 @@ class CanonicalSecFiling:
       (``0000320193-24-000123``). It is *not* the registrant's CIK -- its
       leading filer id can be a filing agent -- so ``cik`` is carried
       separately as the registrant the metadata was fetched for.
-    * ``accepted_at`` is the instant EDGAR accepted the submission, UTC. It
-      proves acceptance by EDGAR, not first public disclosure.
+    * ``accepted_at`` is the acceptance instant the source states, UTC (the
+      submissions JSON is read under an empirically validated rule, see
+      ``providers.sec.mapper``). It is acceptance metadata: not first public
+      disclosure, not public availability, not a known-as-of time.
     * ``filing_date`` (the date the SEC deems the filing made) and
       ``report_date`` (the source's report date) are dates, never instants, and
       neither is ever promoted to an ``accepted_at``.

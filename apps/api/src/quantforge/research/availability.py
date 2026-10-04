@@ -49,11 +49,13 @@ __all__ = [
 #:   observation was published.
 #: * ``SEC_FILING_ACCEPTANCE`` is deliberately NOT approved yet. It is a sound
 #:   "the filing was on EDGAR by about T" bound for a filing-availability
-#:   strategy, but (a) the exact timezone reading of EDGAR's acceptance time has
-#:   not been validated against live SEC data (the PDS spec labels it "EST"
-#:   while EDGAR's operating rules are in prevailing Eastern time), and (b) no
-#:   filing-based signal exists to define the strategy it would be approved
-#:   *for*. Adding it here is a one-line, reviewed change once both are settled.
+#:   strategy, but (a) acceptance is only a LOWER bound on public availability
+#:   (a filing accepted after 5:30 p.m. Eastern is normally not disseminated
+#:   until the next business day; SEC publishes no first-availability time),
+#:   the submissions-JSON field's official definition is unresolved (its UTC
+#:   reading is empirically validated, step 10.7A.1), and (b) no filing-based
+#:   signal exists to define the strategy it would be approved *for*. Adding it
+#:   here is a one-line, reviewed change once both are settled.
 APPROVED_AVAILABILITY_BASES: Final[frozenset[AvailabilityBasis]] = frozenset(
     {AvailabilityBasis.SOURCE_PUBLICATION}
 )
