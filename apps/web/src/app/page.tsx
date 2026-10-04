@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
+import { Frame } from "@/components/ui/frame";
+import { PageContainer } from "@/components/ui/page-container";
 import { PageHeader } from "@/components/ui/page-header";
 import { getEarningsPage, getReadiness } from "@/lib/api/earnings";
 import { getBackendStatus } from "@/lib/api/health";
@@ -10,22 +12,11 @@ import type { Tone } from "@/lib/availability";
 import { MISSING } from "@/lib/format";
 import type { DependencyState } from "@/types/earnings";
 
-function Panel({ title, children }: { readonly title: string; readonly children: ReactNode }) {
-  return (
-    <section aria-label={title} className="rounded-md border border-border-subtle bg-surface-1">
-      <h2 className="border-b border-border-subtle px-4 py-2 text-[11px] font-medium tracking-[0.14em] text-text-muted uppercase">
-        {title}
-      </h2>
-      <div className="p-4">{children}</div>
-    </section>
-  );
-}
-
 function Line({ label, children }: { readonly label: string; readonly children: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-border-subtle py-2 last:border-b-0">
       <dt className="text-sm text-text-secondary">{label}</dt>
-      <dd className="font-tabular text-sm text-text-primary">{children}</dd>
+      <dd className="num text-sm text-text-primary">{children}</dd>
     </div>
   );
 }
@@ -45,7 +36,7 @@ export default async function Overview() {
 
   return (
     <AppShell status={status}>
-      <div className="mx-auto flex max-w-5xl flex-col gap-6">
+      <PageContainer>
         <PageHeader
           eyebrow="Research workspace"
           title="Overview"
@@ -53,7 +44,7 @@ export default async function Overview() {
         />
 
         <div className="grid gap-4 md:grid-cols-2">
-          <Panel title="System">
+          <Frame title="System">
             <dl>
               <Line label="API process">
                 {status.state === "connected" ? (
@@ -79,9 +70,9 @@ export default async function Overview() {
                 Dependency readiness could not be read: {readiness.detail}
               </p>
             ) : null}
-          </Panel>
+          </Frame>
 
-          <Panel title="Earnings data">
+          <Frame title="Earnings data">
             {earnings.state !== "ok" ? (
               <p className="text-sm text-text-secondary">
                 Earnings coverage is unavailable because the API did not answer.
@@ -104,10 +95,10 @@ export default async function Overview() {
                 Open the earnings explorer →
               </Link>
             </p>
-          </Panel>
+          </Frame>
         </div>
 
-        <Panel title="What is available">
+        <Frame title="What is available">
           <ul className="flex flex-col gap-2 text-sm text-text-secondary">
             <li>
               <span className="text-text-primary">Earnings explorer</span> — stored events with
@@ -115,15 +106,19 @@ export default async function Overview() {
               point-in-time classification.
             </li>
             <li>
-              <span className="text-text-primary">Research</span> — a description of the research
-              engine. Event-study results are not exposed by the API yet.
+              <span className="text-text-primary">Research</span> — how the research engine behaves.
+              The event-study workspace is not part of the interface yet, although the API serves it.
             </li>
             <li>
-              <span className="text-text-muted">Companies and Backtests</span> — not implemented.
+              <span className="text-text-primary">Saved research</span> — stored research baselines.
+              Nothing can be saved from the interface, and none are shown yet.
+            </li>
+            <li>
+              <span className="text-text-muted">Not available yet</span> — Companies and Backtests.
             </li>
           </ul>
-        </Panel>
-      </div>
+        </Frame>
+      </PageContainer>
     </AppShell>
   );
 }

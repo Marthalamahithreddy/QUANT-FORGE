@@ -245,7 +245,9 @@ describe("Research page", () => {
     route({ health: jsonResponse(HEALTH) });
     render(await ResearchPage());
 
-    expect(screen.getByText("No research results are available here yet")).toBeInTheDocument();
+    expect(
+      screen.getByText("The event-study workspace is not part of the interface yet"),
+    ).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/sharpe|p&l|equity curve|\d+(\.\d+)?%/i);
   });
 });

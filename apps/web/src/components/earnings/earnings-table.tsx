@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useId, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { CONTROL } from "@/components/ui/controls";
 import {
   BASIS_LABEL,
   PIT_PRESENTATION,
@@ -99,7 +100,7 @@ export function EarningsTable({ events }: EarningsTableProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Company, ticker or source"
-            className="w-64 rounded-md border border-border-strong bg-surface-2 px-2.5 py-1.5 text-sm text-text-primary placeholder:text-text-muted"
+            className={`${CONTROL} w-64`}
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -110,7 +111,7 @@ export function EarningsTable({ events }: EarningsTableProps) {
             id={pitId}
             value={pit}
             onChange={(e) => setPit(e.target.value as PitFilter)}
-            className="rounded-md border border-border-strong bg-surface-2 px-2.5 py-1.5 text-sm text-text-primary"
+            className={CONTROL}
           >
             <option value="all">All</option>
             <option value="eligible">PIT eligible</option>

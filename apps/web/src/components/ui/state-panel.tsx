@@ -1,5 +1,8 @@
 import type { ReactNode } from "react";
 
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+
 export interface StatePanelProps {
   readonly kind: "empty" | "error";
   readonly title: string;
@@ -7,23 +10,14 @@ export interface StatePanelProps {
 }
 
 /**
- * Intentional empty and failure states. Errors use `role="alert"`; an empty
- * state is informational, not an error, and is announced politely.
+ * Compatibility wrapper: existing pages keep calling `StatePanel` and inherit the V2 primitives.
+ * New code uses `EmptyState` / `ErrorState` directly; this is removed when the pages that use it
+ * migrate (11.1C).
  */
 export function StatePanel({ kind, title, children }: StatePanelProps) {
-  return (
-    <div
-      role={kind === "error" ? "alert" : "status"}
-      className={`rounded-md border border-dashed p-5 ${
-        kind === "error" ? "border-status-down/50" : "border-border-strong"
-      } bg-surface-1`}
-    >
-      <p className="text-sm font-medium text-text-primary">{title}</p>
-      {children ? (
-        <div className="mt-1.5 max-w-3xl text-sm leading-relaxed text-text-secondary">
-          {children}
-        </div>
-      ) : null}
-    </div>
+  return kind === "error" ? (
+    <ErrorState title={title}>{children}</ErrorState>
+  ) : (
+    <EmptyState title={title}>{children}</EmptyState>
   );
 }

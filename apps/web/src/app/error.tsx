@@ -2,7 +2,8 @@
 
 import { useEffect } from "react";
 
-import { StatePanel } from "@/components/ui/state-panel";
+import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
 
 /** Last-resort boundary: a render failure becomes a message, never a blank page. */
 export default function RouteError({
@@ -18,16 +19,12 @@ export default function RouteError({
 
   return (
     <main id="main-content" className="mx-auto flex max-w-3xl flex-col gap-4 p-8">
-      <StatePanel kind="error" title="Something went wrong rendering this page">
+      <ErrorState title="Something went wrong rendering this page">
         The page failed to render. This is a frontend error, not missing data.
-      </StatePanel>
-      <button
-        type="button"
-        onClick={() => retry()}
-        className="w-fit rounded-md border border-border-strong bg-surface-3 px-3 py-1.5 text-sm text-text-primary hover:border-accent"
-      >
+      </ErrorState>
+      <Button onClick={() => retry()} className="w-fit">
         Try again
-      </button>
+      </Button>
     </main>
   );
 }

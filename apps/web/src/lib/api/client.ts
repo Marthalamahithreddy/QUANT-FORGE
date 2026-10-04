@@ -10,20 +10,47 @@ import { env } from "@/lib/config/env";
 /** Short enough that a dead backend surfaces quickly in the UI. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 4000;
 
+/** How a request failed, decided at the throw site (never inferred from message text). */
+export type ApiErrorKind = "timeout" | "unreachable" | "http" | "invalid_json";
+
+/** A user-visible description of a failed request that never contains the address. */
+function publicMessageFor(kind: ApiErrorKind, status: number): string {
+  switch (kind) {
+    case "timeout":
+      return "The QuantForge API did not answer in time.";
+    case "unreachable":
+      return "The QuantForge API could not be reached.";
+    case "invalid_json":
+      return "The QuantForge API returned a response that was not valid JSON.";
+    case "http":
+      return `The QuantForge API answered HTTP ${status}.`;
+  }
+}
+
 export class ApiError extends Error {
   readonly url: string;
 
   /** HTTP status, or `0` when the request never produced a response. */
   readonly status: number;
 
+  readonly kind: ApiErrorKind;
+
+  /**
+   * What a reader may be shown: no address, no host, no response text. The full `message` (which
+   * names the URL) is for logs and tests only.
+   */
+  readonly publicMessage: string;
+
   constructor(
     message: string,
-    options: { url: string; status: number; cause?: unknown },
+    options: { url: string; status: number; kind: ApiErrorKind; cause?: unknown },
   ) {
     super(message, { cause: options.cause });
     this.name = "ApiError";
     this.url = options.url;
     this.status = options.status;
+    this.kind = options.kind;
+    this.publicMessage = publicMessageFor(options.kind, options.status);
   }
 }
 
@@ -91,14 +118,19 @@ export async function apiGet<TResponse = unknown>(
   } catch (cause) {
     throw new ApiError(
       `Cannot reach ${url}: ${describeTransportFailure(cause, timeoutMs)}`,
-      { url, status: 0, cause },
+      {
+        url,
+        status: 0,
+        kind: cause instanceof DOMException && cause.name === "TimeoutError" ? "timeout" : "unreachable",
+        cause,
+      },
     );
   }
 
   if (!response.ok && !acceptStatuses.includes(response.status)) {
     throw new ApiError(
       `Request to ${url} failed with HTTP ${response.status} ${response.statusText}`.trim(),
-      { url, status: response.status },
+      { url, status: response.status, kind: "http" },
     );
   }
 
@@ -109,6 +141,7 @@ export async function apiGet<TResponse = unknown>(
     throw new ApiError(`Response from ${url} was not valid JSON.`, {
       url,
       status: response.status,
+      kind: "invalid_json",
       cause,
     });
   }

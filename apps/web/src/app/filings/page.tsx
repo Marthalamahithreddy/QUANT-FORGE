@@ -2,6 +2,9 @@ import Link from "next/link";
 
 import { FilingsTable } from "@/components/filings/filings-table";
 import { AppShell } from "@/components/layout/app-shell";
+import { Button } from "@/components/ui/button";
+import { CONTROL } from "@/components/ui/controls";
+import { PageContainer } from "@/components/ui/page-container";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatePanel } from "@/components/ui/state-panel";
 import { PAGE_SIZE } from "@/lib/api/earnings";
@@ -10,7 +13,7 @@ import { getBackendStatus } from "@/lib/api/health";
 import { isCik, isFilingForm } from "@/lib/filings-view";
 import { FILING_FORMS } from "@/types/filings";
 
-export const metadata = { title: "Filings · QuantForge" };
+export const metadata = { title: "Filings" };
 
 /** Keeps (page-1) * PAGE_SIZE inside the API's offset bound. */
 const MAX_PAGE = 10_000;
@@ -76,8 +79,7 @@ function pageHref(query: FilingsQuery, page: number): string {
   return qs ? `/filings?${qs}` : "/filings";
 }
 
-const INPUT =
-  "rounded-md border border-border-strong bg-surface-2 px-2.5 py-1.5 text-sm text-text-primary placeholder:text-text-muted";
+const INPUT = CONTROL;
 
 export default async function FilingsPage({
   searchParams,
@@ -95,7 +97,7 @@ export default async function FilingsPage({
 
   return (
     <AppShell status={status}>
-      <div className="mx-auto flex max-w-[110rem] flex-col gap-5">
+      <PageContainer width="table">
         <PageHeader
           eyebrow="Research"
           title="Filings"
@@ -140,12 +142,7 @@ export default async function FilingsPage({
               className={`${INPUT} w-32 font-mono`}
             />
           </div>
-          <button
-            type="submit"
-            className="rounded-md border border-border-strong bg-surface-3 px-3 py-1.5 text-sm text-text-primary hover:border-accent"
-          >
-            Apply
-          </button>
+          <Button type="submit">Apply</Button>
           {shownForm || shownCik ? (
             <Link
               href="/filings"
@@ -251,7 +248,7 @@ export default async function FilingsPage({
             </nav>
           </>
         )}
-      </div>
+      </PageContainer>
     </AppShell>
   );
 }

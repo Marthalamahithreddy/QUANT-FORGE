@@ -1,6 +1,7 @@
-import { useId, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Frame } from "@/components/ui/frame";
 import {
   CHANGE_STATUS_LABEL,
   COMPARATIVE_STATUS_LABEL,
@@ -35,25 +36,10 @@ function Section({
   readonly note?: string;
   readonly children: ReactNode;
 }) {
-  const headingId = useId();
   return (
-    <section
-      aria-labelledby={headingId}
-      className="rounded-md border border-border-subtle bg-surface-1"
-    >
-      <div className="flex flex-wrap items-baseline justify-between gap-x-4 border-b border-border-subtle px-4 py-2">
-        <h2
-          id={headingId}
-          className="text-[11px] font-medium tracking-[0.14em] text-text-muted uppercase"
-        >
-          {title}
-        </h2>
-        {note ? <p className="text-xs text-text-muted">{note}</p> : null}
-      </div>
-      <dl className="grid gap-x-6 gap-y-3 p-4 sm:grid-cols-[11rem_minmax(0,1fr)]">
-        {children}
-      </dl>
-    </section>
+    <Frame title={title} note={note}>
+      <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[11rem_minmax(0,1fr)]">{children}</dl>
+    </Frame>
   );
 }
 
@@ -67,7 +53,7 @@ function Row({
   return (
     <>
       <dt className="text-xs text-text-muted">{label}</dt>
-      <dd className="font-tabular min-w-0 text-sm break-words text-text-primary">
+      <dd className="num min-w-0 text-sm break-words text-text-primary">
         {children}
       </dd>
     </>

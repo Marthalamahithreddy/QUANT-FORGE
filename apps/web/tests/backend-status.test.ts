@@ -61,7 +61,9 @@ describe("getBackendStatus", () => {
 
     expect(status.state).toBe("unavailable");
     if (status.state === "unavailable") {
-      expect(status.detail).toContain("http://localhost:8000/api/v1/health");
+      // A reader is told the service could not be reached, never WHERE it was looked for.
+      expect(status.detail).toContain("could not be reached");
+      expect(status.detail).not.toMatch(/https?:|localhost|\/api\//);
     }
   });
 

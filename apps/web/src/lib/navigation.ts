@@ -1,67 +1,80 @@
 /**
- * Primary navigation model.
+ * Primary navigation model (design spec section 5.2).
  *
- * An entry is `available` only when its route exists and shows real backend
- * data (or, for Research, an honest account of what is implemented). Planned
- * entries have `href: null` and are rendered as inert, labelled rows, never as
- * links to routes that do not exist.
+ *   Overview
+ *   Evidence   -> Earnings, Filings
+ *   Research   -> Research, Saved research
+ *
+ * Every entry is a real route. There are no "planned" rows: a section that does not exist is not
+ * shown (Companies and Backtests are described on Overview instead).
  */
-
-export type NavItemStatus = "available" | "planned";
 
 export interface NavItem {
   readonly id: string;
   readonly label: string;
   readonly summary: string;
-  /** `null` until the route exists; unavailable items are never rendered as links. */
-  readonly href: string | null;
-  readonly status: NavItemStatus;
+  readonly href: string;
 }
 
-export const NAV_ITEMS: readonly NavItem[] = [
+export interface NavGroup {
+  readonly id: string;
+  /** `null` for the ungrouped top entry. */
+  readonly label: string | null;
+  readonly items: readonly NavItem[];
+}
+
+export const NAV_GROUPS: readonly NavGroup[] = [
   {
     id: "overview",
-    label: "Overview",
-    summary: "System state and data coverage.",
-    href: "/",
-    status: "available",
+    label: null,
+    items: [
+      {
+        id: "overview",
+        label: "Overview",
+        summary: "System state and data coverage.",
+        href: "/",
+      },
+    ],
   },
   {
-    id: "companies",
-    label: "Companies",
-    summary: "Issuer directory. Needs a read-only companies API.",
-    href: null,
-    status: "planned",
-  },
-  {
-    id: "earnings",
-    label: "Earnings",
-    summary: "Earnings events with availability evidence.",
-    href: "/earnings",
-    status: "available",
-  },
-  {
-    id: "filings",
-    label: "Filings",
-    summary: "Stored filings with SEC FSDS data, and their descriptive EPS.",
-    href: "/filings",
-    status: "available",
+    id: "evidence",
+    label: "Evidence",
+    items: [
+      {
+        id: "earnings",
+        label: "Earnings",
+        summary: "Earnings events with availability evidence.",
+        href: "/earnings",
+      },
+      {
+        id: "filings",
+        label: "Filings",
+        summary: "Stored filings with SEC FSDS data, and their descriptive EPS.",
+        href: "/filings",
+      },
+    ],
   },
   {
     id: "research",
     label: "Research",
-    summary: "What the research engine implements today.",
-    href: "/research",
-    status: "available",
-  },
-  {
-    id: "backtests",
-    label: "Backtests",
-    summary: "Not implemented.",
-    href: null,
-    status: "planned",
+    items: [
+      {
+        id: "research",
+        label: "Research",
+        summary: "Event studies and the research engine's behaviour.",
+        href: "/research",
+      },
+      {
+        id: "saved",
+        label: "Saved research",
+        summary: "Stored research baselines.",
+        href: "/research/saved",
+      },
+    ],
   },
 ];
+
+export const NAV_ITEMS: readonly NavItem[] = NAV_GROUPS.flatMap((group) => group.items);
 
 /** Whether `pathname` is within the section rooted at `href`. */
 export function isActivePath(pathname: string, href: string): boolean {
@@ -69,4 +82,18 @@ export function isActivePath(pathname: string, href: string): boolean {
     return pathname === "/";
   }
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/**
+ * The single entry that is current for `pathname`: the MOST SPECIFIC match, so `/research/saved`
+ * marks "Saved research" and not also "Research".
+ */
+export function activeNavItem(pathname: string): NavItem | null {
+  let best: NavItem | null = null;
+  for (const item of NAV_ITEMS) {
+    if (isActivePath(pathname, item.href) && (best === null || item.href.length > best.href.length)) {
+      best = item;
+    }
+  }
+  return best;
 }

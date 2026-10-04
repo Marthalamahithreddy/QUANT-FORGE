@@ -2,12 +2,15 @@ import Link from "next/link";
 
 import { EarningsTable } from "@/components/earnings/earnings-table";
 import { AppShell } from "@/components/layout/app-shell";
+import { Button } from "@/components/ui/button";
+import { CONTROL } from "@/components/ui/controls";
+import { PageContainer } from "@/components/ui/page-container";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatePanel } from "@/components/ui/state-panel";
 import { PAGE_SIZE, getEarningsPage, type EarningsQuery } from "@/lib/api/earnings";
 import { getBackendStatus } from "@/lib/api/health";
 
-export const metadata = { title: "Earnings · QuantForge" };
+export const metadata = { title: "Earnings" };
 
 /** Keeps (page-1) * PAGE_SIZE inside the API's offset bound. */
 const MAX_PAGE = 10_000;
@@ -58,8 +61,7 @@ function pageHref(query: EarningsQuery, page: number): string {
   return qs ? `/earnings?${qs}` : "/earnings";
 }
 
-const INPUT =
-  "rounded-md border border-border-strong bg-surface-2 px-2.5 py-1.5 text-sm text-text-primary placeholder:text-text-muted";
+const INPUT = CONTROL;
 
 export default async function EarningsPage({ searchParams }: PageProps<"/earnings">) {
   const { query, page, invalid } = parseQuery(await searchParams);
@@ -71,7 +73,7 @@ export default async function EarningsPage({ searchParams }: PageProps<"/earning
 
   return (
     <AppShell status={status}>
-      <div className="mx-auto flex max-w-[110rem] flex-col gap-5">
+      <PageContainer width="table">
         <PageHeader
           eyebrow="Research"
           title="Earnings explorer"
@@ -115,12 +117,7 @@ export default async function EarningsPage({ searchParams }: PageProps<"/earning
               className={INPUT}
             />
           </div>
-          <button
-            type="submit"
-            className="rounded-md border border-border-strong bg-surface-3 px-3 py-1.5 text-sm text-text-primary hover:border-accent"
-          >
-            Apply
-          </button>
+          <Button type="submit">Apply</Button>
           {filtered ? (
             <Link href="/earnings" className="py-1.5 text-sm text-accent hover:underline">
               Clear
@@ -182,7 +179,7 @@ export default async function EarningsPage({ searchParams }: PageProps<"/earning
             </nav>
           </>
         )}
-      </div>
+      </PageContainer>
     </AppShell>
   );
 }

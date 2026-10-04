@@ -9,6 +9,7 @@
 import { apiGet, ApiError, type ApiGetOptions } from "@/lib/api/client";
 import { env } from "@/lib/config/env";
 import {
+  HealthContractError,
   parseHealthResponse,
   type BackendStatus,
   type HealthResponse,
@@ -26,11 +27,12 @@ export async function fetchBackendHealth(
 
 function describeFailure(error: unknown): string {
   if (error instanceof ApiError) {
-    return error.message;
+    return error.publicMessage;
   }
-  if (error instanceof Error) {
-    return error.message;
+  if (error instanceof HealthContractError) {
+    return error.message; // names the expected shape, never an address
   }
+  // Anything else may carry a host or a driver message: say only what is safe.
   return "Unexpected error while contacting the QuantForge API.";
 }
 

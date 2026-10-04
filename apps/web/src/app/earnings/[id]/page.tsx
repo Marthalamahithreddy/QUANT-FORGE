@@ -1,8 +1,9 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { AppShell } from "@/components/layout/app-shell";
+import { Frame } from "@/components/ui/frame";
+import { PageContainer } from "@/components/ui/page-container";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatePanel } from "@/components/ui/state-panel";
@@ -23,16 +24,13 @@ import {
   formatUtcInstant,
 } from "@/lib/format";
 
-export const metadata = { title: "Earnings event · QuantForge" };
+export const metadata = { title: "Earnings event" };
 
 function Section({ title, children }: { readonly title: string; readonly children: ReactNode }) {
   return (
-    <section aria-label={title} className="rounded-md border border-border-subtle bg-surface-1">
-      <h2 className="border-b border-border-subtle px-4 py-2 text-[11px] font-medium tracking-[0.14em] text-text-muted uppercase">
-        {title}
-      </h2>
-      <dl className="grid gap-x-6 gap-y-3 p-4 sm:grid-cols-[11rem_minmax(0,1fr)]">{children}</dl>
-    </section>
+    <Frame title={title}>
+      <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[11rem_minmax(0,1fr)]">{children}</dl>
+    </Frame>
   );
 }
 
@@ -40,7 +38,7 @@ function Row({ label, children }: { readonly label: string; readonly children: R
   return (
     <>
       <dt className="text-xs text-text-muted">{label}</dt>
-      <dd className="font-tabular min-w-0 text-sm break-words text-text-primary">{children}</dd>
+      <dd className="num min-w-0 text-sm break-words text-text-primary">{children}</dd>
     </>
   );
 }
@@ -56,12 +54,19 @@ export default async function EarningsDetailPage({ params }: PageProps<"/earning
   }
 
   return (
-    <AppShell status={status}>
-      <div className="mx-auto flex max-w-4xl flex-col gap-5">
-        <Link href="/earnings" className="text-sm text-accent hover:underline">
-          ← Earnings explorer
-        </Link>
-
+    <AppShell
+      status={status}
+      breadcrumbs={[
+        { label: "Earnings", href: "/earnings" },
+        {
+          label:
+            result.state === "ok"
+              ? `${result.data.company.display_name} · ${result.data.event_date}`
+              : "Event",
+        },
+      ]}
+    >
+      <PageContainer>
         {result.state === "error" ? (
           <StatePanel kind="error" title="This event could not be loaded">
             {result.detail}
@@ -69,7 +74,7 @@ export default async function EarningsDetailPage({ params }: PageProps<"/earning
         ) : (
           <EventDetail event={result.data} />
         )}
-      </div>
+      </PageContainer>
     </AppShell>
   );
 }

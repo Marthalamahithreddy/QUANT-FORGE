@@ -1,37 +1,182 @@
 @import "tailwindcss";
 
 /*
- * QuantForge design tokens.
+ * QuantForge design tokens (Frontend V2 foundations, docs/frontend-v2-design.md section 10).
  *
- * Dark-first, low-chroma surfaces with a single restrained accent. The palette
- * is tuned for long sessions in a research terminal: no gradients, no glow, and
- * text contrast held at or above WCAG AA on every surface below.
+ * Components consume SEMANTIC tokens only; the literal colour values live in this file and nowhere
+ * else (chart values arrive with the charts). Dark is the default; light is a full peer chosen by
+ * the `qf-theme` cookie (read on the server, so there is no flash) or, for `system`, by the
+ * operating-system preference. Every text/glyph pair was measured against WCAG (tests/tokens.test.ts
+ * recomputes them from this file).
  */
-@theme {
-  /* Surfaces, darkest to lightest */
-  --color-surface-0: #0a0e13;
-  --color-surface-1: #0f141b;
-  --color-surface-2: #151b24;
-  --color-surface-3: #1c232e;
 
-  /* Hairlines */
-  --color-border-subtle: #1f2732;
-  --color-border-strong: #2d3743;
+/* ── Dark (default) ─────────────────────────────────────────────────────────────────────── */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
 
-  /* Type */
-  --color-text-primary: #e7edf4;
-  --color-text-secondary: #9fb0c0;
-  --color-text-muted: #7d92a4;
+  --bg: #0a0e13;
+  --surface: #0f141b;
+  --surface-elevated: #151b24;
+  --surface-raised: #1c232e;
 
-  /* Accent */
-  --color-accent: #58a6ff;
-  --color-accent-subtle: #16283d;
+  --border-subtle: #1f2732;
+  --border: #2d3743;
+  /* Form-control boundaries must reach 3:1 (WCAG 1.4.11); --border cannot. */
+  --border-control: #6b7f92;
 
-  /* Status */
-  --color-status-ok: #47b357;
-  --color-status-warn: #d4a03c;
-  --color-status-down: #f0645a;
+  --text: #e7edf4;
+  --text-2: #9fb0c0;
+  --text-3: #7d92a4;
 
+  --accent: #58a6ff;
+  --accent-subtle: #16283d;
+  --accent-contrast: #0a0e13;
+
+  --info: #5cc8e0;
+  --warning: #d4a03c;
+  --danger: #f0645a;
+  /* System health and verification MATCH only: never a financial value, never PIT eligibility. */
+  --success: #47b357;
+
+  --mode-descriptive: var(--accent);
+  --mode-pit: #b4a0ff;
+
+  /* Direction of a signed value (above / below zero). Not good / bad. */
+  --dir-positive: #4fc3b0;
+  --dir-negative: #e8935e;
+
+  --hover: var(--surface-elevated);
+  --selected: var(--accent-subtle);
+  --focus: var(--accent);
+}
+
+/* ── Light ──────────────────────────────────────────────────────────────────────────────── */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+
+    --bg: #f3f5f8;
+    --surface: #ffffff;
+    --surface-elevated: #f8f9fb;
+    --surface-raised: #eef1f5;
+
+    --border-subtle: #e2e7ed;
+    --border: #cdd5de;
+    --border-control: #7b8794;
+
+    --text: #111820;
+    --text-2: #3b4856;
+    --text-3: #566474;
+
+    --accent: #0b63c4;
+    --accent-subtle: #e1eefc;
+    --accent-contrast: #ffffff;
+
+    --info: #0a6f86;
+    --warning: #8a5a00;
+    --danger: #b42318;
+    --success: #17722f;
+
+    --mode-descriptive: var(--accent);
+    --mode-pit: #5b3fc4;
+
+    --dir-positive: #0f766e;
+    --dir-negative: #b45309;
+
+    --hover: var(--surface-raised);
+    --selected: var(--accent-subtle);
+    --focus: var(--accent);
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --surface-elevated: #f8f9fb;
+  --surface-raised: #eef1f5;
+
+  --border-subtle: #e2e7ed;
+  --border: #cdd5de;
+  --border-control: #7b8794;
+
+  --text: #111820;
+  --text-2: #3b4856;
+  --text-3: #566474;
+
+  --accent: #0b63c4;
+  --accent-subtle: #e1eefc;
+  --accent-contrast: #ffffff;
+
+  --info: #0a6f86;
+  --warning: #8a5a00;
+  --danger: #b42318;
+  --success: #17722f;
+
+  --mode-descriptive: var(--accent);
+  --mode-pit: #5b3fc4;
+
+  --dir-positive: #0f766e;
+  --dir-negative: #b45309;
+
+  --hover: var(--surface-raised);
+  --selected: var(--accent-subtle);
+  --focus: var(--accent);
+}
+
+/*
+ * Tailwind utilities. `inline` makes each utility read the variable directly, so a theme switch
+ * needs no rebuild. The pre-V2 names (surface-0..3, border-strong, text-primary/secondary/muted,
+ * status-ok/warn/down) stay as COMPATIBILITY ALIASES so existing pages adopt the new tokens
+ * without edits; new code uses the semantic names.
+ */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-raised: var(--surface-raised);
+  --color-border-subtle: var(--border-subtle);
+  --color-border: var(--border);
+  --color-border-control: var(--border-control);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-accent: var(--accent);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-contrast: var(--accent-contrast);
+  --color-info: var(--info);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-mode-descriptive: var(--mode-descriptive);
+  --color-mode-pit: var(--mode-pit);
+  --color-positive: var(--dir-positive);
+  --color-negative: var(--dir-negative);
+  --color-hover: var(--hover);
+  --color-selected: var(--selected);
+  --color-focus: var(--focus);
+
+  /* Compatibility aliases (pre-V2 names). */
+  --color-surface-0: var(--bg);
+  --color-surface-1: var(--surface);
+  --color-surface-2: var(--surface-elevated);
+  --color-surface-3: var(--surface-raised);
+  --color-border-strong: var(--border);
+  --color-text-primary: var(--text);
+  --color-text-secondary: var(--text-2);
+  --color-text-muted: var(--text-3);
+  --color-status-ok: var(--success);
+  --color-status-warn: var(--warning);
+  --color-status-down: var(--danger);
+
+  /* Approved container widths: reading, workspace, table. */
+  --container-reading: 64rem;
+  --container-workspace: 96rem;
+  --container-table: 120rem;
+
+  /* System stacks (no remote font dependency; self-hosted Inter remains an optional later asset). */
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, "Noto Sans", sans-serif;
@@ -41,48 +186,148 @@
 }
 
 @layer base {
-  :root {
-    color-scheme: dark;
-  }
-
   html {
     -webkit-text-size-adjust: 100%;
   }
 
   body {
-    background-color: var(--color-surface-0);
-    color: var(--color-text-primary);
+    background-color: var(--bg);
+    color: var(--text);
     font-family: var(--font-sans);
-    font-feature-settings: "cv02", "cv03", "cv04", "tnum";
     -webkit-font-smoothing: antialiased;
   }
 
-  /* A single, consistent focus treatment for keyboard users. */
+  /* One focus treatment for every keyboard user; never removed without a replacement. */
   :focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
 
   ::selection {
-    background-color: var(--color-accent-subtle);
-    color: var(--color-text-primary);
+    background-color: var(--selected);
+    color: var(--text);
   }
 
-  /* Restrained scrollbars to match the terminal aesthetic. */
   * {
-    scrollbar-color: var(--color-border-strong) transparent;
+    scrollbar-color: var(--border) transparent;
     scrollbar-width: thin;
   }
 }
 
+/*
+ * Typography roles. Tabular figures belong on NUMERIC surfaces only (`.num`); body text is
+ * proportional. Monospace is for identifiers and fingerprints (`.type-id`).
+ */
 @layer components {
-  /*
-   * Tabular figures for any numeric or identifier-like content, so columns
-   * align as a research grid would.
-   */
+  .type-nav {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.2;
+  }
+
+  .type-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+
+  .type-section {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1.2;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  .type-body {
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  .type-label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-3);
+  }
+
+  .type-meta {
+    font-size: 0.75rem;
+    color: var(--text-3);
+  }
+
+  .type-id {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+
+  .type-table {
+    font-size: 0.75rem;
+    line-height: 1.35;
+  }
+
+  /* Financial and other numeric surfaces. `.font-tabular` is the pre-V2 name. */
+  .num,
   .font-tabular {
     font-variant-numeric: tabular-nums;
   }
+
+  /*
+   * Optional direction tint (preference, default OFF: `html[data-tint="on"]`). A hue AND an arrow
+   * glyph, so colour is never the only cue, and the sign character is always in the text itself.
+   * Tint means above / below zero, never good / bad.
+   */
+  html[data-tint="on"] [data-direction="positive"] {
+    color: var(--dir-positive);
+  }
+  html[data-tint="on"] [data-direction="negative"] {
+    color: var(--dir-negative);
+  }
+  html[data-tint="on"] [data-direction="positive"]::before {
+    content: "\25B2\00a0";
+    font-size: 0.7em;
+  }
+  html[data-tint="on"] [data-direction="negative"]::before {
+    content: "\25BC\00a0";
+    font-size: 0.7em;
+  }
+}
+
+/* Shell drawer and skeleton: the only animation in the foundation; reduced-motion safe below. */
+@keyframes qf-slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes qf-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+dialog.qf-drawer[open] {
+  animation: qf-slide-in 160ms ease-out;
+}
+
+dialog.qf-drawer::backdrop {
+  background-color: rgb(0 0 0 / 0.5);
+}
+
+/* The selected theme segment is styled from the root attribute, so it is right before hydration. */
+html[data-theme="light"] .qf-theme-opt[data-value="light"],
+html[data-theme="dark"] .qf-theme-opt[data-value="dark"],
+html:not([data-theme]) .qf-theme-opt[data-value="system"] {
+  background-color: var(--selected);
+  color: var(--text);
+}
+
+.qf-skeleton {
+  animation: qf-pulse 1.4s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -93,5 +338,10 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  /* A static fill, not a frozen mid-pulse frame. */
+  .qf-skeleton {
+    animation: none !important;
   }
 }

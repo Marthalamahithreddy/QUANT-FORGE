@@ -48,8 +48,8 @@ async function guard<T>(run: () => Promise<T>): Promise<FilingsResult<T>> {
     if (error instanceof ApiError) {
       if (error.status === 503) return { state: "unavailable" };
       if (error.status === 422)
-        return { state: "rejected", detail: error.message };
-      return { state: "error", detail: error.message };
+        return { state: "rejected", detail: error.publicMessage };
+      return { state: "error", detail: error.publicMessage };
     }
     return {
       state: "error",

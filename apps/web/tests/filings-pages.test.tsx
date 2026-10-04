@@ -857,10 +857,12 @@ describe("Filing detail page: refusals and states", () => {
       expect(String(url)).toMatch(/^http:\/\/localhost:8000\/api\/v1\//);
       expect((init as RequestInit).method).toBe("GET");
     }
-    expect(screen.getByRole("link", { name: "← Filings" })).toHaveAttribute(
-      "href",
-      "/filings",
-    );
+    // The way back is the breadcrumb in the header strip (the body no longer repeats it).
+    expect(
+      within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("link", {
+        name: "Filings",
+      }),
+    ).toHaveAttribute("href", "/filings");
   });
 });
 

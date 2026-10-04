@@ -32,6 +32,8 @@ export interface EarningsQuery {
 }
 
 function describe(error: unknown): string {
+  // Never the raw message of a failed request: it names the service address.
+  if (error instanceof ApiError) return error.publicMessage;
   return error instanceof Error ? error.message : "Unexpected error contacting the API.";
 }
 

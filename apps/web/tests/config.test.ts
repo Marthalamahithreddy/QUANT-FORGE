@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { API_HEALTH_PATH, DEFAULT_API_BASE_URL, env } from "@/lib/config/env";
-import { NAV_ITEMS } from "@/lib/navigation";
+import { NAV_GROUPS, NAV_ITEMS, activeNavItem } from "@/lib/navigation";
 
 describe("env", () => {
   it("exposes the documented local development base URL", () => {
@@ -20,36 +20,44 @@ describe("env", () => {
 });
 
 describe("navigation model", () => {
-  it("declares the workspace sections in order", () => {
+  it("declares Overview, Evidence and Research groups in order", () => {
+    expect(NAV_GROUPS.map((g) => g.label)).toEqual([null, "Evidence", "Research"]);
     expect(NAV_ITEMS.map((item) => item.label)).toEqual([
       "Overview",
-      "Companies",
       "Earnings",
       "Filings",
       "Research",
-      "Backtests",
+      "Saved research",
     ]);
   });
 
-  it("enables only sections that have a real route", () => {
-    expect(
-      NAV_ITEMS.filter((item) => item.status === "available").map((item) => item.href),
-    ).toEqual(["/", "/earnings", "/filings", "/research"]);
+  it("gives every entry a real route and shows no planned or disabled entries", () => {
+    expect(NAV_ITEMS.map((item) => item.href)).toEqual([
+      "/",
+      "/earnings",
+      "/filings",
+      "/research",
+      "/research/saved",
+    ]);
+    expect(NAV_ITEMS.some((item) => "status" in item)).toBe(false);
   });
 
-  it("keeps Backtests and Companies unavailable", () => {
-    const planned = NAV_ITEMS.filter((item) => item.status === "planned").map((i) => i.label);
-    expect(planned).toEqual(["Companies", "Backtests"]);
-  });
-
-  it("gives no href to any planned section", () => {
-    for (const item of NAV_ITEMS.filter((entry) => entry.status === "planned")) {
-      expect(item.href).toBeNull();
-    }
+  it("does not include Companies or Backtests", () => {
+    expect(NAV_ITEMS.map((item) => item.label)).not.toContain("Companies");
+    expect(NAV_ITEMS.map((item) => item.label)).not.toContain("Backtests");
   });
 
   it("has a unique id per entry", () => {
     const ids = NAV_ITEMS.map((item) => item.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("picks the most specific entry as active", () => {
+    expect(activeNavItem("/")?.id).toBe("overview");
+    expect(activeNavItem("/research")?.id).toBe("research");
+    expect(activeNavItem("/research/saved")?.id).toBe("saved");
+    expect(activeNavItem("/research/saved/abc")?.id).toBe("saved");
+    expect(activeNavItem("/earnings/123")?.id).toBe("earnings");
+    expect(activeNavItem("/nowhere")).toBeNull();
   });
 });

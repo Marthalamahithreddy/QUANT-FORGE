@@ -9,6 +9,10 @@ import {
   RequestSummary,
 } from "@/components/filings/eps-panels";
 import { AppShell } from "@/components/layout/app-shell";
+import { Button } from "@/components/ui/button";
+import { Callout } from "@/components/ui/callout";
+import { CONTROL } from "@/components/ui/controls";
+import { PageContainer } from "@/components/ui/page-container";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatePanel } from "@/components/ui/state-panel";
 import { getFilingEps } from "@/lib/api/filings";
@@ -27,22 +31,17 @@ import {
 import { MISSING } from "@/lib/format";
 import { EPS_KINDS, PERIOD_CLASSES } from "@/types/filings";
 
-export const metadata = { title: "Filing EPS · QuantForge" };
+export const metadata = { title: "Filing EPS" };
 
-const SELECT =
-  "rounded-md border border-border-strong bg-surface-2 px-2.5 py-1.5 text-sm text-text-primary";
+const SELECT = CONTROL;
 
 function Boundary() {
   return (
-    <aside
-      role="note"
-      aria-label="Data boundary"
-      className="rounded-md border border-border-strong bg-surface-2 px-4 py-3 text-sm text-text-primary"
-    >
+    <Callout role="note" label="Data boundary">
       {BOUNDARY_LINES.map((line) => (
         <p key={line}>{line}</p>
       ))}
-    </aside>
+    </Callout>
   );
 }
 
@@ -121,12 +120,7 @@ function Controls({
         labels={EPS_KIND_LABEL}
         selector={kind}
       />
-      <button
-        type="submit"
-        className="rounded-md border border-border-strong bg-surface-3 px-3 py-1.5 text-sm text-text-primary hover:border-accent"
-      >
-        Show EPS
-      </button>
+      <Button type="submit">Show EPS</Button>
     </form>
   );
 }
@@ -257,11 +251,8 @@ export default async function FilingDetailPage({
   const header = result?.state === "ok" ? result.data : null;
 
   return (
-    <AppShell status={status}>
-      <div className="mx-auto flex max-w-4xl flex-col gap-5">
-        <Link href="/filings" className="text-sm text-accent hover:underline">
-          ← Filings
-        </Link>
+    <AppShell status={status} breadcrumbs={[{ label: "Filings", href: "/filings" }, { label: accession }]}>
+      <PageContainer>
         <PageHeader
           eyebrow="Filing · SEC FSDS"
           title={accession}
@@ -303,7 +294,7 @@ export default async function FilingDetailPage({
           </p>
         ) : null}
         {body}
-      </div>
+      </PageContainer>
     </AppShell>
   );
 }
