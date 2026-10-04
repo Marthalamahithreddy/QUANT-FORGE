@@ -416,6 +416,16 @@ Startup validation is limited to concrete dangerous misconfiguration: a malforme
 fails at startup (without echoing the value) and `QF_DEBUG=true` is rejected when `QF_ENVIRONMENT=production`. No provider
 key is required to start the API.
 
+### Benchmark discovery API (Step 11.0B, read-only)
+
+`GET /api/v1/benchmarks` lists the stored benchmarks a caller can explicitly select, so a client can obtain the `benchmark_id`
+the research observation endpoint requires. Items carry identity only: `id`, `name`, `symbol` and `currency` (nullable, as
+stored) and `is_active`. Active and inactive benchmarks are both listed. Order is `name` then `id` (names are not unique);
+`limit` 1-200 (default 50) and `offset` are the only parameters (unknown or repeated -> `422`); the shape is
+`{items, total, limit, offset}`; `503` only when the database is unavailable. It chooses, recommends and defaults nothing
+(research still needs an explicit `benchmark_id`), and exposes no source, ingestion run, description, price level or return.
+No detail, search, write or provider call.
+
 ### Research observation API (read-only)
 
 `GET /api/v1/research/observations/{event_id}` serialises one 10.8A `ResearchObservation` (`observation/`): identity,

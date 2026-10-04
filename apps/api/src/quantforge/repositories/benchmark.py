@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import date
 
 import sqlalchemy as sa
@@ -11,7 +12,18 @@ from sqlalchemy.orm import Session
 from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
 from quantforge.models.enums import PriceBasis
 
-__all__ = ["BenchmarkRepository"]
+__all__ = ["BenchmarkIdentity", "BenchmarkRepository"]
+
+
+@dataclass(frozen=True, slots=True)
+class BenchmarkIdentity:
+    """The identity columns of one stored benchmark (no description, source or timestamps)."""
+
+    id: uuid.UUID
+    name: str
+    symbol: str | None
+    currency: str | None
+    is_active: bool
 
 
 class BenchmarkRepository:
@@ -51,6 +63,32 @@ class BenchmarkRepository:
             sa.select(Benchmark).order_by(Benchmark.name, Benchmark.id).limit(limit).offset(offset)
         )
         return list(self._session.scalars(statement))
+
+    def list_identities(self, *, limit: int, offset: int) -> list[BenchmarkIdentity]:
+        """A page of benchmark IDENTITY columns only, ordered ``(name, id)``.
+
+        Selects ``id``, ``name``, ``symbol``, ``currency`` and ``is_active``: the description,
+        source and timestamps are never read, so a discovery surface cannot expose what it never
+        loads. ``(name, id)`` is a total order (names are not unique) and ``ix_benchmark_name``
+        serves it. ``limit`` and ``offset`` are required (no hidden default page size).
+        """
+        statement = (
+            sa.select(
+                Benchmark.id,
+                Benchmark.name,
+                Benchmark.symbol,
+                Benchmark.currency,
+                Benchmark.is_active,
+            )
+            .order_by(Benchmark.name, Benchmark.id)
+            .limit(limit)
+            .offset(offset)
+        )
+        return [BenchmarkIdentity(*row) for row in self._session.execute(statement).all()]
+
+    def count(self) -> int:
+        """The number of stored benchmarks (active and inactive)."""
+        return self._session.execute(sa.select(sa.func.count()).select_from(Benchmark)).scalar_one()
 
     def list_price_bars(
         self,
