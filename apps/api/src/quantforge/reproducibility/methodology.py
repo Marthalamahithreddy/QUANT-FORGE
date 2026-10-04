@@ -45,7 +45,7 @@ COMPONENT_VERSIONS: Final[dict[str, str]] = {
     "eps_surprise": "eps-surprise/1",
     "filing_eps_selection": "filing-eps-selection/1",
     "eps_change": "eps-change/1",
-    "manifest_schema": "reproducibility-manifest/1",
+    "manifest_schema": "reproducibility-manifest/2",
 }
 
 

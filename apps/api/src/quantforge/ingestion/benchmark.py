@@ -255,19 +255,24 @@ class BenchmarkBarIngestor:
     :class:`quantforge.ingestion.daily.DailyBarIngestor`. See that class's
     docstring for the full contract this mirrors; the storage target and the
     narrower conflict comparison (``close`` alone) differ, and so does this
-    constructor: ``BenchmarkPriceBar`` has no ``ingestion_run_id`` column
-    (unlike ``DailyPriceBar``), so there is nothing for a run to stamp on a
-    written row at construction time. The run passed to :meth:`ingest` is
-    still used there, to record counts onto it -- the asymmetry is real, not
-    an oversight, and adding the FK is a schema change for a future step, not
-    this one.
+    constructor: since migration 0013 ``BenchmarkPriceBar`` has a nullable
+    ``ingestion_run_id``, so a run given to the constructor is stamped on every NEW
+    level it writes. An identical level that already exists is skipped and keeps the
+    run that first wrote it (provenance is never rewritten); a differing level is a
+    conflict and is never overwritten. The run passed to :meth:`ingest` records counts.
     """
 
-    __slots__ = ("_now", "_session")
+    __slots__ = ("_now", "_run_id", "_session")
 
-    def __init__(self, session: Session, *, now: datetime) -> None:
+    def __init__(self, session: Session, *, now: datetime, run: IngestionRun | None = None) -> None:
         self._session = session
         self._now = now
+        # A pending run's id is None until flushed: stamping it would store a key that belongs to
+        # no row, a silently false provenance claim (same guard as DailyBarIngestor).
+        if run is not None and sa.inspect(run).identity is None:
+            message = "run must be flushed before the ingestor can stamp it on rows"
+            raise ValueError(message)
+        self._run_id = run.id if run is not None else None
 
     def ingest(
         self,
@@ -287,6 +292,9 @@ class BenchmarkBarIngestor:
                 :meth:`quantforge.ingestion.daily.DailyBarIngestor.ingest`
                 behaves.
         """
+        if run is not None and self._run_id is not None and run.id != self._run_id:
+            message = "the run recording counts must be the run stamped on the written levels"
+            raise ValueError(message)
         counts = IngestCounts(received=len(bars))
         written = skipped = failed = 0
 
@@ -366,6 +374,7 @@ class BenchmarkBarIngestor:
             price_basis=bar.price_basis,
             source_id=source_id,
             observed_at=bar.observed_at,
+            ingestion_run_id=self._run_id,
             ingested_at=self._now,
             created_at=self._now,
         )

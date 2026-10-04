@@ -11,9 +11,11 @@ symbol).
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
@@ -27,10 +29,13 @@ from quantforge.ingestion.benchmark import (
 )
 from quantforge.ingestion.canonical import CanonicalDailyBar
 from quantforge.ingestion.daily import IngestCounts
+from quantforge.ingestion.raw_store import RawResponseStore
+from quantforge.ingestion.service import IngestionService
 from quantforge.ingestion.sources import get_or_create_data_source
 from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
 from quantforge.models.enums import IngestionStatus, PriceBasis
 from quantforge.models.ingestion import IngestionRun
+from quantforge.providers.base import DailyBarsResult
 
 pytestmark = pytest.mark.integration
 
@@ -397,3 +402,144 @@ def test_same_basis_identical_level_is_skipped_and_changed_level_conflicts(
 
     assert caught.value.price_basis is PriceBasis.AS_TRADED
     assert _levels(db_session, benchmark_id)[PriceBasis.AS_TRADED].close == Decimal("6850.000000")
+
+
+# ── 10.9B: run provenance on NEW benchmark levels ────────────────────────────
+
+
+def _run(session: Session) -> IngestionRun:
+    run = IngestionRun(
+        provider="massive",
+        dataset="benchmark-daily-bars",
+        started_at=NOW,
+        request_parameters={},
+        records_received=0,
+        records_written=0,
+        records_skipped=0,
+        records_failed=0,
+    )
+    session.add(run)
+    session.flush()
+    return run
+
+
+def _ingest_under(
+    session: Session,
+    benchmark: uuid.UUID,
+    source: uuid.UUID,
+    run: IngestionRun,
+    *bars: CanonicalDailyBar,
+) -> IngestCounts:
+    return BenchmarkBarIngestor(session, now=NOW, run=run).ingest(
+        bars, benchmark_id=benchmark, source_id=source, symbol="SPY", run=run
+    )
+
+
+def test_a_new_level_records_the_run_that_wrote_it(
+    db_session: Session, benchmark_id: uuid.UUID, source_id: uuid.UUID
+) -> None:
+    run = _run(db_session)
+    counts = _ingest_under(db_session, benchmark_id, source_id, run, _bar())
+    db_session.commit()
+    assert counts.written == 1
+    assert _stored(db_session, benchmark_id).ingestion_run_id == run.id
+
+
+def test_a_level_loaded_without_a_run_stays_null_never_inferred(
+    db_session: Session, benchmark_id: uuid.UUID, source_id: uuid.UUID
+) -> None:
+    _run(db_session)  # a run exists in the database, but is not the writer
+    _ingest(db_session, benchmark_id, source_id, _bar())
+    db_session.commit()
+    assert _stored(db_session, benchmark_id).ingestion_run_id is None
+
+
+def test_the_same_level_under_a_different_run_is_skipped_and_keeps_its_original_run(
+    db_session: Session, benchmark_id: uuid.UUID, source_id: uuid.UUID
+) -> None:
+    first, second = _run(db_session), _run(db_session)
+    _ingest_under(db_session, benchmark_id, source_id, first, _bar())
+    db_session.commit()
+    counts = _ingest_under(db_session, benchmark_id, source_id, second, _bar())
+    db_session.commit()
+    assert (counts.written, counts.skipped, counts.failed) == (0, 1, 0)
+    assert _stored(db_session, benchmark_id).ingestion_run_id == first.id, (
+        "provenance not rewritten"
+    )
+
+
+def test_the_same_level_under_the_same_run_is_idempotent(
+    db_session: Session, benchmark_id: uuid.UUID, source_id: uuid.UUID
+) -> None:
+    run = _run(db_session)
+    _ingest_under(db_session, benchmark_id, source_id, run, _bar())
+    counts = _ingest_under(db_session, benchmark_id, source_id, run, _bar())
+    db_session.commit()
+    assert (counts.written, counts.skipped) == (0, 1)
+    assert db_session.query(BenchmarkPriceBar).count() == 1
+
+
+def test_a_conflicting_level_is_refused_and_the_stored_run_and_value_are_untouched(
+    db_session: Session, benchmark_id: uuid.UUID, source_id: uuid.UUID
+) -> None:
+    first, second = _run(db_session), _run(db_session)
+    _ingest_under(db_session, benchmark_id, source_id, first, _bar())
+    db_session.commit()
+    with pytest.raises(BenchmarkBarConflictError):
+        _ingest_under(db_session, benchmark_id, source_id, second, _bar(close=Decimal("700.00")))
+    db_session.rollback()
+    stored = _stored(db_session, benchmark_id)
+    assert stored.close == Decimal("685.000000") and stored.ingestion_run_id == first.id
+
+
+def test_an_unflushed_run_cannot_be_stamped(db_session: Session) -> None:
+    pending = IngestionRun(
+        provider="massive",
+        dataset="benchmark-daily-bars",
+        started_at=NOW,
+        request_parameters={},
+        records_received=0,
+        records_written=0,
+        records_skipped=0,
+        records_failed=0,
+    )
+    with pytest.raises(ValueError, match="flushed"):
+        BenchmarkBarIngestor(db_session, now=NOW, run=pending)
+
+
+def test_the_service_path_stamps_the_actual_run_on_new_levels(
+    db_session: Session, tmp_path: Path
+) -> None:
+    """End to end through ``IngestionService``: the run row it recorded is the level's run."""
+
+    class _Provider:
+        name = "massive"
+
+        async def get_daily_bars(self, *_a: object, **_k: object) -> DailyBarsResult:
+            return DailyBarsResult(bars=[_bar()], captures=())
+
+    service = IngestionService(
+        session=db_session,
+        provider=_Provider(),  # type: ignore[arg-type]
+        store=RawResponseStore(root=tmp_path / "raw"),
+        now=NOW,
+    )
+    outcome = asyncio.run(
+        service.ingest_benchmark_daily_bars(
+            "SPY", SESSION, SESSION, name=SPY_NAME, price_basis=PriceBasis.SPLIT_ADJUSTED
+        )
+    )
+    db_session.commit()
+    run = db_session.scalars(sa.select(IngestionRun)).one()
+    level = db_session.scalars(sa.select(BenchmarkPriceBar)).one()
+    assert outcome.status is IngestionStatus.SUCCEEDED
+    assert level.ingestion_run_id == run.id
+
+
+def test_counts_and_stamping_must_use_one_run(
+    db_session: Session, benchmark_id: uuid.UUID, source_id: uuid.UUID
+) -> None:
+    first, second = _run(db_session), _run(db_session)
+    ingestor = BenchmarkBarIngestor(db_session, now=NOW, run=first)
+    with pytest.raises(ValueError, match=r"stamped on the written levels"):
+        ingestor.ingest([_bar()], benchmark_id=benchmark_id, source_id=source_id, run=second)

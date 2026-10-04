@@ -36,6 +36,8 @@ from quantforge.models.enums import (
     ListingFactKind,
     PriceBasis,
     ProviderType,
+    ReproducibilityGap,
+    ReproducibilityLevel,
     SecFormType,
     SecurityType,
     StockSplitAdjustmentType,
@@ -50,6 +52,7 @@ from quantforge.models.ingestion import IngestionRun
 from quantforge.models.listing_history import ListingHistoryFact
 from quantforge.models.market import DailyPriceBar
 from quantforge.models.provenance import DataSource
+from quantforge.models.research_record import ResearchObservationRecord
 from quantforge.models.security import Exchange, Listing, Security, SecurityIdentifier
 
 #: The financial-domain tables, in dependency order. Useful for introspection
@@ -78,7 +81,7 @@ DOMAIN_TABLES: tuple[str, ...] = (
 #: pipeline did, not what a market did. Kept separate from ``DOMAIN_TABLES`` so
 #: a test asserting the financial schema is complete does not silently grow to
 #: include bookkeeping, and vice versa.
-OPERATIONAL_TABLES: tuple[str, ...] = ("ingestion_run",)
+OPERATIONAL_TABLES: tuple[str, ...] = ("ingestion_run", "research_observation_record")
 
 #: Every table registered on ``Base.metadata``.
 ALL_TABLES: tuple[str, ...] = DOMAIN_TABLES + OPERATIONAL_TABLES
@@ -109,6 +112,9 @@ __all__ = [
     "ListingHistoryFact",
     "PriceBasis",
     "ProviderType",
+    "ReproducibilityGap",
+    "ReproducibilityLevel",
+    "ResearchObservationRecord",
     "SecFiling",
     "SecFormType",
     "Security",

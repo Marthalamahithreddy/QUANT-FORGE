@@ -216,6 +216,27 @@ class SecFormType(StrEnum):
         return self.value.endswith("/A")
 
 
+class ReproducibilityLevel(StrEnum):
+    """How completely a research observation's consumed evidence is pinned (derived, never chosen)."""
+
+    #: Every consumed evidence item is pinned as far as the schema allows (residual assumptions apply).
+    COMPLETE = "COMPLETE"
+    #: At least one consumed evidence item cannot be tied to an ingestion run or immutable snapshot.
+    PARTIAL = "PARTIAL"
+
+
+class ReproducibilityGap(StrEnum):
+    """Why an observation is PARTIAL. The level is derived from these and from nothing else."""
+
+    EVENT_WITHOUT_INGESTION_RUN = "EVENT_WITHOUT_INGESTION_RUN"
+    STOCK_BAR_WITHOUT_INGESTION_RUN = "STOCK_BAR_WITHOUT_INGESTION_RUN"
+    #: A consumed benchmark bar carries no ingestion run (every pre-0013 row, or one loaded outside a run).
+    BENCHMARK_BARS_WITHOUT_INGESTION_RUN = "BENCHMARK_BARS_WITHOUT_INGESTION_RUN"
+    FILING_WITHOUT_INGESTION_RUN = "FILING_WITHOUT_INGESTION_RUN"
+    #: Accounting was evaluated but no FSDS package is stored for the filing: its absence is unpinned.
+    ACCOUNTING_NOT_INGESTED = "ACCOUNTING_NOT_INGESTED"
+
+
 class FinancialFactSourceKind(StrEnum):
     """The structured source an accession-bound financial fact was extracted from.
 
@@ -333,6 +354,7 @@ PRICE_BASIS_LENGTH = 32
 AVAILABILITY_BASIS_LENGTH = 32
 SEC_FORM_LENGTH = 16
 FACT_SOURCE_KIND_LENGTH = 16
+REPRODUCIBILITY_LEVEL_LENGTH = 16
 SPLIT_ADJUSTMENT_TYPE_LENGTH = 16
 LISTING_FACT_KIND_LENGTH = 16
 #: Lifecycle status of an ingestion run; see ``IngestionStatus``.

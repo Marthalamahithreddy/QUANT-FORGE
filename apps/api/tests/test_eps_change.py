@@ -528,6 +528,7 @@ def test_the_package_exports_resolve_lazily_and_nothing_else_imports_eps_change(
         "observation/models.py",
         "schemas/research_observation.py",
         "reproducibility/verifier.py",
+        "research_records/service.py",
     }, (
         "only the read-only filing EPS API and the observation layer may consume the EPS change layer"
     )

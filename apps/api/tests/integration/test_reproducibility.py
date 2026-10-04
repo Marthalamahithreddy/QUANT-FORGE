@@ -299,17 +299,34 @@ def test_no_benchmark_is_complete_when_everything_else_is_pinned(
     assert record.residual_assumptions, "residual assumptions are always disclosed"
 
 
-def test_a_consumed_benchmark_is_partial_because_the_table_has_no_run_id(
+def test_a_consumed_benchmark_level_without_a_run_is_partial_and_no_run_is_inferred(
     db_session: Session, market: dict[str, object]
 ) -> None:
+    """Pre-0013 / out-of-run levels have NULL run provenance and stay PARTIAL."""
     event = _event(db_session, market)
     _pin_runs(db_session, event)
     record = _record(db_session, event, market, benchmark=True)
     bench = record.manifest.evidence.benchmark
     assert bench.state is EvidenceState.PINNED and len(bench.bars) == 2
-    assert not hasattr(bench.bars[0], "ingestion_run_id"), "nothing is fabricated"
+    assert all(bar.ingestion_run_id is None for bar in bench.bars), "nothing is inferred"
     assert record.gaps == (ReproducibilityGap.BENCHMARK_BARS_WITHOUT_INGESTION_RUN,)
     assert record.level is ReproducibilityLevel.PARTIAL
+
+
+def test_levels_written_under_a_run_make_a_benchmark_observation_complete(
+    db_session: Session, market: dict[str, object]
+) -> None:
+    event = _event(db_session, market)
+    _pin_runs(db_session, event)
+    run = _run(db_session)
+    db_session.execute(sa.update(BenchmarkPriceBar).values(ingestion_run_id=run.id))
+    db_session.commit()
+    record = _record(db_session, event, market, benchmark=True)
+    assert [bar.ingestion_run_id for bar in record.manifest.evidence.benchmark.bars] == [
+        run.id,
+        run.id,
+    ]
+    assert record.gaps == () and record.level is ReproducibilityLevel.COMPLETE
 
 
 def test_a_requested_benchmark_with_no_levels_consumes_no_bars_so_it_adds_no_gap(

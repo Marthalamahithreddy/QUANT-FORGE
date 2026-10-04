@@ -188,6 +188,8 @@ def test_only_the_read_only_api_surface_consumes_the_observation_layer() -> None
     }, offenders
     # and nothing at or below the observation layer may depend on reproducibility
     for path in SRC.rglob("*.py"):
-        if "reproducibility" in path.parts:
-            continue
+        if "reproducibility" in path.parts or path.relative_to(SRC) == Path(
+            "research_records/service.py"
+        ):
+            continue  # research_records (10.9B) is the one persistence consumer above it
         assert not any(n.startswith("quantforge.reproducibility") for n in _imports(path)), path

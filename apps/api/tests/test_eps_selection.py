@@ -658,6 +658,7 @@ ALLOWED_FINANCIALS_CONSUMERS = {
     "observation/models.py",
     "schemas/research_observation.py",
     "reproducibility/verifier.py",
+    "research_records/service.py",
 }  # the read-only filing EPS API (10.6J) and the 10.8A observation layer (composes, adds no accounting math)
 
 

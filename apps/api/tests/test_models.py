@@ -221,9 +221,9 @@ def test_metadata_contains_exactly_the_known_tables() -> None:
     expected size so a failure says how far off the schema is.
     """
     assert set(Base.metadata.tables) == set(ALL_TABLES)
-    assert len(Base.metadata.tables) == 18
+    assert len(Base.metadata.tables) == 19
     assert len(DOMAIN_TABLES) == 17
-    assert len(OPERATIONAL_TABLES) == 1
+    assert len(OPERATIONAL_TABLES) == 2
 
 
 def test_every_domain_table_is_backed_by_a_mapped_class() -> None:

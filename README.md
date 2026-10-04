@@ -388,6 +388,16 @@ benchmark bar can never be run-pinned because `benchmark_price_bar` has no `inge
 fresh assembly with a baseline kept by the caller (or two fresh assemblies, which only detects nondeterminism). A match
 is never a claim that historical bytes still exist. No API, no migration, no persistence (10.9B).
 
+### Persistent research records (Step 10.9B, internal service only)
+
+Migration `0013` adds a nullable `benchmark_price_bar.ingestion_run_id` (new levels record the run that wrote them; existing
+rows stay NULL, never inferred) and `research_observation_record`: an immutable baseline per computation with its own id,
+the exact canonical manifest and result as TEXT (JSONB would not preserve the digested bytes), their SHA-256 digests and the
+derived level/gaps. Triggers reject UPDATE, DELETE and TRUNCATE. `research_records.save_research_record` assembles twice and
+requires agreement, validates hashes, saves PARTIAL records too, returns the existing record for an exact duplicate and refuses
+(`ResultDivergenceError`) the same manifest with a different result. `verify_stored_record` reruns with the baseline's own
+request through the 10.9A verifier. No endpoint, no frontend, no verification history table.
+
 ### Research observation API (read-only)
 
 `GET /api/v1/research/observations/{event_id}` serialises one 10.8A `ResearchObservation` (`observation/`): identity,

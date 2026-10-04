@@ -152,6 +152,7 @@ class BenchmarkPriceBar(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         enum_check("price_basis", PriceBasis),
         sa.CheckConstraint("close >= 0", name="close_non_negative"),
         sa.Index("ix_benchmark_price_bar_source_id", "source_id"),
+        sa.Index("ix_benchmark_price_bar_ingestion_run_id", "ingestion_run_id"),
     )
 
     benchmark_id: Mapped[uuid.UUID] = mapped_column(
@@ -190,6 +191,18 @@ class BenchmarkPriceBar(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         doc=(
             "When the source indicated the level became available, if known. NULL "
             "means undisclosed, not 'equal to ingested_at'."
+        ),
+    )
+    ingestion_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        sa.Uuid(as_uuid=True),
+        sa.ForeignKey("ingestion_run.id", ondelete="RESTRICT"),
+        nullable=True,
+        doc=(
+            "Run that wrote this level (added by migration 0013). NULL is honest, not a "
+            "default: every level stored before 0013, and any level loaded outside a recorded "
+            "run, has no exact run provenance, and none is inferred from timestamps, source or "
+            "date. Set on insert, never rewritten: re-ingesting an identical level under a "
+            "later run is skipped, so the row keeps the run that first wrote it."
         ),
     )
     ingested_at: Mapped[datetime] = mapped_column(

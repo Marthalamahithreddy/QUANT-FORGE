@@ -55,8 +55,8 @@ def test_domain_and_operational_tables_are_disjoint_and_complete() -> None:
     assert set(DOMAIN_TABLES) | set(OPERATIONAL_TABLES) == set(ALL_TABLES)
     # The financial schema is still exactly the ten tables Step 5 settled on.
     assert len(DOMAIN_TABLES) == 17
-    # Operational bookkeeping so far is only the ingestion run log.
-    assert OPERATIONAL_TABLES == ("ingestion_run",)
+    # Operational tables: the ingestion run log and the immutable research baselines (10.9B).
+    assert OPERATIONAL_TABLES == ("ingestion_run", "research_observation_record")
 
 
 # ── DSN driver selection ─────────────────────────────────────────────────────

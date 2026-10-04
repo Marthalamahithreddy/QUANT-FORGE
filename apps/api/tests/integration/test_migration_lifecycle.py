@@ -34,7 +34,7 @@ pytestmark = pytest.mark.integration
 API_ROOT = Path(__file__).resolve().parents[2]
 
 SCRATCH_DB_NAME = "quantforge_migrations_test"
-HEAD = "0012"
+HEAD = "0013"
 PRIOR = "0005"
 #: Revision before 0005 -- the 0005 tests below downgrade past 0006 to reach it.
 PRE_0005 = "0004"
@@ -125,6 +125,7 @@ def test_upgrade_to_head_produces_the_expected_chain(
     chain = [script.revision for script in scripts.walk_revisions()]
     assert chain == [
         HEAD,
+        "0012",
         "0011",
         "0010",
         "0009",
@@ -1037,3 +1038,155 @@ def test_0012_widens_source_accepted_keeps_real_text_and_downgrade_refuses_to_tr
             connection.execute(sa.text("DELETE FROM sec_filing"))
         _purge_seed(scratch_database, ids)
         command.upgrade(config, HEAD)
+
+
+_GOOD_DIGEST = "a" * 64
+
+
+def _wipe_records(connection: sa.Connection) -> None:
+    """Test cleanup: deliberately disable the guard triggers (a superuser/owner act)."""
+    connection.execute(sa.text("ALTER TABLE research_observation_record DISABLE TRIGGER USER"))
+    connection.execute(sa.text("DELETE FROM research_observation_record"))
+    connection.execute(sa.text("ALTER TABLE research_observation_record ENABLE TRIGGER USER"))
+
+
+def _insert_record(connection: sa.Connection, *, gaps: str = "[]", level: str = "COMPLETE") -> None:
+    connection.execute(
+        sa.text(
+            "INSERT INTO research_observation_record (id, created_at, manifest_fingerprint, "
+            "manifest_hash_algorithm, canonical_manifest, result_fingerprint, "
+            "result_hash_algorithm, canonical_result, reproducibility_level, "
+            "reproducibility_gaps) VALUES (gen_random_uuid(), now(), :m, 'sha256', '{}', :r, "
+            "'sha256', '{}', :level, CAST(:gaps AS jsonb))"
+        ),
+        {"m": _GOOD_DIGEST, "r": "b" * 64, "level": level, "gaps": gaps},
+    )
+
+
+def test_0013_adds_a_null_run_column_without_backfill_and_an_immutable_record_table(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, HEAD)
+    command.downgrade(config, "0012")
+    ids = _seed_entities(scratch_database)
+    try:
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO benchmark_price_bar (id, benchmark_id, trading_date, close, "
+                    "source_id, price_basis, ingested_at, created_at) VALUES (gen_random_uuid(), "
+                    ":benchmark, '2024-03-15', 500, :source, 'SPLIT_ADJUSTED', now(), now())"
+                ),
+                ids,
+            )
+        command.upgrade(config, HEAD)
+        inspector = sa.inspect(scratch_database)
+        columns = {c["name"]: c for c in inspector.get_columns("benchmark_price_bar")}
+        assert columns["ingestion_run_id"]["nullable"] is True
+        with scratch_database.connect() as connection:
+            runs: list[object] = list(
+                connection.execute(sa.text("SELECT ingestion_run_id FROM benchmark_price_bar"))
+                .scalars()
+                .all()
+            )
+        assert runs == [None], "existing rows are never backfilled or inferred"
+        indexes = {i["name"] for i in inspector.get_indexes("benchmark_price_bar")}
+        assert "ix_benchmark_price_bar_ingestion_run_id" in indexes
+        assert "research_observation_record" in inspector.get_table_names()
+        record_indexes = {
+            i["name"] for i in inspector.get_indexes("research_observation_record")
+        } | {u["name"] for u in inspector.get_unique_constraints("research_observation_record")}
+        assert "uq_research_observation_record_manifest_result" in record_indexes
+    finally:
+        _purge_seed(scratch_database, ids)
+        command.upgrade(config, HEAD)
+
+
+def test_0013_record_table_constraints_and_immutability_trigger(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, HEAD)
+    try:
+        with scratch_database.begin() as connection:
+            _insert_record(connection)
+        # simple invariants are enforced by the database
+        for kwargs in (
+            {"gaps": "[]", "level": "PARTIAL"},  # level must match the gaps
+            {"gaps": '["X"]', "level": "COMPLETE"},
+            {"gaps": "[]", "level": "BOGUS"},
+        ):
+            with pytest.raises(sa.exc.IntegrityError), scratch_database.begin() as connection:
+                _insert_record(connection, **kwargs)
+        with pytest.raises(sa.exc.IntegrityError), scratch_database.begin() as connection:
+            connection.execute(
+                sa.text(
+                    "INSERT INTO research_observation_record (id, created_at, "
+                    "manifest_fingerprint, manifest_hash_algorithm, canonical_manifest, "
+                    "result_fingerprint, result_hash_algorithm, canonical_result, "
+                    "reproducibility_level, reproducibility_gaps) VALUES (gen_random_uuid(), "
+                    "now(), 'XYZ', 'md5', '', 'b', 'sha256', '', 'COMPLETE', '[]'::jsonb)"
+                )
+            )
+        # immutability: no UPDATE, no DELETE
+        with pytest.raises(sa.exc.DBAPIError, match="immutable"), scratch_database.begin() as c:
+            c.execute(sa.text("UPDATE research_observation_record SET canonical_result = '{}'"))
+        with pytest.raises(sa.exc.DBAPIError, match="immutable"), scratch_database.begin() as c:
+            c.execute(sa.text("DELETE FROM research_observation_record"))
+        with pytest.raises(sa.exc.DBAPIError, match="immutable"), scratch_database.begin() as c:
+            c.execute(sa.text("TRUNCATE research_observation_record"))
+    finally:
+        with scratch_database.begin() as connection:
+            _wipe_records(connection)
+
+
+def test_0013_downgrade_refuses_while_baselines_or_run_provenance_exist(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, HEAD)
+    ids = _seed_entities(scratch_database)
+    try:
+        with scratch_database.begin() as connection:
+            _insert_record(connection)
+        with pytest.raises(Exception, match="research_observation_record row"):
+            command.downgrade(config, "0012")
+        assert _current_version(scratch_database) == HEAD
+        with scratch_database.begin() as connection:
+            _wipe_records(connection)
+            connection.execute(
+                sa.text(
+                    "INSERT INTO ingestion_run (id, created_at, provider, dataset, status, "
+                    "started_at, request_parameters, records_received, records_written, "
+                    "records_skipped, records_failed) VALUES (:run, now(), 'massive', 'x', "
+                    "'running', now(), '{}'::jsonb, 0, 0, 0, 0)"
+                ),
+                {"run": ids["benchmark"]},
+            )
+            connection.execute(
+                sa.text(
+                    "INSERT INTO benchmark_price_bar (id, benchmark_id, trading_date, close, "
+                    "source_id, price_basis, ingested_at, created_at, ingestion_run_id) VALUES "
+                    "(gen_random_uuid(), :benchmark, '2024-03-15', 500, :source, "
+                    "'SPLIT_ADJUSTED', now(), now(), :benchmark)"
+                ),
+                ids,
+            )
+        with pytest.raises(Exception, match="run provenance exist"):
+            command.downgrade(config, "0012")
+        with scratch_database.begin() as connection:
+            connection.execute(sa.text("UPDATE benchmark_price_bar SET ingestion_run_id = NULL"))
+        command.downgrade(config, "0012")
+        columns = {
+            c["name"] for c in sa.inspect(scratch_database).get_columns("benchmark_price_bar")
+        }
+        assert "ingestion_run_id" not in columns
+        assert "research_observation_record" not in sa.inspect(scratch_database).get_table_names()
+    finally:
+        command.upgrade(config, HEAD)
+        with scratch_database.begin() as connection:
+            connection.execute(
+                sa.text("DELETE FROM ingestion_run WHERE id = :run"), {"run": ids["benchmark"]}
+            )
+        _purge_seed(scratch_database, ids)

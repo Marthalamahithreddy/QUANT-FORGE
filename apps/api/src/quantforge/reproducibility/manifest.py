@@ -41,6 +41,8 @@ from quantforge.models.enums import (
     AvailabilityBasis,
     EarningsTiming,
     PriceBasis,
+    ReproducibilityGap,
+    ReproducibilityLevel,
     SecFormType,
 )
 from quantforge.models.market import DailyPriceBar
@@ -51,7 +53,8 @@ from quantforge.observation.models import (
     ResearchObservation,
 )
 from quantforge.repositories.financial_fact import FinancialFactRepository
-from quantforge.reproducibility.canonical import Fingerprint, fingerprint_of
+from quantforge.reproducibility.baseline import ManifestFingerprints, ReproducibilityBaseline
+from quantforge.reproducibility.canonical import Fingerprint, canonical_text
 from quantforge.reproducibility.methodology import CURRENT_METHODOLOGY, MethodologyIdentity
 from quantforge.research.alignment import ALIGNMENT_WINDOW_DAYS
 from quantforge.research.availability import PointInTimeEligibility, ResearchMode
@@ -71,7 +74,6 @@ __all__ = [
     "EvidenceState",
     "FactPin",
     "FilingEvidence",
-    "ManifestFingerprints",
     "PitEvidence",
     "ReproducibilityGap",
     "ReproducibilityLevel",
@@ -95,23 +97,6 @@ RESIDUAL_ASSUMPTIONS: Final[tuple[str, ...]] = (
     "STORED_PRICE_BARS_AND_FILINGS_ARE_IMMUTABLE_BY_CONVENTION",
     "LISTING_REFERENCE_ROWS_ARE_NOT_SNAPSHOTTED_ONLY_THE_RESOLVED_IDENTITY_IS_PINNED",
 )
-
-
-class ReproducibilityLevel(StrEnum):
-    #: Every consumed evidence item is pinned as far as the schema allows (residual assumptions apply).
-    COMPLETE = "COMPLETE"
-    #: At least one consumed evidence item cannot be tied to an ingestion run or immutable snapshot.
-    PARTIAL = "PARTIAL"
-
-
-class ReproducibilityGap(StrEnum):
-    EVENT_WITHOUT_INGESTION_RUN = "EVENT_WITHOUT_INGESTION_RUN"
-    STOCK_BAR_WITHOUT_INGESTION_RUN = "STOCK_BAR_WITHOUT_INGESTION_RUN"
-    #: BenchmarkPriceBar has no ingestion_run_id column: always a gap once a benchmark bar is consumed.
-    BENCHMARK_BARS_WITHOUT_INGESTION_RUN = "BENCHMARK_BARS_WITHOUT_INGESTION_RUN"
-    FILING_WITHOUT_INGESTION_RUN = "FILING_WITHOUT_INGESTION_RUN"
-    #: Accounting was evaluated but no FSDS package is stored for the filing: its absence is unpinned.
-    ACCOUNTING_NOT_INGESTED = "ACCOUNTING_NOT_INGESTED"
 
 
 class EvidenceState(StrEnum):
@@ -192,13 +177,15 @@ class StockEvidence:
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkBarPin:
-    """A consumed benchmark level. There is NO ingestion-run field: the table has none."""
+    """A consumed benchmark level. ``ingestion_run_id`` is None for every pre-0013 row (unknown,
+    never inferred) and for levels loaded outside a recorded run."""
 
     session: date
     bar_id: uuid.UUID
     source_id: uuid.UUID
     close: Decimal
     ingested_at: datetime
+    ingestion_run_id: uuid.UUID | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,27 +256,41 @@ class ReproducibilityManifest:
 
 
 @dataclass(frozen=True, slots=True)
-class ManifestFingerprints:
-    request: Fingerprint
-    methodology: Fingerprint
-    evidence: Fingerprint
-    #: Covers request + methodology + evidence (not the level, gaps or the result).
-    manifest: Fingerprint
-
-
-@dataclass(frozen=True, slots=True)
 class ReproducibilityRecord:
+    """The typed manifest of a fresh computation plus the baseline derived from its canonical text.
+
+    Fingerprints, gaps and level all come from the baseline (one derivation, shared with records
+    loaded from the database); the typed ``manifest`` is for inspection by code that just built it.
+    """
+
     manifest: ReproducibilityManifest
-    fingerprints: ManifestFingerprints
-    #: Fingerprint of the computed observation (roadmap ``known_gaps`` excluded): "did the output change".
-    result_fingerprint: Fingerprint
-    gaps: tuple[ReproducibilityGap, ...]
+    baseline: ReproducibilityBaseline
     residual_assumptions: tuple[str, ...] = RESIDUAL_ASSUMPTIONS
 
     @property
+    def fingerprints(self) -> ManifestFingerprints:
+        return self.baseline.fingerprints
+
+    #: Fingerprint of the computed observation (roadmap ``known_gaps`` excluded): "did the output change".
+    @property
+    def result_fingerprint(self) -> Fingerprint:
+        return self.baseline.result_fingerprint
+
+    @property
+    def gaps(self) -> tuple[ReproducibilityGap, ...]:
+        return self.baseline.gaps
+
+    @property
     def level(self) -> ReproducibilityLevel:
-        """Derived from the gaps only; it cannot be set independently."""
-        return ReproducibilityLevel.PARTIAL if self.gaps else ReproducibilityLevel.COMPLETE
+        return self.baseline.level
+
+    @property
+    def canonical_manifest(self) -> str:
+        return self.baseline.canonical_manifest
+
+    @property
+    def canonical_result(self) -> str:
+        return self.baseline.canonical_result
 
 
 def _sessions_digest(pairs: list[tuple[date, uuid.UUID]]) -> str:
@@ -413,6 +414,7 @@ def _benchmark_evidence(session: Session, observation: ResearchObservation) -> B
         BenchmarkPriceBar.source_id,
         BenchmarkPriceBar.close,
         BenchmarkPriceBar.ingested_at,
+        BenchmarkPriceBar.ingestion_run_id,
     ).where(
         BenchmarkPriceBar.benchmark_id == benchmark_id,
         BenchmarkPriceBar.price_basis == RESEARCH_PRICE_BASIS,
@@ -442,7 +444,14 @@ def _benchmark_evidence(session: Session, observation: ResearchObservation) -> B
         message = "consumed benchmark levels come from more than one source"
         raise EvidenceChangedDuringAssemblyError(message)
     pins = tuple(
-        BenchmarkBarPin(row.trading_date, row.id, row.source_id, row.close, row.ingested_at)
+        BenchmarkBarPin(
+            row.trading_date,
+            row.id,
+            row.source_id,
+            row.close,
+            row.ingested_at,
+            row.ingestion_run_id,
+        )
         for row in candidates
     )
     if {pin.session for pin in pins} != consumed:
@@ -556,25 +565,10 @@ def _filing_and_accounting(
     return filing, AccountingEvidence(EvidenceState.PINNED, artifacts, tuple(pins))
 
 
-def _gaps(evidence: EvidenceManifest) -> tuple[ReproducibilityGap, ...]:
-    gaps: list[ReproducibilityGap] = []
-    if evidence.event.ingestion_run_id is None:
-        gaps.append(ReproducibilityGap.EVENT_WITHOUT_INGESTION_RUN)
-    if any(bar.ingestion_run_id is None for bar in evidence.stock.bars):
-        gaps.append(ReproducibilityGap.STOCK_BAR_WITHOUT_INGESTION_RUN)
-    if evidence.benchmark.bars:
-        gaps.append(ReproducibilityGap.BENCHMARK_BARS_WITHOUT_INGESTION_RUN)
-    if evidence.filing.state is EvidenceState.PINNED and evidence.filing.ingestion_run_id is None:
-        gaps.append(ReproducibilityGap.FILING_WITHOUT_INGESTION_RUN)
-    if evidence.accounting.state is EvidenceState.PINNED and not evidence.accounting.artifacts:
-        gaps.append(ReproducibilityGap.ACCOUNTING_NOT_INGESTED)
-    return tuple(gaps)
-
-
-def _result_fingerprint(observation: ResearchObservation) -> Fingerprint:
-    """The observation's own fingerprint; the internal roadmap ``known_gaps`` list is not a result."""
+def _canonical_result(observation: ResearchObservation) -> str:
+    """The observation's canonical text; the internal roadmap ``known_gaps`` list is not a result."""
     stripped = replace(observation, provenance=replace(observation.provenance, known_gaps=()))
-    return fingerprint_of(stripped)
+    return canonical_text(stripped)
 
 
 def build_reproducibility_record(
@@ -618,15 +612,7 @@ def build_reproducibility_record(
         accounting=accounting,
     )
     manifest = ReproducibilityManifest(_request(observation), methodology, evidence)
-    gaps = _gaps(evidence)
-    return ReproducibilityRecord(
-        manifest=manifest,
-        fingerprints=ManifestFingerprints(
-            request=fingerprint_of(manifest.request),
-            methodology=fingerprint_of(manifest.methodology),
-            evidence=fingerprint_of(manifest.evidence),
-            manifest=fingerprint_of(manifest),
-        ),
-        result_fingerprint=_result_fingerprint(observation),
-        gaps=gaps,
+    baseline = ReproducibilityBaseline.from_canonical(
+        canonical_text(manifest), _canonical_result(observation)
     )
+    return ReproducibilityRecord(manifest=manifest, baseline=baseline)

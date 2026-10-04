@@ -34,8 +34,10 @@ __all__ = [
     "FINGERPRINT_ALGORITHM",
     "Fingerprint",
     "canonical_bytes",
+    "canonical_text",
     "canonical_value",
     "fingerprint_of",
+    "fingerprint_of_text",
 ]
 
 FINGERPRINT_ALGORITHM: Final = "sha256"
@@ -106,6 +108,16 @@ def canonical_bytes(value: object) -> bytes:
         sort_keys=True,
         allow_nan=False,
     ).encode("utf-8")
+
+
+def canonical_text(value: object) -> str:
+    """The canonical form as text (ASCII-only JSON, so UTF-8 bytes == the text)."""
+    return canonical_bytes(value).decode("ascii")
+
+
+def fingerprint_of_text(text: str) -> Fingerprint:
+    """SHA-256 over already-canonical text, exactly as stored."""
+    return Fingerprint(FINGERPRINT_ALGORITHM, hashlib.sha256(text.encode("utf-8")).hexdigest())
 
 
 def fingerprint_of(value: object) -> Fingerprint:

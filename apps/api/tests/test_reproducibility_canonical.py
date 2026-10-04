@@ -14,19 +14,17 @@ from pathlib import Path
 import pytest
 
 import quantforge
-from quantforge.models.enums import AvailabilityBasis
+from quantforge.models.enums import AvailabilityBasis, ReproducibilityGap, ReproducibilityLevel
+from quantforge.reproducibility.baseline import ReproducibilityBaseline
 from quantforge.reproducibility.canonical import (
     Fingerprint,
     canonical_bytes,
+    canonical_text,
     canonical_value,
     fingerprint_of,
+    fingerprint_of_text,
 )
-from quantforge.reproducibility.manifest import (
-    ReproducibilityGap,
-    ReproducibilityLevel,
-    ReproducibilityManifest,
-    ReproducibilityRecord,
-)
+from quantforge.reproducibility.manifest import ReproducibilityManifest, ReproducibilityRecord
 from quantforge.reproducibility.methodology import (
     COMPONENT_VERSIONS,
     CURRENT_METHODOLOGY,
@@ -133,20 +131,87 @@ def test_methodology_table_is_pinned_so_a_semantic_edit_is_deliberate() -> None:
         "eps_surprise": "eps-surprise/1",
         "filing_eps_selection": "filing-eps-selection/1",
         "eps_change": "eps-change/1",
-        "manifest_schema": "reproducibility-manifest/1",
+        "manifest_schema": "reproducibility-manifest/2",
     }
     assert [b.value for b in CURRENT_METHODOLOGY.approved_availability_bases] == [
         "SOURCE_PUBLICATION"
     ], "approving a new availability basis changes the methodology identity"
 
 
-def test_the_level_is_derived_from_gaps_only() -> None:
-    gap = ReproducibilityGap.BENCHMARK_BARS_WITHOUT_INGESTION_RUN
-    partial = ReproducibilityRecord(None, None, fingerprint_of(1), (gap,))  # type: ignore[arg-type]
-    complete = ReproducibilityRecord(None, None, fingerprint_of(1), ())  # type: ignore[arg-type]
+def _evidence(**overrides: object) -> dict[str, object]:
+    run = "11111111-1111-1111-1111-111111111111"
+    evidence: dict[str, object] = {
+        "event": {"ingestion_run_id": run},
+        "stock": {"bars": [{"ingestion_run_id": run}]},
+        "benchmark": {"bars": []},
+        "filing": {"state": "NOT_REQUESTED", "ingestion_run_id": None},
+        "accounting": {"state": "NOT_REQUESTED", "artifacts": []},
+    }
+    evidence.update(overrides)
+    return evidence
+
+
+def _baseline(evidence: dict[str, object]) -> ReproducibilityBaseline:
+    manifest = {"request": {}, "methodology": {}, "evidence": evidence}
+    return ReproducibilityBaseline.from_canonical(
+        canonical_text(manifest), canonical_text({"r": 1})
+    )
+
+
+def test_the_level_is_derived_from_the_evidence_and_cannot_be_set() -> None:
+    assert _baseline(_evidence()).level is ReproducibilityLevel.COMPLETE
+    bar = {"ingestion_run_id": None}
+    partial = _baseline(_evidence(benchmark={"bars": [bar]}))
+    assert partial.gaps == (ReproducibilityGap.BENCHMARK_BARS_WITHOUT_INGESTION_RUN,)
     assert partial.level is ReproducibilityLevel.PARTIAL
-    assert complete.level is ReproducibilityLevel.COMPLETE
-    assert "level" not in {f.name for f in dataclasses.fields(ReproducibilityRecord)}
+    names = {f.name for f in dataclasses.fields(ReproducibilityBaseline)}
+    assert "level" not in names and "level" not in {
+        f.name for f in dataclasses.fields(ReproducibilityRecord)
+    }
+
+
+def test_a_benchmark_bar_with_a_run_adds_no_gap_and_an_unrequested_benchmark_none() -> None:
+    run = "22222222-2222-2222-2222-222222222222"
+    assert _baseline(_evidence(benchmark={"bars": [{"ingestion_run_id": run}]})).gaps == ()
+    assert _baseline(_evidence(benchmark={"bars": []})).gaps == ()
+
+
+def test_every_gap_rule_fires_only_on_consumed_unpinned_evidence() -> None:
+    gaps = _baseline(
+        _evidence(
+            event={"ingestion_run_id": None},
+            stock={"bars": [{"ingestion_run_id": None}]},
+            filing={"state": "PINNED", "ingestion_run_id": None},
+            accounting={"state": "PINNED", "artifacts": []},
+        )
+    ).gaps
+    assert gaps == (
+        ReproducibilityGap.EVENT_WITHOUT_INGESTION_RUN,
+        ReproducibilityGap.STOCK_BAR_WITHOUT_INGESTION_RUN,
+        ReproducibilityGap.FILING_WITHOUT_INGESTION_RUN,
+        ReproducibilityGap.ACCOUNTING_NOT_INGESTED,
+    )
+    unread = _baseline(
+        _evidence(
+            filing={"state": "NOT_READ", "ingestion_run_id": None},
+            accounting={"state": "NOT_READ", "artifacts": []},
+        )
+    )
+    assert unread.gaps == ()
+
+
+def test_the_baseline_rejects_non_canonical_text_and_derives_digests_from_the_text() -> None:
+    text = canonical_text({"request": {}, "methodology": {}, "evidence": _evidence()})
+    pretty = json.dumps(json.loads(text), indent=2)
+    with pytest.raises(ValueError, match="not in canonical form"):
+        ReproducibilityBaseline.from_canonical(pretty, canonical_text({"r": 1}))
+    with pytest.raises(ValueError, match="not valid canonical JSON"):
+        ReproducibilityBaseline.from_canonical("{", canonical_text({"r": 1}))
+    with pytest.raises(ValueError, match="request, methodology and evidence"):
+        ReproducibilityBaseline.from_canonical(canonical_text({"x": 1}), canonical_text({"r": 1}))
+    baseline = ReproducibilityBaseline.from_canonical(text, canonical_text({"r": 1}))
+    assert baseline.fingerprints.manifest == fingerprint_of_text(text)
+    assert baseline.fingerprints.evidence == fingerprint_of(json.loads(text)["evidence"])
 
 
 def test_methodology_overrides_reject_unknown_components_and_windows_follow_the_engines() -> None:

@@ -371,7 +371,7 @@ class IngestionService:
                 raise
             self._record(run, result.captures)
 
-            ingestor = BenchmarkBarIngestor(self._session, now=self._now)
+            ingestor = BenchmarkBarIngestor(self._session, now=self._now, run=run.row)
             try:
                 counts = ingestor.ingest(
                     result.bars,

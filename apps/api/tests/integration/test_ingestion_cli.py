@@ -138,11 +138,17 @@ def empty_database(integration_engine: Engine) -> Iterator[None]:
     so truncating is both safe and cheaper than unwinding rows by hand.
     """
     names = ", ".join(sa.inspect(integration_engine).get_table_names())
-    with integration_engine.begin() as connection:
-        connection.execute(sa.text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
+    guard = "research_observation_record"  # immutable by trigger, incl. TRUNCATE: disable for reset
+
+    def reset() -> None:
+        with integration_engine.begin() as connection:
+            connection.execute(sa.text(f"ALTER TABLE {guard} DISABLE TRIGGER USER"))
+            connection.execute(sa.text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
+            connection.execute(sa.text(f"ALTER TABLE {guard} ENABLE TRIGGER USER"))
+
+    reset()
     yield
-    with integration_engine.begin() as connection:
-        connection.execute(sa.text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
+    reset()
 
 
 @pytest.fixture
