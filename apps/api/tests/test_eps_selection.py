@@ -654,7 +654,9 @@ ALLOWED_FINANCIALS_CONSUMERS = {
     "api/v1/filing_eps.py",
     "api/v1/filing_eps_presenter.py",
     "schemas/filing_eps.py",
-}  # the read-only filing EPS API (10.6J): no signal, backtest, research or UI consumer
+    "observation/assembler.py",
+    "observation/models.py",
+}  # the read-only filing EPS API (10.6J) and the 10.8A observation layer (composes, adds no accounting math)
 
 
 def test_no_other_package_imports_the_financials_layer() -> None:
@@ -665,7 +667,7 @@ def test_no_other_package_imports_the_financials_layer() -> None:
         if any(n.startswith("quantforge.financials") for n in _imports(path)):
             offenders.append(str(path.relative_to(SRC)))
     assert set(offenders) <= ALLOWED_FINANCIALS_CONSUMERS, (
-        "only the read-only filing EPS API may consume it"
+        "only the read-only filing EPS API and the observation layer may consume it"
     )
 
 
@@ -702,3 +704,27 @@ def test_status_precedence_over_unit_null_and_dimensions() -> None:
     assert select([fact(coreg="G", unit="CAD")]).status is EpsStatus.COREG_ONLY
     # generic wrong-unit + dimensional correct-unit -> WRONG_UNIT
     assert select([fact(unit="CAD"), class_a]).status is EpsStatus.WRONG_UNIT
+
+
+def test_the_consumer_allow_list_is_exact_files_and_still_rejects_other_modules(
+    tmp_path: Path,
+) -> None:
+    """10.8A widened the guard by two EXACT files, not a package prefix: a new module still fails."""
+    assert all(entry.endswith(".py") for entry in ALLOWED_FINANCIALS_CONSUMERS)
+    assert not any(
+        entry.rstrip("/") in {"observation", "api", "api/v1", "schemas"}
+        for entry in ALLOWED_FINANCIALS_CONSUMERS
+    )
+    for stray in (
+        "observation/another.py",
+        "research/event_study.py",
+        "signals/eps_surprise.py",
+        "backtest/execution.py",
+        "api/v1/research_observations.py",
+    ):
+        assert stray not in ALLOWED_FINANCIALS_CONSUMERS
+    module = tmp_path / "rogue.py"
+    module.write_text("from quantforge.financials import EpsKind\n", encoding="utf-8")
+    assert any(n.startswith("quantforge.financials") for n in _imports(module)), (
+        "the scan used by the guard does detect a financials import in an arbitrary module"
+    )
