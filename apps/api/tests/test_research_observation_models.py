@@ -171,11 +171,16 @@ def test_observation_never_touches_acceptance_time_or_writes() -> None:
             assert word not in text, (path, word)
 
 
-def test_lower_layers_do_not_depend_on_the_observation_layer() -> None:
+def test_only_the_read_only_api_surface_consumes_the_observation_layer() -> None:
+    """Research, financials, signals, backtest, market, identity, ingestion and providers sit BELOW it."""
     offenders = []
     for path in SRC.rglob("*.py"):
         if "observation" in path.parts:
             continue
         if any(n.startswith("quantforge.observation") for n in _imports(path)):
             offenders.append(str(path.relative_to(SRC)))
-    assert offenders == []
+    assert set(offenders) <= {
+        "api/v1/research_observations.py",
+        "api/v1/research_observation_presenter.py",
+        "schemas/research_observation.py",
+    }, offenders

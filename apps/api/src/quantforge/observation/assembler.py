@@ -95,7 +95,16 @@ def _resolve_link(
         )
     own = [row for row in stored if row.company_id == event.company_id]
     if cik is None:
-        own = []  # consistency cannot be established, and extraction could not be CIK-qualified
+        reason = (
+            f"accession {accession} is stored, but the event's company has no CIK, so "
+            "consistency cannot be established; the filing is not read"
+        )
+        own = []
+    else:
+        reason = (
+            f"accession {accession} is not stored under this event's company; the filing is "
+            "not read and nothing is borrowed from another registrant"
+        )
     if not own:
         return (
             FilingLink(
@@ -104,11 +113,7 @@ def _resolve_link(
                 accession_number=accession,
                 company_cik=cik,
                 form=None,
-                reason=(
-                    f"accession {accession} is not stored under this event's company; "
-                    "or the event's company has no CIK; the filing is not read and nothing "
-                    "is borrowed from another registrant"
-                ),
+                reason=reason,
             ),
             None,
         )

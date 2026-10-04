@@ -377,6 +377,17 @@ no signal or score, no availability or clock, no persistence, no migration.
   never mutating the process-global Decimal context. The percentage is **not quantized or formatted** in the domain
   (`-1/3` keeps 50 digits); display rounding belongs to a later layer. No float anywhere.
 
+### Research observation API (read-only)
+
+`GET /api/v1/research/observations/{event_id}` serialises one 10.8A `ResearchObservation` (`observation/`): identity,
+effective parameters, the stored event, an optional caller-supplied filing link, D0/D1 disclosure-evidence category,
+accounting (the existing filing EPS contract, whole), a DESCRIPTIVE event study, a separate POINT_IN_TIME section
+(`REFUSED` or `EVIDENCE_ELIGIBLE`), provenance and scoped refusals. Optional query: `horizons` (comma list, default
+`1,5,20`), `benchmark_id`, `security_id`, `filing_accession` (requires `eps_period_class` and `eps_kind`; a filing is
+never inferred). Every domain refusal is `200`; `404` only for an unknown event id; `422` for invalid/repeated/unknown
+parameters; `503` only when the database is unavailable. Decimals are fixed-point strings; read-only, no provider call,
+nothing persisted; no frontend.
+
 ### Filing EPS API (read-only)
 
 `GET /api/v1/filings/{accession}/eps?period_class=QUARTER|ANNUAL&eps_kind=DILUTED|BASIC_AND_DILUTED` exposes, for one
