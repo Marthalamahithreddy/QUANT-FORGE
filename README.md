@@ -377,6 +377,17 @@ no signal or score, no availability or clock, no persistence, no migration.
   never mutating the process-global Decimal context. The percentage is **not quantized or formatted** in the domain
   (`-1/3` keeps 50 digits); display rounding belongs to a later layer. No float anywhere.
 
+### Reproducibility foundation (Step 10.9A, pure, not persisted)
+
+`quantforge/reproducibility/` defines what identifies a `ResearchObservation` computation: a **request** identity
+(effective inputs after defaults), a **methodology** identity (explicit version labels + policy parameters), an
+**evidence** identity (ids/hashes of the stored data actually consumed, not database state) and a separate **result**
+fingerprint, all SHA-256 over one deterministic canonical JSON (fixed-point decimals, UTC instants, sorted keys; not
+JCS). `ReproducibilityLevel` is `COMPLETE` or `PARTIAL`, derived only from evidence gaps (for example a consumed
+benchmark bar can never be run-pinned because `benchmark_price_bar` has no `ingestion_run_id`). `verify_rerun` compares a
+fresh assembly with a baseline kept by the caller (or two fresh assemblies, which only detects nondeterminism). A match
+is never a claim that historical bytes still exist. No API, no migration, no persistence (10.9B).
+
 ### Research observation API (read-only)
 
 `GET /api/v1/research/observations/{event_id}` serialises one 10.8A `ResearchObservation` (`observation/`): identity,

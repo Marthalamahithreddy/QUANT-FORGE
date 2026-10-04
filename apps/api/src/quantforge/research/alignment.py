@@ -44,13 +44,17 @@ from quantforge.research.listing_resolution import (
     resolve_company_listing_for_date,
 )
 
-__all__ = ["EventStudyAlignment", "align_earnings_event"]
+__all__ = ["ALIGNMENT_WINDOW_DAYS", "EventStudyAlignment", "align_earnings_event"]
 
 #: Default window, in calendar days, searched on either side of ``event_date``
 #: for available trading sessions. Generous enough to span a long holiday
 #: weekend or a short gap in ingested history while staying a small, bounded
 #: query -- this is a per-event lookup, not a full-history scan.
 _DEFAULT_WINDOW_DAYS = 10
+
+#: The calendar-day half-width within which stored sessions are considered around an event date.
+#: Public so reproducibility can pin exactly the session window alignment reads.
+ALIGNMENT_WINDOW_DAYS = _DEFAULT_WINDOW_DAYS
 
 
 @dataclass(frozen=True, slots=True)

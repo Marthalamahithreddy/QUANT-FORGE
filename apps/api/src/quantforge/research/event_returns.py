@@ -45,7 +45,7 @@ from quantforge.research.returns import (
     validate_horizons,
 )
 
-__all__ = ["DEFAULT_HORIZONS", "compute_event_forward_returns"]
+__all__ = ["DEFAULT_HORIZONS", "compute_event_forward_returns", "forward_price_window_end"]
 
 #: The horizons Step 8.4 is required to support.
 DEFAULT_HORIZONS: tuple[int, ...] = (1, 5, 20)
@@ -68,6 +68,11 @@ def _window_end(anchor_session: date, horizons: Sequence[int]) -> date:
     max_horizon = max(horizons)
     padding_days = max(max_horizon * _CALENDAR_DAYS_PER_SESSION_BUFFER, _MIN_WINDOW_PADDING_DAYS)
     return anchor_session + timedelta(days=padding_days)
+
+
+def forward_price_window_end(anchor_session: date, horizons: Sequence[int]) -> date:
+    """The last calendar date the forward-return price query reads (public view of the window)."""
+    return _window_end(anchor_session, horizons)
 
 
 def _all_horizons_with_status(

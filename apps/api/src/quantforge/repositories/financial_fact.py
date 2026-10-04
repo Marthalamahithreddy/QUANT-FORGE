@@ -242,6 +242,26 @@ class FinancialFactRepository:
             for row in filings
         ]
 
+    def artifacts_for_filing(
+        self, *, company_id: uuid.UUID, accession_number: str
+    ) -> list[tuple[str, str]]:
+        """``(artifact_name, sha256)`` of every package that carries a submission for this stored
+        filing, sorted. Identity of the stored fact set only; no times, no values."""
+        rows = self._session.execute(
+            sa.select(FinancialFactArtifact.artifact_name, FinancialFactArtifact.sha256)
+            .join(
+                FinancialFactSubmission,
+                FinancialFactSubmission.artifact_id == FinancialFactArtifact.id,
+            )
+            .join(SecFiling, SecFiling.id == FinancialFactSubmission.sec_filing_id)
+            .where(
+                SecFiling.company_id == company_id,
+                SecFiling.accession_number == accession_number,
+            )
+            .distinct()
+        ).all()
+        return sorted((row.artifact_name, row.sha256) for row in rows)
+
     def facts_for_filing_tag(self, sec_filing_id: uuid.UUID, tag: str) -> list[FinancialFact]:
         """Every stored fact of one filing with this exact tag: all versions, periods, durations,
         units and dimensions. No selection; identity order."""

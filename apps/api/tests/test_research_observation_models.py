@@ -183,4 +183,11 @@ def test_only_the_read_only_api_surface_consumes_the_observation_layer() -> None
         "api/v1/research_observations.py",
         "api/v1/research_observation_presenter.py",
         "schemas/research_observation.py",
+        "reproducibility/manifest.py",  # 10.9A: sits above the observation layer
+        "reproducibility/verifier.py",
     }, offenders
+    # and nothing at or below the observation layer may depend on reproducibility
+    for path in SRC.rglob("*.py"):
+        if "reproducibility" in path.parts:
+            continue
+        assert not any(n.startswith("quantforge.reproducibility") for n in _imports(path)), path
