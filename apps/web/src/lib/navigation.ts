@@ -41,6 +41,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     status: "available",
   },
   {
+    id: "filings",
+    label: "Filings",
+    summary: "Stored filings with SEC FSDS data, and their descriptive EPS.",
+    href: "/filings",
+    status: "available",
+  },
+  {
     id: "research",
     label: "Research",
     summary: "What the research engine implements today.",

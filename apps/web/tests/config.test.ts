@@ -25,6 +25,7 @@ describe("navigation model", () => {
       "Overview",
       "Companies",
       "Earnings",
+      "Filings",
       "Research",
       "Backtests",
     ]);
@@ -33,7 +34,7 @@ describe("navigation model", () => {
   it("enables only sections that have a real route", () => {
     expect(
       NAV_ITEMS.filter((item) => item.status === "available").map((item) => item.href),
-    ).toEqual(["/", "/earnings", "/research"]);
+    ).toEqual(["/", "/earnings", "/filings", "/research"]);
   });
 
   it("keeps Backtests and Companies unavailable", () => {

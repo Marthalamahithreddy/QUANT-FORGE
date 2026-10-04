@@ -17,6 +17,9 @@ export const API_READINESS_PATH = "/api/v1/health/ready";
 /** Path of the read-only earnings-event collection. */
 export const API_EARNINGS_PATH = "/api/v1/earnings-events";
 
+/** Path of the read-only filings index; a filing's EPS is `{path}/{accession}/eps`. */
+export const API_FILINGS_PATH = "/api/v1/filings";
+
 function parseBaseUrl(raw: string | undefined): string {
   const candidate =
     raw === undefined || raw.trim() === "" ? DEFAULT_API_BASE_URL : raw.trim();
@@ -45,6 +48,7 @@ export interface AppEnv {
   readonly apiHealthPath: string;
   readonly apiReadinessPath: string;
   readonly apiEarningsPath: string;
+  readonly apiFilingsPath: string;
 }
 
 export const env: AppEnv = Object.freeze({
@@ -52,4 +56,5 @@ export const env: AppEnv = Object.freeze({
   apiHealthPath: API_HEALTH_PATH,
   apiReadinessPath: API_READINESS_PATH,
   apiEarningsPath: API_EARNINGS_PATH,
+  apiFilingsPath: API_FILINGS_PATH,
 });
