@@ -44,6 +44,12 @@ from quantforge.db.session import get_session_factory
 from quantforge.identity.resolver import HistoricalListingResolver
 from quantforge.ingestion.benchmark import BenchmarkBarConflictError, BenchmarkIdentityConflict
 from quantforge.ingestion.daily import ProviderDataConflict
+from quantforge.ingestion.filing_history import (
+    DEFAULT_MAX_HISTORY_FILES,
+    FilingHistoryIngestionService,
+    FilingHistoryReport,
+    InvalidHistoryRequestError,
+)
 from quantforge.ingestion.filings import (
     AllFilingRecordsRejectedError,
     FilingIngestionService,
@@ -94,6 +100,7 @@ from quantforge.providers.errors import (
 from quantforge.providers.massive.client import MassiveClient, MassiveConfig
 from quantforge.providers.sec.client import SecClient, SecConfig, normalise_cik
 from quantforge.providers.sec.fsds import FsdsPackageError
+from quantforge.providers.sec.history import HistoryScopeError
 
 __all__ = ["main"]
 
@@ -317,6 +324,46 @@ def build_parser() -> argparse.ArgumentParser:
     sec.add_argument("cik", help="the registrant's CIK, 1-10 digits (zero-padded automatically)")
     sec.set_defaults(handler=_cmd_sec_filings)
 
+    history = commands.add_parser(
+        "sec-filings-history",
+        help="fetch OLDER SEC filing identity (history files) for ONE stored company",
+        description=(
+            "Store filing IDENTITY metadata (accession, form, filing/report dates, EDGAR "
+            "acceptance time, primary document) for the stored company that carries this "
+            "CIK, from its submissions response AND the history files that response names "
+            "(older than filings.recent), so older accession-bound FSDS facts can bind to a "
+            "stored filing. One explicit CIK per run: one parent request plus at most "
+            "--max-history-files history-file requests, never another registrant and no "
+            "'all companies' mode. With --accession, only history files whose stated range "
+            "could hold a still-unresolved accession are fetched. Identity and provenance "
+            "only: no availability, PIT or disclosure meaning, no facts, no EPS. "
+            "Requires QF_SEC_USER_AGENT."
+        ),
+    )
+    history.add_argument(
+        "cik", help="the registrant's CIK, 1-10 digits (zero-padded automatically)"
+    )
+    history.add_argument(
+        "--accession",
+        action="append",
+        default=[],
+        help=(
+            "a dashed target accession (0000320193-14-000123); repeatable. Limits the history "
+            "files fetched to those that could hold an unresolved target; a target that is "
+            "not found is reported as unresolved, never as absent from the SEC"
+        ),
+    )
+    history.add_argument(
+        "--max-history-files",
+        type=int,
+        default=DEFAULT_MAX_HISTORY_FILES,
+        help=(
+            f"explicit upper bound on history-file requests (default {DEFAULT_MAX_HISTORY_FILES}); "
+            "a registrant needing more is refused before any history request, not truncated"
+        ),
+    )
+    history.set_defaults(handler=_cmd_sec_filings_history)
+
     splits = commands.add_parser(
         "stock-splits",
         help="fetch a ticker's historical stock splits and record split coverage",
@@ -526,6 +573,77 @@ def _cmd_sec_filings(args: argparse.Namespace, settings: Settings) -> int:
     print(
         f"\nCIK {cik}: received={outcome.records_received} written={outcome.records_written} "
         f"skipped={outcome.records_skipped} failed={outcome.records_failed}"
+    )
+    return _print_outcome(outcome)
+
+
+def _cmd_sec_filings_history(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        cik = normalise_cik(args.cik)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
+    async def run() -> FilingHistoryReport:
+        async with _sec_client(settings) as client:
+            factory = get_session_factory(settings)
+            with factory() as session:
+                service = FilingHistoryIngestionService(
+                    session=session, provider=client, store=_store(settings), now=datetime.now(UTC)
+                )
+                try:
+                    report = await service.ingest_filing_history(
+                        cik,
+                        accessions=args.accession,
+                        max_history_files=args.max_history_files,
+                    )
+                except BaseException:
+                    _commit_failed_run(session)
+                    raise
+                session.commit()
+                return report
+
+    report = asyncio.run(run())
+    result = report.result
+    outcome = report.outcome
+    print(
+        f"\nCIK {cik}: received={outcome.records_received} written={outcome.records_written} "
+        f"skipped={outcome.records_skipped} failed={outcome.records_failed}"
+    )
+    print(
+        f"  recent rows seen: {result.recent_rows_seen} "
+        f"(supported-form filings parsed: {result.recent_filings_parsed})"
+    )
+    print(
+        f"  history files: discovered {result.history_files_discovered}, "
+        f"fetched {result.history_files_fetched}, "
+        f"skipped by the accession scope {result.history_files_skipped}"
+    )
+    print(
+        f"  history rows seen: {result.history_rows_seen} "
+        f"(supported-form filings parsed: {result.history_filings_parsed})"
+    )
+    print(
+        f"  stored: inserted {report.inserted}, matched existing {report.matched_existing}; "
+        f"seen in both recent and history with identical metadata: {result.overlap_identical}"
+    )
+    if result.requested_accessions:
+        print(
+            f"  requested accessions: {len(result.requested_accessions)}, "
+            f"unresolved in the fetched scope: {len(result.unresolved_accessions)}"
+        )
+        for accession in result.located_not_stored:
+            print(
+                f"    located but not stored: {accession} (present in a fetched block as an "
+                "unsupported form or a rejected record; see the rejected reasons)"
+            )
+        for accession in result.unresolved_accessions:
+            print(
+                f"    unresolved: {accession} (not found in what was fetched; NOT proof of absence)"
+            )
+    print(
+        "  scope: identity metadata only for the fetched files; this does not claim the "
+        "registrant's history is complete and carries no availability meaning"
     )
     return _print_outcome(outcome)
 
@@ -1005,6 +1123,8 @@ def _classify(exc: Exception) -> int:  # noqa: PLR0911, PLR0912 - one return per
         exc,
         UnknownListingError
         | UnknownRegistrantError
+        | InvalidHistoryRequestError
+        | HistoryScopeError
         | InvalidFactRequestError
         | UnsupportedFormError
         | AccessionNotInPackageError

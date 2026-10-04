@@ -16,7 +16,7 @@ from typing import Protocol, runtime_checkable
 from quantforge.ingestion.canonical import CanonicalSecFiling
 from quantforge.providers.base import RawCapture
 
-__all__ = ["FilingProvider", "FilingsResult"]
+__all__ = ["FilingHistoryProvider", "FilingHistoryResult", "FilingProvider", "FilingsResult"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,3 +46,56 @@ class FilingProvider(Protocol):
 
     async def get_filings(self, cik: str) -> FilingsResult:
         """Fetch filing metadata for the registrant with this 10-digit CIK."""
+
+
+@dataclass(frozen=True, slots=True)
+class FilingHistoryResult:
+    """Outcome of one bounded historical filing-identity fetch for one registrant.
+
+    Identity and provenance only. ``filings`` is the merged, de-duplicated set of
+    supported-form filings from ``filings.recent`` plus the fetched history files, in
+    ascending ``accepted_at`` order; the counts say exactly what was and was not looked
+    at, and **none of them implies complete coverage of the SEC's filings**:
+
+    * ``history_files_skipped`` files were not fetched because an explicit accession
+      scope made them unnecessary (never because they were presumed empty);
+    * ``unresolved_accessions`` are requested accessions found neither in ``recent`` nor
+      in any fetched file -- *not* proof the SEC has no such filing;
+    * ``located_not_stored`` are requested accessions that *were* present in a fetched
+      block but cannot be stored (an unsupported form, or a record named in ``rejected``);
+    * ``rejected`` holds one reason per record that could not be mapped.
+
+    ``overlap_identical`` counts accessions seen through more than one representation
+    with identical canonical metadata (a differing one fails the fetch instead).
+    ``captures`` is every response fetched -- retrieval time is QuantForge's, never the
+    SEC's publication time.
+    """
+
+    filings: Sequence[CanonicalSecFiling]
+    rejected: tuple[str, ...]
+    captures: tuple[RawCapture, ...]
+    recent_rows_seen: int
+    recent_filings_parsed: int
+    history_files_discovered: int
+    history_files_fetched: int
+    history_files_skipped: int
+    history_rows_seen: int
+    history_filings_parsed: int
+    overlap_identical: int
+    requested_accessions: tuple[str, ...]
+    unresolved_accessions: tuple[str, ...]
+    located_not_stored: tuple[str, ...] = ()
+
+
+@runtime_checkable
+class FilingHistoryProvider(Protocol):
+    """A source that can also page a registrant's history files, within an explicit bound."""
+
+    @property
+    def name(self) -> str:
+        """Stable provider identity, persisted as ``DataSource.name``."""
+
+    async def get_filing_history(
+        self, cik: str, *, accessions: Sequence[str] = (), max_history_files: int
+    ) -> FilingHistoryResult:
+        """Fetch ``filings.recent`` plus the referenced history files for one CIK."""

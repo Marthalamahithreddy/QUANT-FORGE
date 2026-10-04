@@ -57,6 +57,9 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+#: Rows per SELECT/INSERT round trip (well under PostgreSQL's bind-parameter limit).
+_BATCH_SIZE = 500
+
 _COMPARED_FIELDS = (
     "form",
     "filing_date",
@@ -115,6 +118,16 @@ def conflicting_filing_fields(
     return differences
 
 
+def _canonical_differences(
+    first: CanonicalSecFiling, second: CanonicalSecFiling
+) -> dict[str, tuple[Any, Any]]:
+    return {
+        name: (getattr(first, name), getattr(second, name))
+        for name in _COMPARED_FIELDS
+        if getattr(first, name) != getattr(second, name)
+    }
+
+
 class SecFilingIngestor:
     """Writes canonical filings for one registrant, idempotently."""
 
@@ -137,55 +150,105 @@ class SecFilingIngestor:
     ) -> tuple[int, int]:
         """Insert new filings, skip identical ones; return ``(written, skipped)``.
 
+        Batched, so a registrant's whole history costs a handful of statements rather
+        than several per filing: one SELECT of the already-held accessions per chunk,
+        every conflict decided *before* anything is inserted, then one multi-row
+        ``INSERT .. ON CONFLICT DO NOTHING`` per chunk.
+
         Raises:
-            SecFilingConflictError: a stored accession's metadata differs.
+            SecFilingConflictError: a stored accession's metadata differs. Nothing in the
+                conflicting chunk has been inserted when it is raised.
         """
         written = skipped = 0
+        unique: dict[str, CanonicalSecFiling] = {}
         for filing in sorted(filings, key=lambda f: (f.accepted_at, f.accession_number)):
-            if self._insert_if_absent(company_id=company_id, source_id=source_id, filing=filing):
-                written += 1
+            first = unique.setdefault(filing.accession_number, filing)
+            if first is filing:
                 continue
-            existing = self._session.scalar(
-                sa.select(SecFiling).where(
-                    SecFiling.company_id == company_id,
-                    SecFiling.accession_number == filing.accession_number,
-                )
-            )
-            if existing is None:  # pragma: no cover - unreachable in READ COMMITTED
-                message = f"accession {filing.accession_number} reported as held but not visible"
-                raise RuntimeError(message)
-            differences = conflicting_filing_fields(existing, filing)
+            # The same accession twice in one batch: identical is one filing, differing is a
+            # conflict (neither copy is silently preferred).
+            differences = _canonical_differences(first, filing)
             if differences:
                 raise SecFilingConflictError(
                     accession_number=filing.accession_number, differences=differences
                 )
             skipped += 1
+        ordered = list(unique.values())
+        for start in range(0, len(ordered), _BATCH_SIZE):
+            chunk = ordered[start : start + _BATCH_SIZE]
+            held = self._held(company_id, [f.accession_number for f in chunk])
+            fresh: list[CanonicalSecFiling] = []
+            for filing in chunk:
+                existing = held.get(filing.accession_number)
+                if existing is None:
+                    fresh.append(filing)
+                    continue
+                self._require_identical(existing, filing)
+                skipped += 1
+            inserted = self._insert_missing(company_id=company_id, source_id=source_id, rows=fresh)
+            written += len(inserted)
+            raced = [f for f in fresh if f.accession_number not in inserted]
+            if raced:  # pragma: no cover - only a concurrent writer in READ COMMITTED
+                held = self._held(company_id, [f.accession_number for f in raced])
+                for filing in raced:
+                    existing = held.get(filing.accession_number)
+                    if existing is None:
+                        message = (
+                            f"accession {filing.accession_number} reported held but not visible"
+                        )
+                        raise RuntimeError(message)
+                    self._require_identical(existing, filing)
+                    skipped += 1
         return written, skipped
 
-    def _insert_if_absent(
-        self, *, company_id: uuid.UUID, source_id: uuid.UUID, filing: CanonicalSecFiling
-    ) -> bool:
+    def _held(self, company_id: uuid.UUID, accessions: list[str]) -> dict[str, SecFiling]:
+        rows = self._session.scalars(
+            sa.select(SecFiling).where(
+                SecFiling.company_id == company_id, SecFiling.accession_number.in_(accessions)
+            )
+        )
+        return {row.accession_number: row for row in rows}
+
+    @staticmethod
+    def _require_identical(existing: SecFiling, filing: CanonicalSecFiling) -> None:
+        differences = conflicting_filing_fields(existing, filing)
+        if differences:
+            raise SecFilingConflictError(
+                accession_number=filing.accession_number, differences=differences
+            )
+
+    def _insert_missing(
+        self, *, company_id: uuid.UUID, source_id: uuid.UUID, rows: Sequence[CanonicalSecFiling]
+    ) -> set[str]:
+        """Insert the given new filings; return the accessions actually inserted."""
+        if not rows:
+            return set()
         statement = postgresql.insert(SecFiling).values(
-            id=uuid.uuid4(),
-            company_id=company_id,
-            accession_number=filing.accession_number,
-            form=filing.form.value,
-            filing_date=filing.filing_date,
-            report_date=filing.report_date,
-            accepted_at=filing.accepted_at,
-            primary_document=filing.primary_document,
-            items=filing.items,
-            source_id=source_id,
-            ingestion_run_id=self._run_id,
-            ingested_at=self._now,
-            created_at=self._now,
+            [
+                {
+                    "id": uuid.uuid4(),
+                    "company_id": company_id,
+                    "accession_number": filing.accession_number,
+                    "form": filing.form.value,
+                    "filing_date": filing.filing_date,
+                    "report_date": filing.report_date,
+                    "accepted_at": filing.accepted_at,
+                    "primary_document": filing.primary_document,
+                    "items": filing.items,
+                    "source_id": source_id,
+                    "ingestion_run_id": self._run_id,
+                    "ingested_at": self._now,
+                    "created_at": self._now,
+                }
+                for filing in rows
+            ]
         )
         result = self._session.execute(
             statement.on_conflict_do_nothing(
                 index_elements=["company_id", "accession_number"]
-            ).returning(SecFiling.id)
+            ).returning(SecFiling.accession_number)
         )
-        return result.scalar_one_or_none() is not None
+        return set(result.scalars())
 
 
 class FilingIngestionService:

@@ -187,6 +187,25 @@ stays unapproved. It is cross-checked against EDGAR's 06:00–22:00 hours and
 5:30 p.m. filing-date rule as warnings; a malformed record is rejected, never
 guessed. No EPS, signal or document download exists yet.
 
+`quantforge ingestion sec-filings-history <CIK> [--accession ACC]... [--max-history-files N]`
+stores the **identity** metadata of older filings that fell out of `filings.recent`, by
+following the history files (`filings.files`) the SEC's own parent response names, so
+older accession-bound FSDS facts can bind to a stored filing. It is bounded: one explicit
+CIK per run, one parent request plus at most `--max-history-files` history-file requests
+(a registrant needing more is refused up front, never truncated), and with `--accession`
+only the files that could hold a still-unresolved target are fetched. There is no
+"all companies" mode. Every response is kept content-addressed with its SHA-256, byte
+length, request path and QuantForge's own retrieval time (never an SEC publication time);
+identical bytes are deduplicated and a changed body under the same URL is a new artifact,
+never an overwrite (the SEC documents no immutability for history files). A stored filing
+is never rewritten: identical metadata is a skip, differing metadata (including a
+different `accepted_at`) is a loud conflict. A history file that cannot be fetched or
+reconciled with its stated `filingCount` fails the whole run; a record that cannot be
+mapped (for example the date-only midnight placeholders the SEC shows for roughly
+1994 to April 2002) is rejected and makes the run `partial`. The report counts what was
+looked at and never claims the registrant's history is complete. This is identity and
+provenance only: no availability, PIT or disclosure meaning, and it does not ingest facts.
+
 ## Historical stock splits and the corporate-action guard
 
 `quantforge ingestion stock-splits <TICKER> --start D --end D` fetches one ticker's

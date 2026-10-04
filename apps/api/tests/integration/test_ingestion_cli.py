@@ -31,6 +31,28 @@ from tests.fsds_fixture import (
     default_nums,
     num_row,
 )
+from tests.sec_history_fixture import (
+    CIK as HISTORY_CIK,
+)
+from tests.sec_history_fixture import (
+    H1_8K,
+    H1_10K,
+    H1_10Q_A,
+    H1_FORM4,
+    H2_10K,
+    H2_10Q,
+    HISTORY_1,
+    HISTORY_2,
+    R_10K_A,
+    R_10Q,
+    R_FORM4,
+    R_OVERLAP,
+    Recorder,
+    encode,
+    file_entry,
+    history,
+    parent,
+)
 
 from quantforge.core.config import get_settings
 from quantforge.ingestion import cli
@@ -1229,6 +1251,154 @@ def test_a_malformed_cik_argument_is_a_usage_error(
     get_settings.cache_clear()
 
     assert cli.main(["ingestion", "sec-filings", "not-a-cik"]) == cli.EXIT_USAGE
+
+
+# ── SEC filing history (identity only; a mock transport stands in for data.sec.gov) ──
+
+
+@pytest.fixture
+def sec_history_transport(monkeypatch: pytest.MonkeyPatch) -> Iterator[Recorder]:
+    """Make the CLI's SEC client serve a parent response plus two history files."""
+    doc = parent(
+        [R_10Q, R_10K_A, R_FORM4, R_OVERLAP],
+        [
+            file_entry(HISTORY_1, [H1_10K, H1_10Q_A, H1_8K, H1_FORM4]),
+            file_entry(HISTORY_2, [H2_10K, H2_10Q]),
+        ],
+    )
+    recorder = Recorder(
+        {
+            f"/submissions/CIK{HISTORY_CIK}.json": encode(doc),
+            f"/submissions/{HISTORY_1}": encode(history([H1_10K, H1_10Q_A, H1_8K, H1_FORM4])),
+            f"/submissions/{HISTORY_2}": encode(history([H2_10K, H2_10Q])),
+        }
+    )
+    real = cli._sec_client
+
+    def factory(settings: Any) -> Any:
+        return SecClient(real(settings)._config, transport=recorder.transport)
+
+    monkeypatch.setattr(cli, "_sec_client", factory)
+    yield recorder
+
+
+def test_sec_filings_history_stores_older_identity_and_states_its_scope(
+    configured: Path,
+    empty_database: None,
+    monkeypatch: pytest.MonkeyPatch,
+    sec_history_transport: Recorder,
+    integration_engine: Engine,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("QF_SEC_USER_AGENT", _SEC_UA)
+    get_settings.cache_clear()
+    _company_with_cik(integration_engine)
+
+    code = cli.main(["ingestion", "sec-filings-history", "320193"])
+
+    out = capsys.readouterr().out
+    assert code == cli.EXIT_OK
+    assert sec_history_transport.paths == [
+        f"/submissions/CIK{HISTORY_CIK}.json",
+        f"/submissions/{HISTORY_1}",
+        f"/submissions/{HISTORY_2}",
+    ]
+    assert set(sec_history_transport.user_agents) == {_SEC_UA}
+    assert "history files: discovered 2, fetched 2, skipped by the accession scope 0" in out
+    assert "does not claim the registrant's history is complete" in out
+    with Session(integration_engine) as session:
+        accessions = {f.accession_number for f in session.query(SecFiling)}
+        assert H2_10K[0] in accessions and R_10Q[0] in accessions
+        run = session.query(IngestionRun).filter_by(dataset="sec-filing-history").one()
+        assert run.status is IngestionStatus.SUCCEEDED
+    for path in configured.rglob("*"):
+        if path.is_file():
+            assert "ops@example.com" not in path.read_text(errors="ignore")
+
+
+def test_sec_filings_history_target_scope_skips_unneeded_files(
+    configured: Path,
+    empty_database: None,
+    monkeypatch: pytest.MonkeyPatch,
+    sec_history_transport: Recorder,
+    integration_engine: Engine,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("QF_SEC_USER_AGENT", _SEC_UA)
+    get_settings.cache_clear()
+    _company_with_cik(integration_engine)
+
+    code = cli.main(
+        [
+            "ingestion",
+            "sec-filings-history",
+            "320193",
+            "--accession",
+            H2_10K[0],
+            "--accession",
+            "0000320193-14-999999",
+        ]
+    )
+
+    out = capsys.readouterr().out
+    assert code == cli.EXIT_OK
+    assert sec_history_transport.paths[-1] == f"/submissions/{HISTORY_2}"
+    assert HISTORY_1 not in " ".join(sec_history_transport.paths)
+    assert (
+        "unresolved: 0000320193-14-999999 (not found in what was fetched; NOT proof of absence)"
+        in out
+    )
+
+
+def test_sec_filings_history_over_the_bound_is_a_usage_error_before_any_history_request(
+    configured: Path,
+    empty_database: None,
+    monkeypatch: pytest.MonkeyPatch,
+    sec_history_transport: Recorder,
+    integration_engine: Engine,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("QF_SEC_USER_AGENT", _SEC_UA)
+    get_settings.cache_clear()
+    _company_with_cik(integration_engine)
+
+    code = cli.main(["ingestion", "sec-filings-history", "320193", "--max-history-files", "1"])
+
+    assert code == cli.EXIT_USAGE
+    assert "explicit bound" in capsys.readouterr().err
+    assert sec_history_transport.paths == [f"/submissions/CIK{HISTORY_CIK}.json"]
+    with Session(integration_engine) as session:
+        assert session.query(SecFiling).count() == 0
+        assert session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).count() == 1
+
+
+def test_sec_filings_history_for_an_unknown_cik_makes_no_request(
+    configured: Path,
+    empty_database: None,
+    monkeypatch: pytest.MonkeyPatch,
+    sec_history_transport: Recorder,
+    integration_engine: Engine,
+) -> None:
+    monkeypatch.setenv("QF_SEC_USER_AGENT", _SEC_UA)
+    get_settings.cache_clear()
+
+    assert cli.main(["ingestion", "sec-filings-history", "320193"]) == cli.EXIT_USAGE
+    assert sec_history_transport.paths == []
+
+
+def test_sec_filings_history_rejects_a_malformed_accession_and_needs_an_identity(
+    configured: Path, monkeypatch: pytest.MonkeyPatch, sec_history_transport: Recorder
+) -> None:
+    monkeypatch.setenv("QF_SEC_USER_AGENT", _SEC_UA)
+    get_settings.cache_clear()
+    assert (
+        cli.main(["ingestion", "sec-filings-history", "320193", "--accession", "not-an-accession"])
+        == cli.EXIT_USAGE
+    )
+    assert sec_history_transport.paths == []
+    monkeypatch.delenv("QF_SEC_USER_AGENT", raising=False)
+    get_settings.cache_clear()
+    assert cli.main(["ingestion", "sec-filings-history", "320193"]) == cli.EXIT_USAGE
 
 
 # ── SEC FSDS financial facts (local file only: no network, no SEC contact) ──

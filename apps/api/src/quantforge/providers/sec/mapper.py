@@ -36,6 +36,20 @@ written by the old parser ever exists, re-ingesting that accession now raises
 ``SecFilingConflictError`` (stored metadata is never overwritten): delete that row's
 data deliberately and re-ingest; there is no automatic backfill.
 
+**Date-only placeholders (observed, not documented).** Rows from roughly 1994 to April
+2002 carry ``acceptanceDateTime`` at exactly midnight America/New_York
+(``T05:00:00.000Z`` or ``T04:00:00.000Z``): a date standing in for a time the source does
+not have. They occur in history files *and* in ``filings.recent`` itself (a registrant
+whose filings begin in 1995 showed 42 such rows in ``recent`` and no history file), so the
+rule belongs to this shared mapping core. EDGAR does not accept submissions at midnight
+(its hours are 06:00-22:00 Eastern), so such a value is rejected as *not an acceptance
+instant* rather than stored as one; a time is never synthesised from a date. Before this
+rule the recent path stored these as fabricated instants (the identical modern payloads
+map identically; only the placeholder rows differ). ``sec_filing.accepted_at`` is NOT NULL,
+so an identity with no usable acceptance is not representable without a schema change, and
+FSDS (2009 onward) never needs a pre-2002 filing. A nullable ``accepted_at`` would need a
+migration and a looser canonical contract, and is deliberately not taken here.
+
 **What the value is.** Filing-acceptance *metadata* only. It is neither
 ``filing_public_at`` (EDGAR can disseminate later: a filing accepted after 5:30 p.m.
 Eastern is normally not disseminated until the next business day, and SEC publishes
@@ -75,7 +89,13 @@ from quantforge.ingestion.canonical import CanonicalSecFiling
 from quantforge.models.enums import SecFormType
 from quantforge.providers.errors import ProviderPayloadError
 
-__all__ = ["acceptance_anomalies", "map_recent_filings", "parse_submissions_acceptance_datetime"]
+__all__ = [
+    "acceptance_anomalies",
+    "map_history_filings",
+    "map_recent_filings",
+    "parse_submissions_acceptance_datetime",
+    "recent_row_count",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +214,21 @@ def _require_not_implausibly_early(
         raise ValueError(message)
 
 
+def _require_not_date_only_placeholder(accepted_at: datetime, raw_accepted: str) -> None:
+    """Reject a midnight-Eastern value: a date standing in for a time, not an acceptance.
+
+    EDGAR operates 06:00-22:00 Eastern, so a genuine acceptance never falls at exactly
+    00:00:00.000 Eastern. The observed pre-2002 history rows that do are placeholders.
+    """
+    wall = accepted_at.astimezone(EASTERN)
+    if wall.time() == time(0, 0, 0):
+        message = (
+            f"acceptanceDateTime {raw_accepted!r} is exactly midnight Eastern: a date-only "
+            "placeholder, not an acceptance instant (a time is never synthesised from a date)"
+        )
+        raise ValueError(message)
+
+
 def _column(recent: Mapping[str, Any], name: str, length: int, *, required: bool) -> list[Any]:
     values = recent.get(name)
     if values is None:
@@ -218,6 +253,44 @@ def _optional_text(raw: Any) -> str | None:
         return None
     text = str(raw).strip()
     return text or None
+
+
+def recent_row_count(document: Any) -> int:
+    """Number of rows (all forms) in ``filings.recent``; ``0`` if the shape is not usable."""
+    filings_block = document.get("filings") if isinstance(document, dict) else None
+    recent = filings_block.get("recent") if isinstance(filings_block, dict) else None
+    accessions = recent.get("accessionNumber") if isinstance(recent, dict) else None
+    return len(accessions) if isinstance(accessions, list) else 0
+
+
+def map_history_filings(
+    document: Any, *, cik: str
+) -> tuple[list[CanonicalSecFiling], list[str], int]:
+    """Map one ``filings.files`` history file to canonical filings: ``(filings, rejected, rows)``.
+
+    A history file is a *flat* object of the same parallel arrays (no ``filings.recent``
+    wrapper), and does not necessarily state its own ``cik`` -- its attribution comes
+    from the parent response that named it and from the CIK embedded in its file name,
+    both checked by the caller. A document that does carry a ``filings`` wrapper is the
+    parent shape, not a history file, and is refused rather than guessed at. ``rows`` is
+    the number of rows of every form in the file.
+    """
+    if not isinstance(document, dict):
+        message = f"expected an object at the top level, got {type(document).__name__}"
+        raise ProviderPayloadError(message)
+    if "filings" in document:
+        message = "a history file must be a flat set of arrays, not a 'filings' wrapper"
+        raise ProviderPayloadError(message)
+    stated_cik = document.get("cik")
+    if stated_cik is not None and str(stated_cik).strip().zfill(10) != cik:
+        message = (
+            f"history file is for CIK {str(stated_cik).strip().zfill(10)}, not the requested "
+            f"{cik}; refusing to attach it to the wrong registrant"
+        )
+        raise ProviderPayloadError(message)
+    rows = _length(document)
+    filings, rejected = _map_columns(document, cik=cik)
+    return filings, rejected, rows
 
 
 def map_recent_filings(document: Any, *, cik: str) -> tuple[list[CanonicalSecFiling], list[str]]:
@@ -246,6 +319,12 @@ def map_recent_filings(document: Any, *, cik: str) -> tuple[list[CanonicalSecFil
         message = "submissions document has no 'filings.recent' object"
         raise ProviderPayloadError(message)
 
+    return _map_columns(recent, cik=cik)
+
+
+def _map_columns(
+    recent: Mapping[str, Any], *, cik: str
+) -> tuple[list[CanonicalSecFiling], list[str]]:
     accessions = _column(recent, "accessionNumber", _length(recent), required=True)
     count = len(accessions)
     forms = _column(recent, "form", count, required=True)
@@ -270,6 +349,7 @@ def map_recent_filings(document: Any, *, cik: str) -> tuple[list[CanonicalSecFil
                 message = "no acceptanceDateTime (a time is never synthesised from a date)"
                 raise ValueError(message)
             accepted_at = parse_submissions_acceptance_datetime(raw_accepted)
+            _require_not_date_only_placeholder(accepted_at, raw_accepted)
             _require_not_implausibly_early(accepted_at, filing_date, raw_accepted)
             candidate = CanonicalSecFiling(
                 cik=cik,

@@ -9,9 +9,11 @@ a bounded number of times -- a 403/429 from the SEC means *slow down*, so it is
 treated as a rate signal, never hammered.
 
 Only this slice's needs are implemented: no filing documents, no XBRL, no
-generic SEC SDK. ``filings.recent`` is mapped; older pages listed under
-``filings.files`` are not fetched yet (a documented limitation: the recent block
-covers roughly the latest year or 1,000 filings).
+generic SEC SDK. :meth:`SecClient.get_filings` maps ``filings.recent`` (roughly the
+latest year or 1,000 filings). :meth:`SecClient.get_filing_history` additionally
+follows the history files that same response names under ``filings.files`` -- for one
+explicit CIK, within an explicit bound, on the same host -- see
+:mod:`quantforge.providers.sec.history`. It is filing *identity* only.
 """
 
 from __future__ import annotations
@@ -19,17 +21,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Final, Self
 
 import httpx2 as httpx
 from pydantic import SecretStr
 
+from quantforge.ingestion.canonical import CanonicalSecFiling
 from quantforge.providers.base import RawCapture
 from quantforge.providers.errors import (
     ProviderAuthenticationError,
     ProviderConfigurationError,
+    ProviderError,
     ProviderNotFoundError,
     ProviderPayloadError,
     ProviderRateLimitError,
@@ -37,7 +41,7 @@ from quantforge.providers.errors import (
     ProviderServerError,
     ProviderTransportError,
 )
-from quantforge.providers.filings import FilingsResult
+from quantforge.providers.filings import FilingHistoryResult, FilingsResult
 from quantforge.providers.json_decimal import decode_json_document
 from quantforge.providers.pacing import (
     BackoffPolicy,
@@ -46,8 +50,22 @@ from quantforge.providers.pacing import (
     parse_retry_after,
     retryable_statuses,
 )
+from quantforge.providers.sec.history import (
+    MAX_HISTORY_FILES_CEILING,
+    HistoryFileRef,
+    HistoryScopeError,
+    count_mismatch,
+    merge_filings,
+    parse_history_file_refs,
+    raw_accessions,
+    select_history_files,
+)
 from quantforge.providers.sec.identifiers import normalise_cik
-from quantforge.providers.sec.mapper import map_recent_filings
+from quantforge.providers.sec.mapper import (
+    map_history_filings,
+    map_recent_filings,
+    recent_row_count,
+)
 
 __all__ = ["PROVIDER_NAME", "SecClient", "SecConfig", "normalise_cik"]
 
@@ -215,6 +233,150 @@ class SecClient:
             raise
         return FilingsResult(filings=filings, rejected=tuple(rejected), captures=(capture,))
 
+    async def get_filing_history(
+        self, cik: str, *, accessions: Sequence[str] = (), max_history_files: int
+    ) -> FilingHistoryResult:
+        """Fetch ``filings.recent`` plus the history files it names, for ONE explicit CIK.
+
+        Requests: one for the parent response, then at most ``max_history_files``
+        (one per history file; in an accession-targeted scope the bound applies to the
+        *candidate* files, so it is conservative), sequentially and paced -- no crawling
+        and no other registrant. With ``accessions`` only history files whose stated date range
+        could hold a still-unresolved accession are fetched, and fetching stops once
+        every requested accession is found. Without them every named file is fetched,
+        and a registrant naming more than ``max_history_files`` is refused *before*
+        any history request rather than silently truncated.
+
+        Fail-closed: a history file that cannot be downloaded, decoded, attributed or
+        reconciled with its stated ``filingCount`` fails the whole fetch (carrying every
+        capture so far as evidence); nothing partial is reported as complete coverage.
+        """
+        padded = normalise_cik(cik)
+        if not 1 <= max_history_files <= MAX_HISTORY_FILES_CEILING:
+            message = f"max_history_files must be between 1 and {MAX_HISTORY_FILES_CEILING}"
+            raise HistoryScopeError(message)
+        captures: list[RawCapture] = []
+        try:
+            return await self._get_filing_history(
+                padded, accessions, max_history_files=max_history_files, captures=captures
+            )
+        except ProviderError as exc:
+            exc.captures = (*exc.captures, *captures)
+            raise
+
+    async def _get_filing_history(
+        self,
+        padded: str,
+        accessions: Sequence[str],
+        *,
+        max_history_files: int,
+        captures: list[RawCapture],
+    ) -> FilingHistoryResult:
+        parent_path = _SUBMISSIONS_PATH.format(cik=padded)
+        parent_body = await self._get_bytes(parent_path)
+        captures.append(
+            RawCapture(
+                provider=PROVIDER_NAME,
+                dataset="submissions",
+                endpoint=_SUBMISSIONS_PATH,
+                request_parameters={"cik": padded},
+                body=parent_body,
+                retrieved_at=self._now(),
+            )
+        )
+        parent = _decode(parent_body)
+        recent, recent_rejected = map_recent_filings(parent, cik=padded)
+        refs = parse_history_file_refs(parent, cik=padded)
+
+        targets = tuple(dict.fromkeys(accessions))
+        located = set(raw_accessions(_recent_columns(parent)))
+        unresolved = [accession for accession in targets if accession not in located]
+        to_fetch, skipped = select_history_files(refs, unresolved=unresolved if targets else None)
+        if len(to_fetch) > max_history_files:
+            message = (
+                f"CIK {padded} needs {len(to_fetch)} history files, over the explicit bound of "
+                f"{max_history_files}; raise --max-history-files or name target accessions. "
+                "Nothing further was fetched."
+            )
+            raise HistoryScopeError(message)
+
+        sources: list[tuple[str, Sequence[CanonicalSecFiling]]] = [("recent", recent)]
+        rejected = list(recent_rejected)
+        fetched = history_rows = history_parsed = 0
+        for ref in to_fetch:
+            if targets and not unresolved:
+                skipped = (*skipped, ref)
+                continue
+            rows, parsed, ref_rejected, present = await self._get_history_file(
+                padded, ref, captures=captures, sources=sources
+            )
+            located |= present
+            fetched += 1
+            history_rows += rows
+            history_parsed += parsed
+            rejected.extend(ref_rejected)
+            unresolved = [accession for accession in unresolved if accession not in located]
+        merged, overlap = merge_filings(sources)
+        stored = {filing.accession_number for filing in merged}
+        located_not_stored = tuple(a for a in targets if a in located and a not in stored)
+        return FilingHistoryResult(
+            filings=merged,
+            rejected=tuple(rejected),
+            captures=tuple(captures),
+            recent_rows_seen=recent_row_count(parent),
+            recent_filings_parsed=len(recent),
+            history_files_discovered=len(refs),
+            history_files_fetched=fetched,
+            history_files_skipped=len(skipped),
+            history_rows_seen=history_rows,
+            history_filings_parsed=history_parsed,
+            overlap_identical=overlap,
+            requested_accessions=targets,
+            unresolved_accessions=tuple(unresolved),
+            located_not_stored=located_not_stored,
+        )
+
+    async def _get_history_file(
+        self,
+        padded: str,
+        ref: HistoryFileRef,
+        *,
+        captures: list[RawCapture],
+        sources: list[tuple[str, Sequence[CanonicalSecFiling]]],
+    ) -> tuple[int, int, list[str], frozenset[str]]:
+        try:
+            body = await self._get_bytes(ref.path)
+        except ProviderNotFoundError as exc:
+            message = (
+                f"history file {ref.name!r} is named by the parent response but the SEC "
+                "answered HTTP 404"
+            )
+            raise ProviderNotFoundError(f"CIK {padded}", message) from exc
+        captures.append(
+            RawCapture(
+                provider=PROVIDER_NAME,
+                dataset="submissions-history",
+                # A concrete path is safe here: the name was validated against the one
+                # expected pattern for this CIK, and there is no query string.
+                endpoint=ref.path,
+                request_parameters={"cik": padded, "file": ref.name},
+                body=body,
+                retrieved_at=self._now(),
+            )
+        )
+        document = _decode(body)
+        filings, rejected, rows = map_history_filings(document, cik=padded)
+        reason = count_mismatch(ref, rows)
+        if reason is not None:
+            raise ProviderPayloadError(reason)
+        sources.append((ref.name, filings))
+        return (
+            rows,
+            len(filings),
+            [f"{ref.name}: {item}" for item in rejected],
+            raw_accessions(document),
+        )
+
     async def _get_bytes(self, path: str) -> bytes:
         # Resolved per call and sent as a header; never part of a URL or a capture.
         headers = {"User-Agent": self._config.require_user_agent()}
@@ -268,6 +430,18 @@ class SecClient:
                 raise ProviderServerError(response.status_code)
             message = f"the SEC rejected the request (HTTP {response.status_code})"
             raise ProviderResponseError(message)
+
+
+def _recent_columns(parent: object) -> object:
+    block = parent.get("filings") if isinstance(parent, dict) else None
+    return block.get("recent") if isinstance(block, dict) else None
+
+
+def _decode(body: bytes) -> object:
+    try:
+        return decode_json_document(body)
+    except (ValueError, RecursionError) as exc:
+        raise ProviderResponseError(f"undecodable SEC response: {type(exc).__name__}") from exc
 
 
 def _bounded_retry_after(header: str | None) -> float | None:
