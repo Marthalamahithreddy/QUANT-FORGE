@@ -74,6 +74,8 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
+        # A validation error must never echo the raw input: it holds the datastore URLs.
+        hide_input_in_errors=True,
     )
 
     # ── Service identity ────────────────────────────────────────────────────
@@ -84,8 +86,9 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     # ── Datastores ──────────────────────────────────────────────────────────
-    database_url: str = DEFAULT_DATABASE_URL
-    redis_url: str = DEFAULT_REDIS_URL
+    # ``repr=False``: both URLs can embed a password, and ``repr(settings)`` must never print one.
+    database_url: str = Field(default=DEFAULT_DATABASE_URL, repr=False)
+    redis_url: str = Field(default=DEFAULT_REDIS_URL, repr=False)
 
     # ── CORS ────────────────────────────────────────────────────────────────
     # NoDecode keeps the raw environment string intact so it can be parsed as
@@ -233,6 +236,14 @@ class Settings(BaseSettings):
         """Guarantee a single leading slash and no trailing slash."""
         stripped = value.strip().strip("/")
         return f"/{stripped}" if stripped else "/"
+
+    @model_validator(mode="after")
+    def _reject_debug_in_production(self) -> Self:
+        """Debug mode serves tracebacks (and so SQL, paths and values) in 500 responses."""
+        if self.debug and self.environment == "production":
+            message = "QF_DEBUG must be false when QF_ENVIRONMENT=production."
+            raise ValueError(message)
+        return self
 
     @model_validator(mode="after")
     def _reject_wildcard_with_credentials(self) -> Self:

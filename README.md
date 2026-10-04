@@ -398,6 +398,24 @@ requires agreement, validates hashes, saves PARTIAL records too, returns the exi
 (`ResultDivergenceError`) the same manifest with a different result. `verify_stored_record` reruns with the baseline's own
 request through the 10.9A verifier. No endpoint, no frontend, no verification history table.
 
+### Saved research records API (Step 11.0A, read-only)
+
+`GET /api/v1/research/records` (bounded `limit` 1-200, default 50, and `offset`; newest saved first, `id` tie-break) lists
+stored baselines as small summaries (record id, fingerprints, derived level and gaps, and what was asked) without the
+canonical payloads. `GET /api/v1/research/records/{record_id}` returns one baseline parsed (manifest and result as
+structured JSON, decimals exact strings) only after the load service has re-hashed the stored canonical text.
+`GET /api/v1/research/records/{record_id}/verify` reruns the stored computation against current stored evidence with the
+10.9A verifier and reports `MATCH`, `MANIFEST_CHANGED`, `RESULT_CHANGED` or `EVIDENCE_INCOMPLETE` with changed paths and
+fingerprints (a GET, like the observation endpoint: it computes but is safe and idempotent; nothing is persisted).
+`404` unknown id, `422` malformed id or unknown/repeated/out-of-range parameter, `409` verify when the record's earnings event
+is no longer stored, `503` only when the database is unavailable, a generic `500` for a record that fails integrity
+validation. There is no save, update or delete route: saving stays an internal service. The list summarises stored columns and
+does not re-hash; integrity is checked on get and verify.
+
+Startup validation is limited to concrete dangerous misconfiguration: a malformed or non-PostgreSQL `QF_DATABASE_URL`
+fails at startup (without echoing the value) and `QF_DEBUG=true` is rejected when `QF_ENVIRONMENT=production`. No provider
+key is required to start the API.
+
 ### Research observation API (read-only)
 
 `GET /api/v1/research/observations/{event_id}` serialises one 10.8A `ResearchObservation` (`observation/`): identity,

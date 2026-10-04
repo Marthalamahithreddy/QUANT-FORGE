@@ -236,7 +236,7 @@ def test_records_are_immutable_in_the_database_and_have_no_mutating_repository_a
         db_session.execute(sa.text("DELETE FROM research_observation_record"))
     db_session.rollback()
     public = {n for n in dir(ResearchRecordRepository) if not n.startswith("_")}
-    assert public == {"insert_if_absent", "get", "for_manifest", "for_pair"}
+    assert public == {"insert_if_absent", "get", "list_page", "for_manifest", "for_pair"}
 
 
 def test_a_concurrent_identical_save_resolves_to_the_winner_without_error(

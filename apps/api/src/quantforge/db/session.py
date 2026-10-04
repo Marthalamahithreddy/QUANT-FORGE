@@ -43,7 +43,8 @@ def normalise_database_url(database_url: str) -> str:
     """
     scheme, separator, remainder = database_url.partition("://")
     if not separator:
-        message = f"QF_DATABASE_URL must be an absolute URL, but received {database_url!r}."
+        # The value is NOT echoed: a malformed DSN can still carry a password.
+        message = "QF_DATABASE_URL must be an absolute URL such as postgresql://user@host/db."
         raise ValueError(message)
 
     # '+' means an explicit dialect+driver, as in postgresql+psycopg.

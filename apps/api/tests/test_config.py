@@ -293,3 +293,46 @@ def test_no_personal_contact_is_hard_coded_in_the_sec_adapter_source() -> None:
     for path in (*root.glob("providers/sec/*.py"), root / "core" / "config.py"):
         text = path.read_text()
         assert "gmail.com" not in text and "mahith" not in text.lower(), path
+
+
+# ── Step 11.0A: concrete dangerous-misconfiguration guards ────────────────────────────────
+
+
+def test_debug_is_rejected_in_production_but_allowed_elsewhere() -> None:
+    with pytest.raises(ValidationError, match="QF_DEBUG must be false"):
+        Settings(_env_file=None, environment="production", debug=True)
+    for environment in ("local", "development", "staging"):
+        assert Settings(_env_file=None, environment=environment, debug=True).debug is True
+    assert Settings(_env_file=None, environment="production", debug=False).debug is False
+
+
+def test_the_settings_repr_never_prints_a_datastore_password_or_a_provider_secret() -> None:
+    settings = Settings(
+        _env_file=None,
+        database_url="postgresql://user:dbpw-9f3a@db.internal/qf",
+        redis_url="redis://:redispw-7c1@cache.internal:6379/0",
+        massive_api_key="massive-key-4d2",
+        sec_user_agent="Jane Doe jane@example.com",
+    )
+    shown = repr(settings) + str(settings)
+    for secret in ("dbpw-9f3a", "redispw-7c1", "massive-key-4d2", "jane@example.com"):
+        assert secret not in shown
+
+
+def test_a_validation_error_never_echoes_the_raw_input_with_its_datastore_urls() -> None:
+    with pytest.raises(ValidationError) as raised:
+        Settings(
+            _env_file=None,
+            environment="production",
+            debug=True,
+            database_url="postgresql://user:dbpw-9f3a@db.internal/qf",
+        )
+    assert "dbpw-9f3a" not in str(raised.value)
+    with pytest.raises(ValidationError) as wildcard:
+        Settings(
+            _env_file=None,
+            cors_origins="*",
+            cors_allow_credentials=True,
+            redis_url="redis://:redispw-7c1@cache.internal:6379/0",
+        )
+    assert "redispw-7c1" not in str(wildcard.value)

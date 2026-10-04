@@ -185,11 +185,13 @@ def test_only_the_read_only_api_surface_consumes_the_observation_layer() -> None
         "schemas/research_observation.py",
         "reproducibility/manifest.py",  # 10.9A: sits above the observation layer
         "reproducibility/verifier.py",
+        "api/v1/research_records.py",  # 11.0A: maps the verifier's missing-event error to a 409
     }, offenders
     # and nothing at or below the observation layer may depend on reproducibility
     for path in SRC.rglob("*.py"):
-        if "reproducibility" in path.parts or path.relative_to(SRC) == Path(
-            "research_records/service.py"
-        ):
-            continue  # research_records (10.9B) is the one persistence consumer above it
+        if "reproducibility" in path.parts or path.relative_to(SRC) in {
+            Path("research_records/service.py"),
+            Path("api/v1/research_record_presenter.py"),
+        }:
+            continue  # the 10.9B persistence service and its 11.0A read presenter sit above it
         assert not any(n.startswith("quantforge.reproducibility") for n in _imports(path)), path

@@ -84,7 +84,7 @@ def _spec() -> dict[str, Any]:
 
 def test_openapi_exposes_only_a_get_with_the_documented_responses() -> None:
     spec = _spec()
-    research_paths = {p: ops for p, ops in spec["paths"].items() if "/research" in p}
+    research_paths = {p: ops for p, ops in spec["paths"].items() if "/research/observations" in p}
     assert set(research_paths) == {ROUTE}
     operation = research_paths[ROUTE]
     assert set(operation) == {"get"}, "no write verb may exist"

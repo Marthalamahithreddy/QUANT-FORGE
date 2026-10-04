@@ -15,6 +15,7 @@ from quantforge.api.v1.filings import router as filings_router
 from quantforge.api.v1.health import router as health_router
 from quantforge.api.v1.ready import router as ready_router
 from quantforge.api.v1.research_observations import router as research_observations_router
+from quantforge.api.v1.research_records import router as research_records_router
 
 router = APIRouter()
 router.include_router(health_router)
@@ -23,3 +24,4 @@ router.include_router(earnings_events_router)
 router.include_router(filing_eps_router)
 router.include_router(filings_router)
 router.include_router(research_observations_router)
+router.include_router(research_records_router)

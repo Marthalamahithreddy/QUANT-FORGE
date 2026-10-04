@@ -23,7 +23,7 @@ from quantforge.core.config import (
     Settings,
     get_settings,
 )
-from quantforge.db.session import dispose_engines
+from quantforge.db.session import dispose_engines, normalise_database_url
 
 __all__ = ["app", "create_app"]
 
@@ -51,6 +51,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             :func:`~quantforge.core.config.get_settings` instance is used.
     """
     resolved = settings if settings is not None else get_settings()
+    # Fail at startup, not with a bare 500 on every database route: a malformed or non-PostgreSQL
+    # URL can never work. Syntax only (no connection is made); the message never echoes the URL.
+    normalise_database_url(resolved.database_url)
 
     interactive = resolved.environment != "production"
     application = FastAPI(
