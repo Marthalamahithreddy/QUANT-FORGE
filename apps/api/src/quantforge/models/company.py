@@ -8,6 +8,7 @@ independently of the issuer.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import TYPE_CHECKING
 
@@ -29,7 +30,11 @@ if TYPE_CHECKING:
     from quantforge.models.earnings import EarningsEvent
     from quantforge.models.security import Security
 
-__all__ = ["Company"]
+__all__ = ["CIK_PATTERN", "CIK_REGEX", "Company"]
+
+#: A CIK exactly as stored: ten digits, zero-padded (matches the ``cik_zero_padded_10`` CHECK).
+CIK_PATTERN = r"^[0-9]{10}$"
+CIK_REGEX = re.compile(CIK_PATTERN)
 
 
 class Company(UUIDPrimaryKeyMixin, TimestampMixin, Base):

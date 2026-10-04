@@ -27,14 +27,20 @@ def extract_comparative_eps_observation(
     *,
     period_class: EpsPeriodClass,
     eps_kind: EpsKind,
+    company_cik: str | None = None,
 ) -> ComparativeEpsObservation:
     """The comparative EPS "as presented in this filing" for ``accession_number``, or a refusal.
 
     An accession with no stored filing/facts is ``CURRENT_UNAVAILABLE`` carrying the current
-    selector's ``NOT_INGESTED`` (never "missing"). An amendment is its own accession.
+    selector's ``NOT_INGESTED`` (never "missing"). An amendment is its own accession. The optional
+    ``company_cik`` only qualifies which stored filing is meant (see ``resolve_eps_inputs``).
     """
     resolved = resolve_eps_inputs(
-        session, accession_number, period_class=period_class, eps_kind=eps_kind
+        session,
+        accession_number,
+        period_class=period_class,
+        eps_kind=eps_kind,
+        company_cik=company_cik,
     )
     if isinstance(resolved, EpsFactObservation):
         return ComparativeEpsObservation.current_unavailable(

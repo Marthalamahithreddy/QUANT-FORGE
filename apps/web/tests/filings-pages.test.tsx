@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import FilingDetailPage from "@/app/filings/[accession]/page";
@@ -30,13 +30,16 @@ const HEALTH = {
 const ACC = "0000320193-24-000010";
 type Json = Record<string, unknown>;
 
+type Reply = Response | Error;
+
 interface Routes {
-  filings?: Response | Error;
-  eps?: Response | Error;
+  filings?: Reply;
+  /** One reply for every EPS request, or a function choosing the reply from the request URL. */
+  eps?: Reply | ((url: string) => Reply);
 }
 
 function route(routes: Routes) {
-  const respond = (value: Response | Error | undefined): Promise<Response> => {
+  const respond = (value: Reply | undefined): Promise<Response> => {
     if (value === undefined) return Promise.resolve(jsonResponse({}, 500));
     return value instanceof Error
       ? Promise.reject(value)
@@ -45,8 +48,11 @@ function route(routes: Routes) {
   vi.stubGlobal(
     "fetch",
     vi.fn((input: string) => {
-      if (input.includes("/filings") && input.includes("/eps"))
-        return respond(routes.eps);
+      if (input.includes("/filings") && input.includes("/eps")) {
+        return respond(
+          typeof routes.eps === "function" ? routes.eps(input) : routes.eps,
+        );
+      }
       if (input.includes("/api/v1/filings")) return respond(routes.filings);
       return respond(jsonResponse(HEALTH));
     }),
@@ -104,10 +110,10 @@ describe("Filings list page", () => {
       .getAllByRole("link")
       .map((a) => a.getAttribute("href"));
     expect(hrefs).toEqual([
-      "/filings/0000320193-24-000010?period_class=QUARTER&eps_kind=DILUTED",
-      "/filings/0000320193-24-000020?period_class=QUARTER&eps_kind=DILUTED",
-      "/filings/0000320193-23-000106?period_class=ANNUAL&eps_kind=DILUTED",
-      "/filings/0000320193-23-000107?period_class=ANNUAL&eps_kind=DILUTED",
+      "/filings/0000320193-24-000010?cik=0000320193&period_class=QUARTER&eps_kind=DILUTED",
+      "/filings/0000320193-24-000020?cik=0000320193&period_class=QUARTER&eps_kind=DILUTED",
+      "/filings/0000320193-23-000106?cik=0000320193&period_class=ANNUAL&eps_kind=DILUTED",
+      "/filings/0000320193-23-000107?cik=0000320193&period_class=ANNUAL&eps_kind=DILUTED",
     ]);
     expect(within(table).getByText("10-Q/A")).toBeInTheDocument();
     expect(screen.getByText(/4 stored filings/)).toBeInTheDocument();
@@ -855,5 +861,294 @@ describe("Filing detail page: refusals and states", () => {
       "href",
       "/filings",
     );
+  });
+});
+
+const CIK_A = "0000320193";
+const CIK_B = "0000555555";
+const QUALIFIED = { cik: CIK_A, ...SELECTED };
+
+const epsFor = (
+  cik: string | null,
+  value: string,
+  prior: string,
+  change: string,
+) =>
+  makeEps({
+    company_cik: cik,
+    current: { status: "AVAILABLE", reason: "r", fact: makeFact({ value }) },
+    comparative: {
+      status: "AVAILABLE",
+      reason: "r",
+      meaning: "comparative EPS as presented in this filing",
+      fact: makeFact({ period_end: "2023-03-31", value: prior }),
+    },
+    change: {
+      status: "AVAILABLE",
+      eps_change: change,
+      transition: "POSITIVE_INCREASED",
+      percentage_change: null,
+      percentage_semantics: "ratio",
+      percentage_unavailable_reason: "NEGATIVE_COMPARATIVE",
+    },
+  });
+
+describe("Registrant-qualified detail (10.6M)", () => {
+  it("sends the CIK from the address, leading zeros intact, in a single request", async () => {
+    route({ eps: jsonResponse(epsFor(CIK_A, "1.5300", "1.5200", "0.0100")) });
+    render(await FilingDetailPage(detailProps(QUALIFIED)));
+
+    expect(apiCalls("/eps")).toHaveLength(1);
+    expect(apiCalls("/eps")[0]).toContain(`cik=${CIK_A}`);
+    expect(
+      screen.getByRole("heading", { level: 1 }).parentElement,
+    ).toHaveTextContent(`CIK ${CIK_A}`);
+  });
+
+  it("keeps the CIK in the selector form so changing a selector cannot drop identity", async () => {
+    route({ eps: jsonResponse(epsFor(CIK_A, "1.5300", "1.5200", "0.0100")) });
+    render(await FilingDetailPage(detailProps(QUALIFIED)));
+
+    const form = screen.getByRole("form", { name: "EPS selection" });
+    const hidden = form.querySelector(
+      'input[type="hidden"][name="cik"]',
+    ) as HTMLInputElement;
+    expect(hidden.value).toBe(CIK_A);
+    expect(form).toHaveAttribute("action", `/filings/${ACC}`);
+    expect(form.getAttribute("method")).toBe("get");
+  });
+
+  it("adds no CIK field and no CIK parameter for an accession-only address", async () => {
+    route({ eps: jsonResponse(makeEps()) });
+    render(await FilingDetailPage(detailProps(SELECTED)));
+
+    expect(apiCalls("/eps")[0]).not.toContain("cik=");
+    expect(
+      screen
+        .getByRole("form", { name: "EPS selection" })
+        .querySelector('input[name="cik"]'),
+    ).toBeNull();
+  });
+
+  it("supports a direct qualified URL: the chooser appears, no request is made, the CIK is kept", async () => {
+    render(await FilingDetailPage(detailProps({ cik: CIK_A })));
+
+    expect(screen.getByText("Choose what to show")).toBeInTheDocument();
+    expect(apiCalls("/eps")).toHaveLength(0);
+    const hidden = screen
+      .getByRole("form", { name: "EPS selection" })
+      .querySelector('input[name="cik"]') as HTMLInputElement;
+    expect(hidden.value).toBe(CIK_A);
+    expect(
+      screen.getByRole("heading", { level: 1 }).parentElement,
+    ).toHaveTextContent(`CIK ${CIK_A}`);
+    expectBoundary();
+  });
+
+  it.each([
+    ["a short CIK", "320193"],
+    ["a CIK with spaces", " 0000320193"],
+    ["a non-numeric CIK", "ABCDEFGHIJ"],
+    ["an over-long CIK", "00003201930"],
+    ["an empty CIK", ""],
+  ])(
+    "rejects %s locally: no request, no fallback, and no control that would drop it",
+    async (_n, cik) => {
+      render(await FilingDetailPage(detailProps({ cik, ...SELECTED })));
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Unsupported registrant CIK",
+      );
+      expect(apiCalls("/eps")).toHaveLength(0);
+      // re-submitting the selectors would silently request the accession alone
+      expect(screen.queryByRole("form", { name: "EPS selection" })).toBeNull();
+      expect(
+        screen.getByRole("link", { name: "filings list" }),
+      ).toHaveAttribute("href", "/filings");
+      expectBoundary();
+    },
+  );
+
+  it("rejects a repeated cik parameter locally", async () => {
+    render(
+      await FilingDetailPage(detailProps({ cik: [CIK_A, CIK_B], ...SELECTED })),
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Unsupported registrant CIK",
+    );
+    expect(apiCalls("/eps")).toHaveLength(0);
+    expect(screen.queryByRole("form", { name: "EPS selection" })).toBeNull();
+  });
+
+  it("resolves the two registrants of a joint accession independently, never mixing them", async () => {
+    route({
+      eps: (url) =>
+        url.includes(`cik=${CIK_A}`)
+          ? jsonResponse(epsFor(CIK_A, "1.5300", "1.5200", "0.0100"))
+          : url.includes(`cik=${CIK_B}`)
+            ? jsonResponse(epsFor(CIK_B, "2.0000", "1.0000", "1.0000"))
+            : jsonResponse(
+                makeEps({
+                  company_cik: null,
+                  current: {
+                    status: "AMBIGUOUS",
+                    reason: "stored under more than one registrant",
+                    fact: null,
+                  },
+                  comparative: {
+                    status: "CURRENT_UNAVAILABLE",
+                    reason: "c",
+                    meaning: "comparative EPS as presented in this filing",
+                    fact: null,
+                  },
+                  change: UNAVAILABLE_CHANGE,
+                }),
+              ),
+    });
+
+    render(await FilingDetailPage(detailProps({ cik: CIK_A, ...SELECTED })));
+    const a = screen.getByRole("region", { name: "Current EPS" });
+    expect(within(a).getByText("1.5300")).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "EPS change" }),
+    ).toHaveTextContent("+0.0100");
+    cleanup();
+
+    render(await FilingDetailPage(detailProps({ cik: CIK_B, ...SELECTED })));
+    const b = screen.getByRole("region", { name: "Current EPS" });
+    expect(within(b).getByText("2.0000")).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "EPS change" }),
+    ).toHaveTextContent("+1.0000");
+    expect(document.body.textContent).not.toContain("1.5300");
+    cleanup();
+
+    // and the unqualified address still reports the ambiguity honestly
+    render(await FilingDetailPage(detailProps(SELECTED)));
+    expect(screen.getByText("AMBIGUOUS")).toBeInTheDocument();
+    expect(
+      apiCalls("/eps").map((u) => /cik=(\d+)/.exec(u)?.[1] ?? null),
+    ).toEqual([CIK_A, CIK_B, null]);
+  });
+
+  it.each([
+    ["another registrant", epsFor(CIK_B, "2.0000", "1.0000", "1.0000")],
+    ["no registrant", epsFor(null, "1.5300", "1.5200", "0.0100")],
+  ])(
+    "refuses a qualified response naming %s as a contract error",
+    async (_n, payload) => {
+      route({ eps: jsonResponse(payload) });
+      render(await FilingDetailPage(detailProps(QUALIFIED)));
+
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "The API returned an unsupported response",
+      );
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "requested registrant",
+      );
+      expect(screen.queryByRole("region", { name: "Current EPS" })).toBeNull();
+      expectBoundary();
+    },
+  );
+
+  it("never retries a qualified request without the CIK (mismatch, refusal, 503 or 422)", async () => {
+    const cases: Response[] = [
+      jsonResponse(epsFor(CIK_B, "2.0000", "1.0000", "1.0000")), // wrong registrant echoed
+      jsonResponse({ detail: "Database unavailable." }, 503),
+      jsonResponse({ detail: "bad" }, 422),
+      jsonResponse(
+        makeEps({
+          company_cik: CIK_A,
+          form: null,
+          current: {
+            status: "NOT_INGESTED",
+            reason: "no stored SecFiling for that CIK",
+            fact: null,
+          },
+          comparative: {
+            status: "CURRENT_UNAVAILABLE",
+            reason: "c",
+            meaning: "comparative EPS as presented in this filing",
+            fact: null,
+          },
+          change: UNAVAILABLE_CHANGE,
+        }),
+      ),
+    ];
+    for (const reply of cases) {
+      route({ eps: reply });
+      render(await FilingDetailPage(detailProps(QUALIFIED)));
+      const eps = apiCalls("/eps");
+      expect(eps).toHaveLength(1);
+      expect(eps[0]).toContain(`cik=${CIK_A}`);
+      cleanup();
+    }
+  });
+
+  it("shows a qualified NOT_INGESTED honestly with the requested registrant, not another's data", async () => {
+    route({
+      eps: jsonResponse(
+        makeEps({
+          company_cik: CIK_B,
+          form: null,
+          current: {
+            status: "NOT_INGESTED",
+            reason: `no stored SecFiling for ${ACC} and CIK ${CIK_B}`,
+            fact: null,
+          },
+          comparative: {
+            status: "CURRENT_UNAVAILABLE",
+            reason: "c",
+            meaning: "comparative EPS as presented in this filing",
+            fact: null,
+          },
+          change: UNAVAILABLE_CHANGE,
+        }),
+      ),
+    });
+    render(await FilingDetailPage(detailProps({ cik: CIK_B, ...SELECTED })));
+
+    expect(
+      screen.getByRole("region", { name: "Current EPS" }),
+    ).toHaveTextContent("NOT_INGESTED");
+    expect(screen.queryByRole("alert")).toBeNull();
+    const header = screen.getByRole("heading", { level: 1 }).parentElement;
+    expect(header).toHaveTextContent(`Requested CIK ${CIK_B}`);
+    expect(header).toHaveTextContent("request echo, not a stored registrant");
+  });
+
+  it("labels a resolved filing's CIK as the registrant, not as a request echo", async () => {
+    route({ eps: jsonResponse(epsFor(CIK_A, "1.5300", "1.5200", "0.0100")) });
+    render(await FilingDetailPage(detailProps(QUALIFIED)));
+
+    const header = screen.getByRole("heading", { level: 1 }).parentElement;
+    expect(header).toHaveTextContent(`10-Q · CIK ${CIK_A}`);
+    expect(header).not.toHaveTextContent("request echo");
+  });
+});
+
+describe("Filings list: joint accessions link to their own registrant (10.6M)", () => {
+  it("gives the two rows of a joint accession different qualified URLs, and a CIK-less row none", async () => {
+    route({
+      filings: jsonResponse(
+        filingsPage([
+          makeFiling({ company_cik: CIK_B }),
+          makeFiling({ company_cik: CIK_A }),
+          makeFiling({ company_cik: null }),
+        ]),
+      ),
+    });
+    render(await FilingsPage(listProps()));
+
+    const hrefs = within(screen.getByRole("table"))
+      .getAllByRole("link")
+      .map((a) => a.getAttribute("href"));
+    expect(hrefs).toEqual([
+      `/filings/${ACC}?cik=${CIK_B}&period_class=QUARTER&eps_kind=DILUTED`,
+      `/filings/${ACC}?cik=${CIK_A}&period_class=QUARTER&eps_kind=DILUTED`,
+      `/filings/${ACC}?period_class=QUARTER&eps_kind=DILUTED`,
+    ]);
+    expect(new Set(hrefs).size).toBe(3);
   });
 });

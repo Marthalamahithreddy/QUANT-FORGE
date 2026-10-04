@@ -18,6 +18,7 @@ from typing import Final
 
 from pydantic import BaseModel, Field
 
+from quantforge.models.company import CIK_PATTERN
 from quantforge.models.enums import SecFormType
 from quantforge.models.filing import ACCESSION_PATTERN
 
@@ -36,7 +37,7 @@ DEFAULT_LIMIT: Final = 50
 MAX_LIMIT: Final = 200
 MAX_OFFSET: Final = 1_000_000
 #: A CIK exactly as stored: ten digits, zero-padded (the ``company.cik`` CHECK).
-CIK_QUERY_PATTERN: Final = r"^[0-9]{10}$"
+CIK_QUERY_PATTERN: Final = CIK_PATTERN
 
 
 class FilingIndexQuery(BaseModel):

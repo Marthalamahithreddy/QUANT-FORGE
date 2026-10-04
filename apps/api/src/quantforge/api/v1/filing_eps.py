@@ -8,7 +8,11 @@ HTTP semantics: ``200`` for every valid request, **including domain refusals** (
 ``MISSING``, ``WRONG_UNIT``, ``COMPARATIVE_PERIOD_MISMATCH``, ...: they are observations, not missing
 resources); ``422`` for a malformed accession or a missing/invalid ``period_class`` / ``eps_kind``
 (both are required, nothing is defaulted or inferred from the form); ``503`` only when the database
-is unavailable. ``GET /filings`` (see :mod:`quantforge.api.v1.filings`) lists the accessions.
+is unavailable. The optional ``cik`` qualifies which stored filing ``(company, accession)`` is
+meant (identity only, never an EPS rule): without it the accession alone resolves as before (a joint
+accession is ``AMBIGUOUS``); with it only that registrant's filing is read, and a well-formed CIK
+with no matching filing is ``NOT_INGESTED`` (``200``, never another registrant's data, never a 404).
+``GET /filings`` (see :mod:`quantforge.api.v1.filings`) lists the accessions.
 """
 
 from __future__ import annotations
@@ -54,7 +58,11 @@ def get_filing_eps(
 ) -> FilingEpsResponse:
     try:
         comparative = extract_comparative_eps_observation(
-            session, accession, period_class=params.period_class, eps_kind=params.eps_kind
+            session,
+            accession,
+            period_class=params.period_class,
+            eps_kind=params.eps_kind,
+            company_cik=params.cik,
         )
     except (OperationalError, InterfaceError) as exc:
         raise database_unavailable(exc, what="Filing EPS read") from exc

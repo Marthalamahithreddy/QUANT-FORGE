@@ -23,6 +23,7 @@ from quantforge.financials.eps import (
     EpsStatus,
     select_eps_fact,
 )
+from quantforge.models.company import CIK_REGEX
 from quantforge.models.enums import SecFormType
 from quantforge.models.filing import ACCESSION_REGEX
 from quantforge.repositories.financial_fact import FinancialFactRepository
@@ -47,8 +48,16 @@ def resolve_eps_inputs(
     *,
     period_class: EpsPeriodClass,
     eps_kind: EpsKind,
+    company_cik: str | None = None,
 ) -> ResolvedEpsInputs | EpsFactObservation:
     """The selector inputs of ``accession_number``, or a refusal when no single filing resolves.
+
+    ``company_cik`` optionally qualifies WHICH stored filing (``(company, accession)``) is meant;
+    it is identity resolution only and never reaches the selectors. Without it the accession alone
+    resolves, exactly as before (a joint accession is ``AMBIGUOUS``). With it, only that
+    registrant's filing is considered: if none matches, the result is ``NOT_INGESTED`` carrying the
+    requested CIK, never another registrant's filing. That refusal's ``company_cik`` is the REQUEST echoed
+    back (its ``form`` is ``None``), not evidence that a registrant was found.
 
     The refusal is a current-EPS observation (``NOT_INGESTED`` / ``AMBIGUOUS``) because nothing is
     stored that a selector could read. Facts are fetched by the requested concept's exact tag for
@@ -57,14 +66,17 @@ def resolve_eps_inputs(
     if not ACCESSION_REGEX.fullmatch(accession_number):
         message = f"accession_number must look like 0000320193-24-000123, got {accession_number!r}"
         raise ValueError(message)
+    if company_cik is not None and not CIK_REGEX.fullmatch(company_cik):
+        message = f"company_cik must be a ten-digit CIK, got {company_cik!r}"
+        raise ValueError(message)
     repository = FinancialFactRepository(session)
-    contexts = repository.filing_fact_contexts(accession_number)
+    contexts = repository.filing_fact_contexts(accession_number, company_cik=company_cik)
     ingested = [c for c in contexts if c.submission_period_ends]
 
     def refuse(status: EpsStatus, reason: str) -> EpsFactObservation:
         return EpsFactObservation.refusal(
             accession_number=accession_number,
-            company_cik=None,
+            company_cik=company_cik,
             form=None,
             period_class=period_class,
             eps_kind=eps_kind,
@@ -73,10 +85,12 @@ def resolve_eps_inputs(
         )
 
     if not contexts:
+        scope = (
+            accession_number if company_cik is None else f"{accession_number} and CIK {company_cik}"
+        )
         return refuse(
             EpsStatus.NOT_INGESTED,
-            f"no stored SecFiling for {accession_number}; this is not evidence the source "
-            "states no EPS",
+            f"no stored SecFiling for {scope}; this is not evidence the source states no EPS",
         )
     if len(ingested) > 1:
         return refuse(
@@ -125,6 +139,7 @@ def extract_eps_observation(
     *,
     period_class: EpsPeriodClass,
     eps_kind: EpsKind,
+    company_cik: str | None = None,
 ) -> EpsFactObservation:
     """The EPS observation of ``accession_number`` for the explicitly requested class and kind.
 
@@ -132,7 +147,11 @@ def extract_eps_observation(
     what the source contains. An amendment is its own accession and is never preferred or merged.
     """
     resolved = resolve_eps_inputs(
-        session, accession_number, period_class=period_class, eps_kind=eps_kind
+        session,
+        accession_number,
+        period_class=period_class,
+        eps_kind=eps_kind,
+        company_cik=company_cik,
     )
     if isinstance(resolved, EpsFactObservation):
         return resolved

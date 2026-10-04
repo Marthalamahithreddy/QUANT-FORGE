@@ -30,6 +30,7 @@ from quantforge.financials.eps_change import (
     EpsTransition,
     PercentageUnavailableReason,
 )
+from quantforge.models.company import CIK_PATTERN
 from quantforge.models.enums import SecFormType
 from quantforge.schemas.common import DecimalText
 
@@ -53,11 +54,23 @@ COMPARATIVE_MEANING: Final = "comparative EPS as presented in this filing"
 
 
 class FilingEpsQuery(BaseModel):
-    """Required query parameters: nothing is defaulted, inferred from the form, or guessed."""
+    """``period_class`` and ``eps_kind`` are required (nothing is defaulted or inferred from the form);
+    ``cik`` is optional identity qualification."""
 
     model_config = {"extra": "forbid"}
 
     period_class: EpsPeriodClass = Field(description="QUARTER (qtrs = 1) or ANNUAL (qtrs = 4).")
+    cik: str | None = Field(
+        None,
+        pattern=CIK_PATTERN,
+        description=(
+            "Optional ten-digit zero-padded registrant CIK that qualifies WHICH stored filing "
+            "(company, accession) is meant, for an accession stored under several registrants. "
+            "Identity only: it never changes how EPS is selected. Absent: the accession alone "
+            "resolves, and a joint accession is reported AMBIGUOUS. Present but matching no "
+            "stored filing: NOT_INGESTED for that CIK (never another registrant's filing)."
+        ),
+    )
     eps_kind: EpsKind = Field(
         description=(
             "DILUTED (EarningsPerShareDiluted) or BASIC_AND_DILUTED "
@@ -126,7 +139,13 @@ class FilingEpsResponse(BaseModel):
     model_config = ConfigDict(json_schema_serialization_defaults_required=True)
 
     accession: str
-    company_cik: str | None
+    company_cik: str | None = Field(
+        description=(
+            "The registrant's CIK when a filing resolved; when a CIK was requested and no stored "
+            "filing matched, the requested CIK is echoed with a NOT_INGESTED status (a request "
+            "echo, not a resolved identity). Null for an unqualified refusal."
+        )
+    )
     form: SecFormType | None
     period_class: EpsPeriodClass
     eps_kind: EpsKind

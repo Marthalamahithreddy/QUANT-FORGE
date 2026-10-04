@@ -205,14 +205,23 @@ class FinancialFactRepository:
             total=total or 0,
         )
 
-    def filing_fact_contexts(self, accession_number: str) -> list[FilingFactContext]:
-        """Every stored filing row of the accession (a joint filing can have several), by id."""
-        filings = self._session.execute(
+    def filing_fact_contexts(
+        self, accession_number: str, *, company_cik: str | None = None
+    ) -> list[FilingFactContext]:
+        """Every stored filing row of the accession (a joint filing can have several), by id.
+
+        With ``company_cik`` only the filing of the company with that exact CIK is considered (a
+        CIK is unique to one company, so at most one row). Nothing falls back to the other
+        registrants of the accession: an unmatched CIK yields no context.
+        """
+        statement = (
             sa.select(SecFiling.id, SecFiling.accession_number, SecFiling.form, Company.cik)
             .join(Company, Company.id == SecFiling.company_id)
             .where(SecFiling.accession_number == accession_number)
-            .order_by(SecFiling.id)
-        ).all()
+        )
+        if company_cik is not None:
+            statement = statement.where(Company.cik == company_cik)
+        filings = self._session.execute(statement.order_by(SecFiling.id)).all()
         if not filings:
             return []
         period_ends: dict[uuid.UUID, set[date]] = {row.id: set() for row in filings}

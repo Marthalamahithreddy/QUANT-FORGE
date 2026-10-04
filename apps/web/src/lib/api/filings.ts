@@ -74,11 +74,14 @@ export function buildFilingEpsPath(
   accession: string,
   periodClass: EpsPeriodClass,
   epsKind: EpsKind,
+  cik: string | null = null,
 ): string {
   const params = new URLSearchParams({
     period_class: periodClass,
     eps_kind: epsKind,
   });
+  // Registrant qualification: sent verbatim (leading zeros intact) only when the caller has one.
+  if (cik !== null) params.set("cik", cik);
   return `${env.apiFilingsPath}/${encodeURIComponent(accession)}/eps?${params.toString()}`;
 }
 
@@ -93,17 +96,24 @@ export function getFilings(
   );
 }
 
-/** Both selectors are required and typed: nothing is defaulted or inferred here. */
+/**
+ * Both selectors are required and typed: nothing is defaulted or inferred here. `cik` optionally
+ * qualifies WHICH stored filing `(company, accession)` is meant; when given it is sent and the
+ * response must name the same registrant. There is exactly one request: a qualified request that
+ * fails or is refused is NEVER retried without the CIK, which would hide a joint accession's
+ * ambiguity or show another registrant's filing.
+ */
 export function getFilingEps(
   accession: string,
   periodClass: EpsPeriodClass,
   epsKind: EpsKind,
+  cik: string | null = null,
   options: ApiGetOptions = {},
 ): Promise<FilingsResult<FilingEps>> {
   return guard(async () => {
     const eps = parseFilingEps(
       await apiGet<unknown>(
-        buildFilingEpsPath(accession, periodClass, epsKind),
+        buildFilingEpsPath(accession, periodClass, epsKind, cik),
         options,
       ),
     );
@@ -115,6 +125,11 @@ export function getFilingEps(
     ) {
       throw new FilingsContractError(
         "the response does not echo the requested selection.",
+      );
+    }
+    if (cik !== null && eps.company_cik !== cik) {
+      throw new FilingsContractError(
+        "the response does not name the requested registrant (CIK).",
       );
     }
     return eps;

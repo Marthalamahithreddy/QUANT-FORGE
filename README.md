@@ -362,7 +362,14 @@ observations to the schema (`schemas/filing_eps.py`), and no financial rule live
   dashed EDGAR accession, else `422` (as for a bad/missing/extra parameter). Every valid request is **`200`, including domain
   refusals**: `NOT_INGESTED`, `MISSING`, `WRONG_UNIT`, `COMPARATIVE_PERIOD_MISMATCH`, ... are observations, not missing
   resources; `503` only when the database is unavailable. It reads stored facts only: no SEC/provider call, no write (the
-  request session is rolled back), no cache, no migration. There is no filings index yet.
+  request session is rolled back), no cache, no migration. `GET /api/v1/filings` lists the accessions.
+* **Registrant qualification (optional `cik`):** a filing's identity is `(company, accession)`, and a joint accession is stored
+  once per registrant. `&cik=<ten-digit CIK>` (leading zeros kept; malformed is `422`) selects that registrant's filing; it is
+  identity resolution only and never changes how EPS is selected. Without it the accession alone resolves exactly as before (a
+  joint accession is `AMBIGUOUS`). With it, only that registrant's filing is read and a well-formed CIK matching no stored
+  filing is `200` `NOT_INGESTED` echoing the requested CIK as `company_cik` (a **request echo, not evidence that a registrant
+  was found**: such a refusal has `form: null` and no fact; never another registrant's data, never a `404`). A request that
+  carries a CIK is never retried without it. A company with no stored CIK cannot be qualified, so ambiguity can remain there.
 * **Response:** one nested envelope: `accession`, `company_cik`, `form`, `period_class`, `eps_kind`, `descriptive_only: true`,
   `no_point_in_time_claim: true`, `boundary_note`, then `current`, `comparative` and `change`, each with its own `status`
   (+ `reason` / `fact` evidence where the domain selected a fact: id, tag, taxonomy version, unit, period end, `qtrs`, value,

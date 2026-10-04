@@ -18,6 +18,7 @@ import {
   EPS_KIND_LABEL,
   PERIOD_CLASS_LABEL,
   isAccession,
+  isCikValue,
   isEpsKind,
   isPeriodClass,
   readSelector,
@@ -88,10 +89,13 @@ function SelectorField<T extends string>({
 
 function Controls({
   accession,
+  cik,
   period,
   kind,
 }: {
   readonly accession: string;
+  /** The validated registrant qualifier, carried through the form so a change never drops it. */
+  readonly cik: string | null;
   readonly period: Selector<(typeof PERIOD_CLASSES)[number]>;
   readonly kind: Selector<(typeof EPS_KINDS)[number]>;
 }) {
@@ -102,6 +106,7 @@ function Controls({
       aria-label="EPS selection"
       className="flex flex-wrap items-end gap-3"
     >
+      {cik === null ? null : <input type="hidden" name="cik" value={cik} />}
       <SelectorField
         id="period_class"
         label="Period class"
@@ -151,14 +156,26 @@ export default async function FilingDetailPage({
   const query = await searchParams;
   const period = readSelector(query.period_class, isPeriodClass);
   const kind = readSelector(query.eps_kind, isEpsKind);
+  // Optional registrant qualifier: absent is fine, malformed is a local error, never repaired.
+  // An empty `cik=` is malformed (the API answers 422), not "absent": it must not silently become
+  // an accession-only request.
+  const cik: Selector<string> =
+    query.cik === ""
+      ? { state: "invalid", raw: "" }
+      : readSelector(query.cik, isCikValue);
+  const registrant = cik.state === "ok" ? cik.value : null;
   const wellFormed = isAccession(accession);
   const problem = describeSelectorProblem(period, kind);
 
-  const canRequest = wellFormed && period.state === "ok" && kind.state === "ok";
+  const canRequest =
+    wellFormed &&
+    cik.state !== "invalid" &&
+    period.state === "ok" &&
+    kind.state === "ok";
   const [status, result] = await Promise.all([
     getBackendStatus(),
     canRequest
-      ? getFilingEps(accession, period.value, kind.value)
+      ? getFilingEps(accession, period.value, kind.value, registrant)
       : Promise.resolve(null),
   ]);
 
@@ -168,6 +185,21 @@ export default async function FilingDetailPage({
       <StatePanel kind="error" title="Malformed accession">
         An accession looks like 0000320193-24-000123 (ten digits, two digits,
         six digits). No request was made.
+      </StatePanel>
+    );
+  } else if (cik.state === "invalid") {
+    // The registrant qualifier is part of the filing's identity and has no control here, so the
+    // controls are withheld: re-submitting them would silently drop it and ask for the accession
+    // alone (ambiguous, or another registrant's filing).
+    body = (
+      <StatePanel kind="error" title="Unsupported registrant CIK">
+        The CIK in the address (“{cik.raw}”) must be exactly ten digits,
+        including leading zeros. Nothing is substituted, and no request was
+        made. Correct the address, or open the filing again from the{" "}
+        <Link href="/filings" className="text-accent hover:underline">
+          filings list
+        </Link>
+        .
       </StatePanel>
     );
   } else if (problem.invalid) {
@@ -234,23 +266,40 @@ export default async function FilingDetailPage({
           eyebrow="Filing · SEC FSDS"
           title={accession}
           description={
-            header ? (
+            header && header.form === null && registrant !== null ? (
+              // A qualified refusal that matched no stored filing: the CIK is only the request
+              // echoed back, never evidence that a registrant was found.
+              <>
+                Requested CIK {registrant} · no stored filing matched (request
+                echo, not a stored registrant)
+              </>
+            ) : header ? (
               <>
                 {header.form ?? MISSING} · CIK {header.company_cik ?? MISSING}
               </>
+            ) : registrant !== null ? (
+              <>Requested CIK {registrant}</>
             ) : undefined
           }
         />
         <Boundary />
-        {wellFormed ? (
-          <Controls accession={accession} period={period} kind={kind} />
+        {wellFormed && cik.state !== "invalid" ? (
+          <Controls
+            accession={accession}
+            cik={registrant}
+            period={period}
+            kind={kind}
+          />
         ) : null}
-        {wellFormed ? (
+        {wellFormed && cik.state !== "invalid" ? (
           <p className="-mt-3 text-xs text-text-muted">
             The selections above come from the address. Links from the filings
             list pre-select the period class from the form type and start with
             Diluted, as a convenience only; change either choice and press Show
-            EPS. The page never falls back from one EPS kind to another.
+            EPS. The page never falls back from one EPS kind to another. A CIK
+            in the address names which registrant&rsquo;s filing is meant (an
+            identity, not an availability time); without one the accession alone
+            is used, which can be ambiguous for a joint accession.
           </p>
         ) : null}
         {body}

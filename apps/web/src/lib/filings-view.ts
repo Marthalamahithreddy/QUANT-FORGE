@@ -111,6 +111,10 @@ export function isEpsKind(value: string): value is EpsKind {
 export const isAccession = (value: string): boolean =>
   ACCESSION_PATTERN.test(value);
 export const isCik = (value: string): boolean => CIK_PATTERN.test(value);
+/** `isCik` as a selector guard, for the optional `cik` URL parameter. */
+export function isCikValue(value: string): value is string {
+  return CIK_PATTERN.test(value);
+}
 
 /**
  * The period class a LIST LINK pre-selects for a form. A navigation convenience only: the detail
@@ -125,11 +129,17 @@ export function navigationPeriodClass(form: FilingForm): EpsPeriodClass | null {
 /** The EPS kind a list link starts with: a visible initial choice, never a fallback. */
 export const INITIAL_EPS_KIND: EpsKind = "DILUTED";
 
-/** `/filings/{accession}` with explicit, correctly encoded selectors. */
+/**
+ * `/filings/{accession}` with explicit, correctly encoded selectors. A row whose company has a CIK
+ * carries it, so a joint accession leads to the registrant the row names; a row without one stays
+ * accession-only (the API then resolves the accession alone, which can be ambiguous). No identity
+ * is invented for a CIK-less row.
+ */
 export function filingDetailHref(
-  item: Pick<FilingIndexItem, "accession" | "form">,
+  item: Pick<FilingIndexItem, "accession" | "form" | "company_cik">,
 ): string {
   const params = new URLSearchParams();
+  if (item.company_cik !== null) params.set("cik", item.company_cik);
   const period = navigationPeriodClass(item.form);
   if (period !== null) params.set("period_class", period);
   params.set("eps_kind", INITIAL_EPS_KIND);

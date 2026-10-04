@@ -166,6 +166,8 @@ describe("filing EPS parser", () => {
     ["period class", makeEps({ period_class: "YTD" })],
     ["eps kind", makeEps({ eps_kind: "BASIC" })],
     ["form", makeEps({ form: "S-1" })],
+    ["a short registrant CIK", makeEps({ company_cik: "320193" })],
+    ["a non-string registrant CIK", makeEps({ company_cik: 320193 })],
   ])("fails loudly on an unknown %s", (_name, payload) => {
     expect(() => parseFilingEps(payload)).toThrow(FilingsContractError);
   });
@@ -306,16 +308,73 @@ describe("navigation helpers", () => {
 
   it("builds an encoded link with explicit selectors", () => {
     expect(
-      filingDetailHref({ accession: "0000320193-24-000010", form: "10-Q/A" }),
+      filingDetailHref({
+        accession: "0000320193-24-000010",
+        form: "10-Q/A",
+        company_cik: null,
+      }),
     ).toBe(
       "/filings/0000320193-24-000010?period_class=QUARTER&eps_kind=DILUTED",
     );
     expect(
-      filingDetailHref({ accession: "0000320193-24-000010", form: "8-K" }),
+      filingDetailHref({
+        accession: "0000320193-24-000010",
+        form: "8-K",
+        company_cik: null,
+      }),
     ).toBe("/filings/0000320193-24-000010?eps_kind=DILUTED");
-    expect(filingDetailHref({ accession: "a b/c", form: "10-K" })).toContain(
-      "/filings/a%20b%2Fc?",
+    expect(
+      filingDetailHref({ accession: "a b/c", form: "10-K", company_cik: null }),
+    ).toContain("/filings/a%20b%2Fc?");
+  });
+
+  it("carries the registrant CIK, leading zeros intact, only when the row has one", () => {
+    expect(
+      filingDetailHref({
+        accession: "0000320193-24-000010",
+        form: "10-Q",
+        company_cik: "0000012345",
+      }),
+    ).toBe(
+      "/filings/0000320193-24-000010?cik=0000012345&period_class=QUARTER&eps_kind=DILUTED",
     );
+    const a = filingDetailHref({
+      accession: "0000320193-24-000010",
+      form: "10-Q",
+      company_cik: "0000320193",
+    });
+    const b = filingDetailHref({
+      accession: "0000320193-24-000010",
+      form: "10-Q",
+      company_cik: "0000555555",
+    });
+    expect(a).not.toBe(b);
+    expect(a).toContain("cik=0000320193");
+    expect(b).toContain("cik=0000555555");
+    // a CIK-less row stays accession-only: nothing is invented
+    expect(
+      filingDetailHref({
+        accession: "0000320193-24-000010",
+        form: "10-Q",
+        company_cik: null,
+      }),
+    ).not.toContain("cik=");
+  });
+
+  it("sends the CIK to the API verbatim, and only when qualified", () => {
+    expect(
+      buildFilingEpsPath(
+        "0000320193-24-000010",
+        "QUARTER",
+        "DILUTED",
+        "0000012345",
+      ),
+    ).toBe(
+      "/api/v1/filings/0000320193-24-000010/eps?period_class=QUARTER&eps_kind=DILUTED&cik=0000012345",
+    );
+    expect(
+      buildFilingEpsPath("0000320193-24-000010", "QUARTER", "DILUTED"),
+    ).not.toContain("cik");
   });
 
   it("encodes API paths and never builds from raw fragments", () => {
