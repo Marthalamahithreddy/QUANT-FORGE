@@ -45,7 +45,7 @@ __all__ = [
     "FilingEpsResponse",
 ]
 
-#: The machine-readable boundary, repeated in prose so a consumer cannot miss it.
+#: The machine-readable boundary, repeated in prose so a consumer cannot overlook it.
 BOUNDARY_NOTE: Final = (
     "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here "
     "says when a figure was known or that it was tradable."

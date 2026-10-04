@@ -314,6 +314,16 @@ def test_a_joint_accession_stays_two_rows_ordered_by_cik_descending(
     assert _get(client, limit=1, offset=1)["items"][0]["company_cik"] == CIK_A
 
 
+def test_a_cik_less_row_sorts_after_a_cik_row_of_the_same_accession_and_date(
+    client: TestClient, seed: Seed
+) -> None:
+    seed(acc(1), cik=None, company_key="cikless")
+    seed(acc(1), cik=CIK_B)
+    seed(acc(1), cik=CIK_A)
+
+    assert _ids(_get(client)) == [(acc(1), CIK_B), (acc(1), CIK_A), (acc(1), None)]
+
+
 def test_joint_rows_without_any_cik_are_still_totally_ordered_and_never_duplicated(
     client: TestClient, seed: Seed
 ) -> None:

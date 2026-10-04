@@ -388,6 +388,29 @@ observations to the schema (`schemas/filing_eps.py`), and no financial rule live
             "percentage_unavailable_reason": null}}
 ```
 
+### Filings index and the descriptive accounting workspace (Step 10.6, frozen)
+
+`GET /api/v1/filings?limit=&offset=&form=&cik=` is a bounded, deterministic, read-only index of **stored filings that have
+at least one FSDS submission** (not all SEC filings, not "available" or "tradable" filings). A row is the stored filing
+`(company, accession)`: `accession`, `company_cik`, `form`, `filing_date`, `report_date`, `fsds_period_end` (the period all of
+the filing's submissions agree on, else `null`). Order is `filing_date DESC, accession DESC, cik DESC` (NULL CIKs last, then the row id); `limit` 50 (max 200),
+`offset` max 1,000,000, exact `form` and `cik` filters (AND). `total` and the page are two reads, and offset paging can shift while
+ingestion adds rows. No financial value, ticker, name, acceptance or ingestion time is exposed.
+
+The frontend `/filings` and `/filings/[accession]` pages are server-rendered over these two APIs only (GET, stored data, no
+provider call). The flow is **stored filing -> FSDS submission/facts -> filings index -> (registrant-qualified) detail -> current EPS
+-> same-accession comparative -> descriptive change**. Parsers are strict (an unknown status, transition or reason is an
+"unsupported response" error, never a generic fallback); financial values stay decimal strings end to end; a ratio is shown as an
+exact string and as a rounded percentage (with an explicit "not zero" note when it rounds to 0.00%); transitions use neutral
+wording; and every detail state carries the banner *"Descriptive accounting data from SEC FSDS. No point-in-time availability claim.
+Not a trading signal."* A repeated query parameter is `422` on both APIs. The real backend JSON for a seeded scenario is pinned in
+`apps/web/tests/contract/vertical.json` and checked by both the backend and the frontend suites.
+
+Known limitations: a company without a stored CIK cannot be registrant-qualified, so a joint accession can remain `AMBIGUOUS`;
+offset paging is not a snapshot; there is no browser end-to-end framework (the suites use in-process HTTP backend tests over real stored rows and rendered
+page tests; a built-server check was run manually at the freeze, not automated); the FSDS `accepted` timezone is unresolved and FSDS is not point-in-time evidence; historical SEC
+coverage is incomplete.
+
 ## Research, signals, and backtest layers
 
 Three packages in `apps/api/src/quantforge/`, each strictly downstream of the

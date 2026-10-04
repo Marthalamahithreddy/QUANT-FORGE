@@ -1,0 +1,935 @@
+{
+  "enums": {
+    "EpsStatus": [
+      "AMBIGUOUS",
+      "AVAILABLE",
+      "COREG_ONLY",
+      "DIMENSIONAL_ONLY",
+      "EXTENSION_ONLY",
+      "MISSING",
+      "NOT_INGESTED",
+      "NULL_VALUE",
+      "UNSUPPORTED_FORM_PERIOD",
+      "WRONG_UNIT"
+    ],
+    "ComparativeEpsStatus": [
+      "AVAILABLE",
+      "COMPARATIVE_AMBIGUOUS",
+      "COMPARATIVE_COREG_ONLY",
+      "COMPARATIVE_DIMENSIONAL_ONLY",
+      "COMPARATIVE_MISSING",
+      "COMPARATIVE_NULL_VALUE",
+      "COMPARATIVE_PERIOD_MISMATCH",
+      "COMPARATIVE_WRONG_UNIT",
+      "CURRENT_UNAVAILABLE"
+    ],
+    "EpsChangeStatus": [
+      "AVAILABLE",
+      "INPUT_UNAVAILABLE"
+    ],
+    "EpsTransition": [
+      "LOSS_NARROWED",
+      "LOSS_TO_PROFIT",
+      "LOSS_TO_ZERO",
+      "LOSS_UNCHANGED",
+      "LOSS_WIDENED",
+      "POSITIVE_DECREASED",
+      "POSITIVE_INCREASED",
+      "POSITIVE_UNCHANGED",
+      "PROFIT_TO_LOSS",
+      "PROFIT_TO_ZERO",
+      "ZERO_TO_LOSS",
+      "ZERO_TO_PROFIT",
+      "ZERO_UNCHANGED"
+    ],
+    "PercentageUnavailableReason": [
+      "NEGATIVE_COMPARATIVE",
+      "ZERO_COMPARATIVE"
+    ],
+    "EpsPeriodClass": [
+      "ANNUAL",
+      "QUARTER"
+    ],
+    "EpsKind": [
+      "BASIC_AND_DILUTED",
+      "DILUTED"
+    ],
+    "SecFormType": [
+      "10-K",
+      "10-K/A",
+      "10-Q",
+      "10-Q/A",
+      "8-K",
+      "8-K/A"
+    ]
+  },
+  "index": {
+    "items": [
+      {
+        "accession": "0000320193-24-000090",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "filing_date": "2024-06-07",
+        "report_date": null,
+        "fsds_period_end": "2024-03-31"
+      },
+      {
+        "accession": "0000320193-24-000080",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "filing_date": "2024-06-06",
+        "report_date": null,
+        "fsds_period_end": "2024-03-31"
+      },
+      {
+        "accession": "0000320193-24-000070",
+        "company_cik": null,
+        "form": "10-Q",
+        "filing_date": "2024-06-05",
+        "report_date": null,
+        "fsds_period_end": "2024-03-31"
+      },
+      {
+        "accession": "0000320193-24-000060",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "filing_date": "2024-06-04",
+        "report_date": null,
+        "fsds_period_end": "2024-03-31"
+      },
+      {
+        "accession": "0000320193-24-000050",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "filing_date": "2024-06-03",
+        "report_date": null,
+        "fsds_period_end": "2024-03-31"
+      },
+      {
+        "accession": "0000320193-24-000040",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "filing_date": "2024-06-02",
+        "report_date": null,
+        "fsds_period_end": "2024-03-31"
+      },
+      {
+        "accession": "0000320193-24-000030",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "filing_date": "2024-06-01",
+        "report_date": null,
+        "fsds_period_end": "2024-03-31"
+      },
+      {
+        "accession": "0000320193-24-000020",
+        "company_cik": "0000320193",
+        "form": "10-Q/A",
+        "filing_date": "2024-05-17",
+        "report_date": null,
+        "fsds_period_end": "2024-03-31"
+      },
+      {
+        "accession": "0000320193-24-000010",
+        "company_cik": "0000555555",
+        "form": "10-Q",
+        "filing_date": "2024-05-03",
+        "report_date": null,
+        "fsds_period_end": "2024-03-31"
+      },
+      {
+        "accession": "0000320193-24-000010",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "filing_date": "2024-05-03",
+        "report_date": null,
+        "fsds_period_end": "2024-03-31"
+      },
+      {
+        "accession": "0000320193-23-000106",
+        "company_cik": "0000320193",
+        "form": "10-K",
+        "filing_date": "2023-11-03",
+        "report_date": null,
+        "fsds_period_end": "2023-09-30"
+      }
+    ],
+    "total": 11,
+    "limit": 50,
+    "offset": 0
+  },
+  "eps": [
+    {
+      "request": {
+        "accession": "0000320193-24-000010",
+        "cik": "0000320193",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-24-000010",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "AVAILABLE",
+          "reason": "one non-dimensional us-gaap EarningsPerShareDiluted fact (version us-gaap/2024) for qtrs=1 at 2024-03-31",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000001",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2024-03-31",
+            "qtrs": 1,
+            "value": "1.5300",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "comparative": {
+          "status": "AVAILABLE",
+          "reason": "comparative EPS as presented in this filing: one non-dimensional EarningsPerShareDiluted fact (version us-gaap/2024) at 2023-03-31, 12 month-ends before 2024-03-31",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000002",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2023-03-31",
+            "qtrs": 1,
+            "value": "1.5200",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "change": {
+          "status": "AVAILABLE",
+          "eps_change": "0.0100",
+          "transition": "POSITIVE_INCREASED",
+          "percentage_change": "0.0065789473684210526315789473684210526315789473684211",
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": null
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000320193-24-000010",
+        "cik": "0000555555",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-24-000010",
+        "company_cik": "0000555555",
+        "form": "10-Q",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "AVAILABLE",
+          "reason": "one non-dimensional us-gaap EarningsPerShareDiluted fact (version us-gaap/2024) for qtrs=1 at 2024-03-31",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000003",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2024-03-31",
+            "qtrs": 1,
+            "value": "4.0000",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "comparative": {
+          "status": "AVAILABLE",
+          "reason": "comparative EPS as presented in this filing: one non-dimensional EarningsPerShareDiluted fact (version us-gaap/2024) at 2023-03-31, 12 month-ends before 2024-03-31",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000004",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2023-03-31",
+            "qtrs": 1,
+            "value": "3.0000",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "change": {
+          "status": "AVAILABLE",
+          "eps_change": "1.0000",
+          "transition": "POSITIVE_INCREASED",
+          "percentage_change": "0.33333333333333333333333333333333333333333333333333",
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": null
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000320193-24-000010",
+        "cik": null,
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-24-000010",
+        "company_cik": null,
+        "form": null,
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "AMBIGUOUS",
+          "reason": "0000320193-24-000010 is stored under 2 filings that each have an ingested submission; the filing identity is not unique",
+          "fact": null
+        },
+        "comparative": {
+          "status": "CURRENT_UNAVAILABLE",
+          "reason": "the current EPS is AMBIGUOUS, so no comparative is searched: 0000320193-24-000010 is stored under 2 filings that each have an ingested submission; the filing identity is not unique",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": null
+        },
+        "change": {
+          "status": "INPUT_UNAVAILABLE",
+          "eps_change": null,
+          "transition": null,
+          "percentage_change": null,
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": null
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000320193-24-000010",
+        "cik": "0000999999",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-24-000010",
+        "company_cik": "0000999999",
+        "form": null,
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "NOT_INGESTED",
+          "reason": "no stored SecFiling for 0000320193-24-000010 and CIK 0000999999; this is not evidence the source states no EPS",
+          "fact": null
+        },
+        "comparative": {
+          "status": "CURRENT_UNAVAILABLE",
+          "reason": "the current EPS is NOT_INGESTED, so no comparative is searched: no stored SecFiling for 0000320193-24-000010 and CIK 0000999999; this is not evidence the source states no EPS",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": null
+        },
+        "change": {
+          "status": "INPUT_UNAVAILABLE",
+          "eps_change": null,
+          "transition": null,
+          "percentage_change": null,
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": null
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000320193-24-000010",
+        "cik": "0000320193",
+        "period_class": "QUARTER",
+        "eps_kind": "BASIC_AND_DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-24-000010",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "period_class": "QUARTER",
+        "eps_kind": "BASIC_AND_DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "MISSING",
+          "reason": "no us-gaap EarningsPerShareBasicAndDiluted fact in 0000320193-24-000010 matches the requested current period (qtrs=1, period end 2024-03-31); other EPS concepts are never substituted",
+          "fact": null
+        },
+        "comparative": {
+          "status": "CURRENT_UNAVAILABLE",
+          "reason": "the current EPS is MISSING, so no comparative is searched: no us-gaap EarningsPerShareBasicAndDiluted fact in 0000320193-24-000010 matches the requested current period (qtrs=1, period end 2024-03-31); other EPS concepts are never substituted",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": null
+        },
+        "change": {
+          "status": "INPUT_UNAVAILABLE",
+          "eps_change": null,
+          "transition": null,
+          "percentage_change": null,
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": null
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000320193-24-000010",
+        "cik": "0000320193",
+        "period_class": "ANNUAL",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-24-000010",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "period_class": "ANNUAL",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "UNSUPPORTED_FORM_PERIOD",
+          "reason": "form 10-Q does not support the ANNUAL period class (supported forms: 10-K, 10-K/A); no other period is read or derived",
+          "fact": null
+        },
+        "comparative": {
+          "status": "CURRENT_UNAVAILABLE",
+          "reason": "the current EPS is UNSUPPORTED_FORM_PERIOD, so no comparative is searched: form 10-Q does not support the ANNUAL period class (supported forms: 10-K, 10-K/A); no other period is read or derived",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": null
+        },
+        "change": {
+          "status": "INPUT_UNAVAILABLE",
+          "eps_change": null,
+          "transition": null,
+          "percentage_change": null,
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": null
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000320193-24-000020",
+        "cik": "0000320193",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-24-000020",
+        "company_cik": "0000320193",
+        "form": "10-Q/A",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "AVAILABLE",
+          "reason": "one non-dimensional us-gaap EarningsPerShareDiluted fact (version us-gaap/2024) for qtrs=1 at 2024-03-31",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000005",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2024-03-31",
+            "qtrs": 1,
+            "value": "1.5300",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "comparative": {
+          "status": "COMPARATIVE_PERIOD_MISMATCH",
+          "reason": "earlier EarningsPerShareDiluted facts with qtrs=1 exist at 2023-02-28 (13 months before), but none is exactly 12 month-ends before 2024-03-31; such relationships (e.g. 52/53-week rounding, fiscal-calendar changes, or dates that are not month ends) are refused, not tolerated",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": null
+        },
+        "change": {
+          "status": "INPUT_UNAVAILABLE",
+          "eps_change": null,
+          "transition": null,
+          "percentage_change": null,
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": null
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000320193-23-000106",
+        "cik": "0000320193",
+        "period_class": "ANNUAL",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-23-000106",
+        "company_cik": "0000320193",
+        "form": "10-K",
+        "period_class": "ANNUAL",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "AVAILABLE",
+          "reason": "one non-dimensional us-gaap EarningsPerShareDiluted fact (version us-gaap/2024) for qtrs=4 at 2023-09-30",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000006",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2023-09-30",
+            "qtrs": 4,
+            "value": "-0.5000",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "comparative": {
+          "status": "AVAILABLE",
+          "reason": "comparative EPS as presented in this filing: one non-dimensional EarningsPerShareDiluted fact (version us-gaap/2024) at 2022-09-30, 12 month-ends before 2023-09-30",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000007",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2022-09-30",
+            "qtrs": 4,
+            "value": "1.0000",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "change": {
+          "status": "AVAILABLE",
+          "eps_change": "-1.5000",
+          "transition": "PROFIT_TO_LOSS",
+          "percentage_change": "-1.5",
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": null
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000320193-24-000030",
+        "cik": "0000320193",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-24-000030",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "AVAILABLE",
+          "reason": "one non-dimensional us-gaap EarningsPerShareDiluted fact (version us-gaap/2024) for qtrs=1 at 2024-03-31",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000008",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2024-03-31",
+            "qtrs": 1,
+            "value": "0.5000",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "comparative": {
+          "status": "AVAILABLE",
+          "reason": "comparative EPS as presented in this filing: one non-dimensional EarningsPerShareDiluted fact (version us-gaap/2024) at 2023-03-31, 12 month-ends before 2024-03-31",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000009",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2023-03-31",
+            "qtrs": 1,
+            "value": "0.0000",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "change": {
+          "status": "AVAILABLE",
+          "eps_change": "0.5000",
+          "transition": "ZERO_TO_PROFIT",
+          "percentage_change": null,
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": "ZERO_COMPARATIVE"
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000320193-24-000040",
+        "cik": "0000320193",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-24-000040",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "AVAILABLE",
+          "reason": "one non-dimensional us-gaap EarningsPerShareDiluted fact (version us-gaap/2024) for qtrs=1 at 2024-03-31",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000010",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2024-03-31",
+            "qtrs": 1,
+            "value": "-0.5000",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "comparative": {
+          "status": "AVAILABLE",
+          "reason": "comparative EPS as presented in this filing: one non-dimensional EarningsPerShareDiluted fact (version us-gaap/2024) at 2023-03-31, 12 month-ends before 2024-03-31",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000011",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2023-03-31",
+            "qtrs": 1,
+            "value": "-1.0000",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "change": {
+          "status": "AVAILABLE",
+          "eps_change": "0.5000",
+          "transition": "LOSS_NARROWED",
+          "percentage_change": null,
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": "NEGATIVE_COMPARATIVE"
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000320193-24-000050",
+        "cik": "0000320193",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-24-000050",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "AVAILABLE",
+          "reason": "one non-dimensional us-gaap EarningsPerShareDiluted fact (version us-gaap/2024) for qtrs=1 at 2024-03-31",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000012",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2024-03-31",
+            "qtrs": 1,
+            "value": "1.5300",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "comparative": {
+          "status": "COMPARATIVE_NULL_VALUE",
+          "reason": "the one non-dimensional EarningsPerShareDiluted comparative at 2023-03-31 (version us-gaap/2024) states no value",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000013",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2023-03-31",
+            "qtrs": 1,
+            "value": null,
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "change": {
+          "status": "INPUT_UNAVAILABLE",
+          "eps_change": null,
+          "transition": null,
+          "percentage_change": null,
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": null
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000320193-24-000060",
+        "cik": "0000320193",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-24-000060",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "MISSING",
+          "reason": "no us-gaap EarningsPerShareDiluted fact in 0000320193-24-000060 matches the requested current period (qtrs=1, period end 2024-03-31); other EPS concepts are never substituted",
+          "fact": null
+        },
+        "comparative": {
+          "status": "CURRENT_UNAVAILABLE",
+          "reason": "the current EPS is MISSING, so no comparative is searched: no us-gaap EarningsPerShareDiluted fact in 0000320193-24-000060 matches the requested current period (qtrs=1, period end 2024-03-31); other EPS concepts are never substituted",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": null
+        },
+        "change": {
+          "status": "INPUT_UNAVAILABLE",
+          "eps_change": null,
+          "transition": null,
+          "percentage_change": null,
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": null
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000320193-24-000070",
+        "cik": null,
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-24-000070",
+        "company_cik": null,
+        "form": "10-Q",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "AVAILABLE",
+          "reason": "one non-dimensional us-gaap EarningsPerShareDiluted fact (version us-gaap/2024) for qtrs=1 at 2024-03-31",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000014",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2024-03-31",
+            "qtrs": 1,
+            "value": "2.0000",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "comparative": {
+          "status": "AVAILABLE",
+          "reason": "comparative EPS as presented in this filing: one non-dimensional EarningsPerShareDiluted fact (version us-gaap/2024) at 2023-03-31, 12 month-ends before 2024-03-31",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000015",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2023-03-31",
+            "qtrs": 1,
+            "value": "1.0000",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "change": {
+          "status": "AVAILABLE",
+          "eps_change": "1.0000",
+          "transition": "POSITIVE_INCREASED",
+          "percentage_change": "1",
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": null
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000320193-24-000080",
+        "cik": "0000320193",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-24-000080",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "AVAILABLE",
+          "reason": "one non-dimensional us-gaap EarningsPerShareDiluted fact (version us-gaap/2024) for qtrs=1 at 2024-03-31",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000016",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2024-03-31",
+            "qtrs": 1,
+            "value": "100.0001",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "comparative": {
+          "status": "AVAILABLE",
+          "reason": "comparative EPS as presented in this filing: one non-dimensional EarningsPerShareDiluted fact (version us-gaap/2024) at 2023-03-31, 12 month-ends before 2024-03-31",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000017",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2023-03-31",
+            "qtrs": 1,
+            "value": "100.0000",
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "change": {
+          "status": "AVAILABLE",
+          "eps_change": "0.0001",
+          "transition": "POSITIVE_INCREASED",
+          "percentage_change": "0.000001",
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": null
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000320193-24-000090",
+        "cik": "0000320193",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000320193-24-000090",
+        "company_cik": "0000320193",
+        "form": "10-Q",
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "NULL_VALUE",
+          "reason": "the one non-dimensional us-gaap EarningsPerShareDiluted fact (version us-gaap/2024) for qtrs=1 at 2024-03-31 states no value",
+          "fact": {
+            "fact_id": "00000000-0000-4000-8000-000000000018",
+            "tag": "EarningsPerShareDiluted",
+            "taxonomy_version": "us-gaap/2024",
+            "unit": "USD",
+            "period_end": "2024-03-31",
+            "qtrs": 1,
+            "value": null,
+            "segments": "",
+            "coreg": ""
+          }
+        },
+        "comparative": {
+          "status": "CURRENT_UNAVAILABLE",
+          "reason": "the current EPS is NULL_VALUE, so no comparative is searched: the one non-dimensional us-gaap EarningsPerShareDiluted fact (version us-gaap/2024) for qtrs=1 at 2024-03-31 states no value",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": null
+        },
+        "change": {
+          "status": "INPUT_UNAVAILABLE",
+          "eps_change": null,
+          "transition": null,
+          "percentage_change": null,
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": null
+        }
+      }
+    },
+    {
+      "request": {
+        "accession": "0000111111-24-000001",
+        "cik": null,
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED"
+      },
+      "response": {
+        "accession": "0000111111-24-000001",
+        "company_cik": null,
+        "form": null,
+        "period_class": "QUARTER",
+        "eps_kind": "DILUTED",
+        "descriptive_only": true,
+        "no_point_in_time_claim": true,
+        "boundary_note": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+        "current": {
+          "status": "NOT_INGESTED",
+          "reason": "no stored SecFiling for 0000111111-24-000001; this is not evidence the source states no EPS",
+          "fact": null
+        },
+        "comparative": {
+          "status": "CURRENT_UNAVAILABLE",
+          "reason": "the current EPS is NOT_INGESTED, so no comparative is searched: no stored SecFiling for 0000111111-24-000001; this is not evidence the source states no EPS",
+          "meaning": "comparative EPS as presented in this filing",
+          "fact": null
+        },
+        "change": {
+          "status": "INPUT_UNAVAILABLE",
+          "eps_change": null,
+          "transition": null,
+          "percentage_change": null,
+          "percentage_semantics": "ratio",
+          "percentage_unavailable_reason": null
+        }
+      }
+    }
+  ]
+}

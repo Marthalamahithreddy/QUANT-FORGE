@@ -19,10 +19,15 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.exc import InterfaceError, OperationalError
 
-from quantforge.api.v1.dependencies import DATABASE_UNAVAILABLE, SessionDep, database_unavailable
+from quantforge.api.v1.dependencies import (
+    DATABASE_UNAVAILABLE,
+    SessionDep,
+    database_unavailable,
+    reject_repeated_query_params,
+)
 from quantforge.api.v1.filing_eps_presenter import present_filing_eps
 from quantforge.financials.comparative_eps_extraction import extract_comparative_eps_observation
 from quantforge.financials.eps_change import compute_eps_change
@@ -36,6 +41,7 @@ router = APIRouter(prefix="/filings", tags=["filings"])
     "/{accession}/eps",
     response_model=FilingEpsResponse,
     responses=DATABASE_UNAVAILABLE,
+    dependencies=[Depends(reject_repeated_query_params)],
     summary="Current EPS, comparative EPS and EPS change for one filing",
     description=(
         "Descriptive accounting data from SEC FSDS for one accession; no point-in-time availability "

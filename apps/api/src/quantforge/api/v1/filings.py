@@ -27,10 +27,15 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.exc import InterfaceError, OperationalError
 
-from quantforge.api.v1.dependencies import DATABASE_UNAVAILABLE, SessionDep, database_unavailable
+from quantforge.api.v1.dependencies import (
+    DATABASE_UNAVAILABLE,
+    SessionDep,
+    database_unavailable,
+    reject_repeated_query_params,
+)
 from quantforge.repositories.financial_fact import FinancialFactRepository
 from quantforge.schemas.filing_index import FilingIndexItem, FilingIndexPage, FilingIndexQuery
 
@@ -41,6 +46,7 @@ router = APIRouter(prefix="/filings", tags=["filings"])
     "",
     response_model=FilingIndexPage,
     responses=DATABASE_UNAVAILABLE,
+    dependencies=[Depends(reject_repeated_query_params)],
     summary="Index of stored filings with FSDS financial-fact data",
     description=(
         "Stored filings that have at least one FSDS submission, newest filing date first. Not all "
