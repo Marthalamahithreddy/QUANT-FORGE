@@ -6,9 +6,17 @@ import type { ListError } from "@/lib/list-query";
  * parameter. Controls point at it with `aria-describedby`, so the explanation is associated with
  * the field that caused it.
  */
-export function FilterErrors({ id, errors }: { readonly id: string; readonly errors: readonly ListError[] }) {
+export function FilterErrors({
+  id,
+  errors,
+  title = "These filters cannot be used. No request was made.",
+}: {
+  readonly id: string;
+  readonly errors: readonly ListError[];
+  readonly title?: string;
+}) {
   return (
-    <ErrorState id={id} title="These filters cannot be used. No request was made.">
+    <ErrorState id={id} title={title}>
       <ul className="list-disc pl-5">
         {errors.map((error) => (
           <li key={error.param}>{error.message}</li>

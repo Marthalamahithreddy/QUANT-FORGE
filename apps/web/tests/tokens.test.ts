@@ -76,6 +76,11 @@ const TOKENS = [
   "--mode-pit",
   "--dir-positive",
   "--dir-negative",
+  "--chart-stock",
+  "--chart-bench",
+  "--chart-abnormal",
+  "--chart-grid",
+  "--chart-zero",
   "--hover",
   "--selected",
   "--focus",
@@ -165,6 +170,20 @@ describe.each([
 
   it.each(["--dir-positive", "--dir-negative"])("direction mark %s reaches 3:1 on surfaces", (fg) => {
     for (const bg of surfaces) expect(c(fg, bg), `${fg} on ${bg}`).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(["--chart-stock", "--chart-bench", "--chart-abnormal", "--chart-zero"])("chart mark/line %s reaches 3:1 on surfaces (WCAG 1.4.11)", (fg) => {
+    for (const bg of ["--bg", "--surface"]) expect(c(fg, bg), `${fg} on ${bg}`).toBeGreaterThanOrEqual(3);
+  });
+
+  it("the three chart series are three different colours (and shape and fill differ too: see the chart tests)", () => {
+    const series = ["--chart-stock", "--chart-bench", "--chart-abnormal"].map((token) => resolveVar(theme, token));
+    expect(new Set(series).size).toBe(3);
+  });
+
+  it("the point-in-time and descriptive hues differ and both read on surfaces", () => {
+    expect(resolveVar(theme, "--mode-pit")).not.toBe(resolveVar(theme, "--mode-descriptive"));
+    for (const bg of surfaces) expect(c("--mode-descriptive", bg)).toBeGreaterThanOrEqual(4.5);
   });
 
   it("text on a solid accent button reaches 4.5:1", () => {

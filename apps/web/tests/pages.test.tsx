@@ -4,8 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EarningsDetailPage from "@/app/earnings/[id]/page";
 import EarningsPage from "@/app/earnings/page";
 import Overview from "@/app/page";
-import ResearchPage from "@/app/research/page";
-import ResearchEventPage from "@/app/research/events/[eventId]/page";
 import { jsonResponse, makeEvent } from "./fixtures";
 import { renderServer } from "./render-server";
 
@@ -31,6 +29,8 @@ interface Routes {
   health?: Response | Error;
   ready?: Response | Error;
   earnings?: Response | Error;
+  /** The market-reaction preview's observation read. */
+  observation?: Response | Error;
 }
 
 function route(routes: Routes) {
@@ -42,6 +42,7 @@ function route(routes: Routes) {
     "fetch",
     vi.fn((input: string) => {
       if (input.includes("/health/ready")) return respond(routes.ready);
+      if (input.includes("/research/observations")) return respond(routes.observation);
       if (input.includes("/earnings-events")) return respond(routes.earnings);
       return respond(routes.health);
     }),
@@ -201,17 +202,18 @@ describe("Earnings list page", () => {
 });
 
 describe("Earnings detail page", () => {
-  it("makes exactly one API request for the event (metadata and page share it)", async () => {
-    route({ earnings: jsonResponse(makeEvent()) });
-    render(await EarningsDetailPage(detailProps()));
+  it("makes one request for the event (metadata and page share it) and one for the preview", async () => {
+    route({ earnings: jsonResponse(makeEvent()), observation: jsonResponse({}, 500) });
+    await renderServer(await EarningsDetailPage(detailProps()));
 
-    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
     expect(apiCalls("/earnings-events/")).toHaveLength(1);
+    expect(apiCalls("/research/observations")).toHaveLength(1);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
   });
 
   it("says availability was not disclosed when observed_at is missing", async () => {
     route({ earnings: jsonResponse(makeEvent()) });
-    render(await EarningsDetailPage(detailProps()));
+    await renderServer(await EarningsDetailPage(detailProps()));
 
     const availability = screen.getByRole("region", { name: "Availability" });
     expect(within(availability).getByText(/did not supply a historical publication time/)).toBeInTheDocument();
@@ -220,7 +222,7 @@ describe("Earnings detail page", () => {
 
   it("keeps the descriptive observation and the point-in-time verdict in separate frames", async () => {
     route({ earnings: jsonResponse(makeEvent()) });
-    render(await EarningsDetailPage(detailProps()));
+    await renderServer(await EarningsDetailPage(detailProps()));
 
     const observation = screen.getByRole("region", { name: "Stored observation" });
     const availability = screen.getByRole("region", { name: "Availability" });
@@ -240,7 +242,7 @@ describe("Earnings detail page", () => {
       },
     });
     route({ earnings: jsonResponse(event) });
-    render(await EarningsDetailPage(detailProps()));
+    await renderServer(await EarningsDetailPage(detailProps()));
 
     expect(screen.getByText("SEC filing acceptance")).toBeInTheDocument();
     expect(screen.getByText(/not the earnings release time and does not prove first public disclosure/)).toBeInTheDocument();
@@ -259,7 +261,7 @@ describe("Earnings detail page", () => {
       },
     });
     route({ earnings: jsonResponse(event) });
-    render(await EarningsDetailPage(detailProps()));
+    await renderServer(await EarningsDetailPage(detailProps()));
 
     expect(screen.getByText("Source publication")).toBeInTheDocument();
     const badges = screen.getAllByText("PIT eligible");
@@ -269,7 +271,7 @@ describe("Earnings detail page", () => {
 
   it("shows EPS and the backend-computed surprise exactly, without recomputing", async () => {
     route({ earnings: jsonResponse(makeEvent({ reported_eps: "1.1000", eps_surprise: { status: "AVAILABLE", absolute: "0.1000", ratio: "0.1", reason: "ok" } })) });
-    render(await EarningsDetailPage(detailProps()));
+    await renderServer(await EarningsDetailPage(detailProps()));
 
     expect(screen.getByText("1.1000")).toBeInTheDocument();
     expect(screen.getByText("+0.1000")).toBeInTheDocument();
@@ -278,7 +280,7 @@ describe("Earnings detail page", () => {
 
   it("shows revenue with grouped integer digits and the exact fraction, and null revenue as not stated", async () => {
     route({ earnings: jsonResponse(makeEvent({ reported_revenue: "94836000000.0000", estimated_revenue: null })) });
-    render(await EarningsDetailPage(detailProps()));
+    await renderServer(await EarningsDetailPage(detailProps()));
 
     expect(screen.getByText("94,836,000,000.0000")).toBeInTheDocument();
     const estimated = screen.getByText("Estimated revenue").nextElementSibling!;
@@ -290,17 +292,18 @@ describe("Earnings detail page", () => {
       eps_surprise: { status: "NOT_POINT_IN_TIME_ELIGIBLE", absolute: null, ratio: null, reason: "withheld in point-in-time mode" },
     });
     route({ earnings: jsonResponse(event) });
-    render(await EarningsDetailPage(detailProps()));
+    await renderServer(await EarningsDetailPage(detailProps()));
 
     const row = screen.getByText("EPS surprise").nextElementSibling!;
     expect(row.querySelector('[data-state="REFUSED"]')).not.toBeNull();
     expect(row).toHaveTextContent("withheld in point-in-time mode");
-    expect(screen.queryByRole("alert")).toBeNull();
+    // (The preview's own failed read, with no observation mocked, is a separate alert elsewhere.)
+    expect(within(screen.getByRole("region", { name: "Stored observation" })).queryByRole("alert")).toBeNull();
   });
 
   it("offers the primary Open research action with the event identity explicit in the address", async () => {
     route({ earnings: jsonResponse(makeEvent()) });
-    render(await EarningsDetailPage(detailProps()));
+    await renderServer(await EarningsDetailPage(detailProps()));
 
     const action = screen.getByRole("link", { name: /Open research workspace for Acme Corp, 2024-03-15/ });
     expect(action).toHaveAttribute("href", `/research/events/${ID}`);
@@ -309,7 +312,7 @@ describe("Earnings detail page", () => {
 
   it("links company context from what the response carries, and invents no company page", async () => {
     route({ earnings: jsonResponse(makeEvent()) });
-    render(await EarningsDetailPage(detailProps()));
+    await renderServer(await EarningsDetailPage(detailProps()));
 
     expect(screen.getByRole("link", { name: "Earnings for ACME" })).toHaveAttribute("href", "/earnings?ticker=ACME");
     expect(screen.getByRole("link", { name: "Filings for CIK 0000012345" })).toHaveAttribute("href", "/filings?cik=0000012345");
@@ -318,7 +321,7 @@ describe("Earnings detail page", () => {
 
   it("omits the context links when there is no proven ticker or no CIK", async () => {
     route({ earnings: jsonResponse(makeEvent({ resolved_tickers: [], company: { ...makeEvent().company, cik: null } })) });
-    render(await EarningsDetailPage(detailProps()));
+    await renderServer(await EarningsDetailPage(detailProps()));
 
     expect(screen.queryByRole("link", { name: /^Earnings for/ })).toBeNull();
     expect(screen.queryByRole("link", { name: /^Filings for CIK/ })).toBeNull();
@@ -327,18 +330,18 @@ describe("Earnings detail page", () => {
 
   it("lists the company's listings as a table, with an empty state when there are none", async () => {
     route({ earnings: jsonResponse(makeEvent()) });
-    const { unmount } = render(await EarningsDetailPage(detailProps()));
+    const { unmount } = await renderServer(await EarningsDetailPage(detailProps()));
     expect(screen.getByRole("table", { name: "Listings of this company" })).toBeInTheDocument();
     unmount();
 
     route({ earnings: jsonResponse(makeEvent({ listings: [] })) });
-    render(await EarningsDetailPage(detailProps()));
+    await renderServer(await EarningsDetailPage(detailProps()));
     expect(screen.getByRole("status")).toHaveTextContent("No listings are stored for this company");
   });
 
   it("exposes breadcrumbs and one h1 with sections as h2", async () => {
     route({ earnings: jsonResponse(makeEvent()) });
-    render(await EarningsDetailPage(detailProps()));
+    await renderServer(await EarningsDetailPage(detailProps()));
 
     const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
     expect(within(crumbs).getByRole("link", { name: "Earnings" })).toHaveAttribute("href", "/earnings");
@@ -350,17 +353,20 @@ describe("Earnings detail page", () => {
 
   it("does not expose provenance internals", async () => {
     route({ earnings: jsonResponse(makeEvent()) });
-    render(await EarningsDetailPage(detailProps()));
+    await renderServer(await EarningsDetailPage(detailProps()));
 
     expect(document.body.textContent).not.toMatch(/fingerprint|ingestion_run|raw|\/data\//i);
   });
 
-  it("does not claim a market reaction it did not load", async () => {
-    route({ earnings: jsonResponse(makeEvent()) });
-    render(await EarningsDetailPage(detailProps()));
+  it("a failed preview leaves the rest of the record intact and says so safely", async () => {
+    route({ earnings: jsonResponse(makeEvent()), observation: new TypeError("connect ECONNREFUSED 127.0.0.1:8000") });
+    await renderServer(await EarningsDetailPage(detailProps()));
 
-    expect(document.body.textContent).not.toMatch(/market reaction|abnormal return|forward return/i);
-    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    const preview = screen.getByRole("region", { name: "Market reaction" });
+    expect(within(preview).getByRole("alert")).toHaveTextContent("Cannot reach the QuantForge API");
+    expect(preview.textContent).not.toMatch(/127\.0\.0\.1|8000/);
+    expect(screen.getByRole("region", { name: "Stored observation" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Availability" })).toBeInTheDocument();
   });
 
   it("calls notFound for an unknown event and for an identifier that is not a UUID (no request)", async () => {
@@ -373,7 +379,7 @@ describe("Earnings detail page", () => {
 
   it("shows a safe error state when the backend fails", async () => {
     route({ earnings: new TypeError("connect ECONNREFUSED 127.0.0.1:8000") });
-    render(await EarningsDetailPage(detailProps("22222222-2222-4222-8222-222222222222")));
+    await renderServer(await EarningsDetailPage(detailProps("22222222-2222-4222-8222-222222222222")));
 
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("Cannot reach the QuantForge API");
@@ -382,25 +388,10 @@ describe("Earnings detail page", () => {
 
   it("shows a contract error and none of the payload when the event drifts", async () => {
     route({ earnings: jsonResponse({ ...makeEvent(), reported_eps: 1.1 }) });
-    render(await EarningsDetailPage(detailProps()));
+    await renderServer(await EarningsDetailPage(detailProps()));
 
     expect(screen.getByRole("alert")).toHaveTextContent("does not understand");
     expect(document.body.textContent).not.toContain("Acme Corp");
-  });
-});
-
-describe("Research event placeholder", () => {
-  it("states plainly that the workspace is not part of the interface yet, with no request", async () => {
-    render(await ResearchEventPage({ params: Promise.resolve({ eventId: ID }) } as never));
-
-    expect(screen.getByRole("status")).toHaveTextContent("The research workspace is not part of the interface yet");
-    expect(screen.getByRole("link", { name: "Back to the earnings event" })).toHaveAttribute("href", `/earnings/${ID}`);
-    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
-    expect(document.body.textContent).not.toMatch(/sharpe|\d+(\.\d+)?%/i);
-  });
-
-  it("is not found for an identifier that is not a UUID", async () => {
-    await expect(ResearchEventPage({ params: Promise.resolve({ eventId: "nope" }) } as never)).rejects.toThrow("NEXT_NOT_FOUND");
   });
 });
 
@@ -455,14 +446,5 @@ describe("Overview", () => {
     render(await Overview());
 
     expect(screen.getByText(/No earnings events are stored yet/)).toBeInTheDocument();
-  });
-});
-
-describe("Research page", () => {
-  it("shows no results and no fabricated metrics", () => {
-    render(<ResearchPage />);
-
-    expect(screen.getByText("The event-study workspace is not part of the interface yet")).toBeInTheDocument();
-    expect(document.body.textContent).not.toMatch(/sharpe|p&l|equity curve|\d+(\.\d+)?%/i);
   });
 });

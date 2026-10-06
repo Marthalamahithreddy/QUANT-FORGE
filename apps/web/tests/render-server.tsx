@@ -1,33 +1,47 @@
 import { render } from "@testing-library/react";
-import { cloneElement, isValidElement, type ReactElement, type ReactNode } from "react";
-
-type AsyncComponent = (props: unknown) => Promise<ReactNode>;
-
-const isAsync = (type: unknown): type is AsyncComponent =>
-  typeof type === "function" && type.constructor.name === "AsyncFunction";
+import { type ReactNode } from "react";
+import { prerender } from "react-dom/static";
 
 /**
- * Resolves the async SERVER components in a tree (the page's streamed data regions) the way the
- * server would, leaving ordinary components alone. React's client renderer cannot await them, and
- * pages stream their results behind `Suspense`, so tests expand them here and render the result.
+ * Applies what React's inline completion scripts would do in a browser: every streamed
+ * `Suspense` segment (`<div hidden id="S:n">`) replaces the fallback of its boundary
+ * (`<template id="B:n">` ... `<!--/$-->`). Repeated, because a segment can hold further boundaries.
  */
-export async function expandServer(node: ReactNode): Promise<ReactNode> {
-  if (Array.isArray(node)) return Promise.all(node.map(expandServer));
-  if (!isValidElement(node)) return node;
-
-  const element = node as ReactElement<{ children?: ReactNode }>;
-  if (isAsync(element.type)) {
-    return expandServer(await element.type(element.props));
+function resolveBoundaries(container: HTMLElement) {
+  for (let guard = 0; guard < 200; guard += 1) {
+    const segment = container.querySelector<HTMLElement>('div[hidden][id^="S:"]');
+    if (!segment) break;
+    const placeholder = container.querySelector(`template[id="B:${segment.id.slice(2)}"]`);
+    if (!placeholder) {
+      segment.remove();
+      continue;
+    }
+    let node = placeholder.nextSibling;
+    while (node && !(node.nodeType === Node.COMMENT_NODE && (node as Comment).data === "/$")) {
+      const next = node.nextSibling;
+      node.remove();
+      node = next;
+    }
+    if (node?.parentNode) {
+      while (segment.firstChild) node.parentNode.insertBefore(segment.firstChild, node);
+    }
+    placeholder.remove();
+    segment.remove();
   }
-  const { children } = element.props;
-  if (children === undefined) return element;
-  const expanded = Array.isArray(children)
-    ? await Promise.all(children.map(expandServer))
-    : await expandServer(children);
-  return Array.isArray(expanded) ? cloneElement(element, undefined, ...expanded) : cloneElement(element, undefined, expanded);
+  container.querySelectorAll("script").forEach((script) => script.remove());
 }
 
-/** Renders a page (the value its async function resolved to), streamed regions included. */
+/**
+ * Renders a page the way the server does: React's static renderer resolves async Server
+ * Components and `Suspense` boundaries at ANY depth (a sync component may render an async child),
+ * and the resolved HTML is placed in the document so Testing Library queries see what a reader
+ * would. No hydration happens, so this is for server-rendered structure and content; interactive
+ * client components are tested with `render` directly.
+ */
 export async function renderServer(page: ReactNode) {
-  return render(<>{await expandServer(page)}</>);
+  const { prelude } = await prerender(<>{page}</>);
+  // Mounted through Testing Library, so its cleanup (also called mid-test) removes it.
+  const rendered = render(<div dangerouslySetInnerHTML={{ __html: await new Response(prelude).text() }} />);
+  resolveBoundaries(rendered.container);
+  return rendered;
 }

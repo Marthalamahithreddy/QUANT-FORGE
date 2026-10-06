@@ -494,6 +494,7 @@ describe("source guards for the foundation", () => {
         "components/layout/mobile-nav.tsx", // opens/closes a native <dialog>
         "components/layout/nav-link.tsx", // usePathname for the current section
         "components/layout/theme-control.tsx", // writes the theme cookie and root attribute
+        "components/ui/evidence-drawer.tsx", // opens/closes a native <dialog> (provenance drawer)
       ].sort(),
     );
   });
@@ -501,7 +502,7 @@ describe("source guards for the foundation", () => {
   it("keeps the shell, primitives, state and financial components server-compatible", () => {
     for (const dir of ["ui", "state", "financial"]) {
       for (const name of readdirSync(join(SRC, "components", dir))) {
-        if (!name.endsWith(".tsx")) continue;
+        if (!name.endsWith(".tsx") || name === "evidence-drawer.tsx") continue; // the drawer is the one client primitive
         expect(read(join(SRC, "components", dir, name)), `${dir}/${name}`).not.toMatch(/use client|useState|useEffect|useRef/);
       }
     }

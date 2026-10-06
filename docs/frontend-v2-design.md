@@ -1463,6 +1463,34 @@ Where the shipped 11.1C differs from, or settles, this document (the repository 
 
 ---
 
+## Implementation notes: Step 11.1D
+
+Where the shipped research workspace differs from, or settles, this document (the repository and the generated
+OpenAPI win):
+
+1. **Filing picker rejected.** Section 8.5.2 proposed a select of the company's stored filings from
+   `/filings?cik=`. The filing index lists only FSDS-backed filings: 8-K filings (the only source of Item 2.02
+   disclosure evidence) are absent, so a picker would present an incomplete candidate set and suggest a
+   relationship. The workspace takes an explicit accession (validated) and offers a plain "Filings for this
+   registrant" lookup link that claims no relationship. The workspace never calls the filing index.
+2. **Benchmark selector pages the index** (`bpage`, 200 per page, "Showing benchmarks a-b of N, one page of the
+   index, not a search") instead of listing "the first 200"; the selected benchmark is named from the page the
+   selector is on, otherwise by id. Inactive benchmarks are listed (own group) and selectable.
+3. **Refusal codes are scope-typed.** `RefusalOut.code` is free text in the OpenAPI schema, but each scope draws
+   from known enums; the decoder rejects a code outside its scope's vocabulary.
+4. **Chart.** A categorical dumbbell per horizon (filled circle stock, hollow diamond benchmark, the backend's gap
+   as the connector); one chart per mode study; no event marker on a time axis (the session ladder places the
+   event between session slots by declared timing). The y axis has headroom beyond the largest value.
+5. **Preview on the event record** requests the descriptive default study (no benchmark, no filing) in its own
+   boundary, so each event-record view costs one observation read (about a dozen stored reads).
+6. **No reproducibility level, verification or save** anywhere in the live workspace.
+7. **Context bar price basis** is a fixed statement ("split-adjusted, the only basis research reads"); the
+   observation's `price_basis` must echo it (anything else is a contract failure).
+8. **Ticker** on the research context comes from the earnings event record (`resolved_tickers`); the observation
+   carries no ticker.
+
+---
+
 ## Appendix A. Endpoint contracts (generated from the OpenAPI at the base commit)
 
 Generated mechanically from `app.openapi()`; the committed snapshot of section 12.1 will replace this appendix as the authority. `DecimalText` fields are JSON strings.

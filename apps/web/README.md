@@ -9,10 +9,9 @@ Frontend V2 is being built incrementally (design: `docs/frontend-v2-design.md`).
 11.1C delivered the API contract layer and migrated Earnings and Filings.
 
 - **Routes** — Overview `/`, Earnings `/earnings` and `/earnings/[id]`, Filings `/filings` and
-  `/filings/[accession]`, Research `/research` (principles only), and two placeholders that exist only so the
-  approved navigation and the "Open research workspace" action never lead to a dead link:
-  `/research/saved` and `/research/events/[eventId]` (each says the feature is not part of the interface yet,
-  shows nothing computed, and makes no API request).
+  `/filings/[accession]`, Research `/research` (an event finder) and the research workspace
+  `/research/events/[eventId]` (11.1D). `/research/saved` is still a placeholder (nothing can be saved or listed
+  from the interface yet): it says so, shows nothing and makes no API request.
 - **Shell** (`src/components/layout`) — rendered ONCE by the root layout, so navigation never remounts it. A
   12.5rem rail, a 44px header strip (current section, theme control, API status) and the main region. The status
   chip streams behind `Suspense` ("Checking API" first), so a slow or failed health read never delays the page or
@@ -26,6 +25,44 @@ Frontend V2 is being built incrementally (design: `docs/frontend-v2-design.md`).
   `ListEmpty`, `FilterErrors`, `ApiFailureState`.
 - **Financial and state primitives** — `FinancialValue`, `PercentValue` (exact strings, never a JS number) and the
   ten-state domain vocabulary; backend statuses map onto it through exhaustive tables in `src/lib/state-map.ts`.
+
+## Research workspace (`/research/events/[eventId]`)
+
+One stored earnings event is the identity. The page paints its header, context bar and configuration form at
+once; the result region streams behind a `Suspense` keyed by the study's canonical address (a client navigation
+that changes only the query string replays the skeleton and never leaves an old study under new settings).
+
+- **URL contract** (names are the API's): `horizons` (comma list, 1 to 252, at most 10, no spaces, no duplicates;
+  written ascending; the default `1,5,20` is omitted), `benchmark_id` (UUID, lower-cased), `filing_accession`
+  with BOTH `eps_period_class` and `eps_kind`, and `bpage` (which page of the benchmark index the selector shows;
+  selector position only, not part of the study). Defaults and empty values are omitted; a valid but non-canonical
+  address is redirected before any read; an invalid one shows a local error and makes NO observation request.
+  Selectors without a filing are dropped, never sent.
+- **Nothing is inferred.** No benchmark is chosen, recommended or defaulted (the selector starts at "None"),
+  nothing is remembered between events, and no filing is ever linked unless the reader supplies its accession.
+  A filing picker was considered and rejected: the filing index lists only FSDS-backed filings (no 8-Ks, so no
+  Item 2.02 disclosure evidence), so a picker would show an incomplete candidate set and imply a relationship.
+  The form offers an accession field and a plain "Filings for this registrant" lookup link that claims nothing.
+- **Benchmarks** come from `GET /benchmarks`, one page of 200 at a time (it is paginated: the first page is not the
+  universe, there is no search over a partial page). Active first, inactive in their own group and labelled so.
+  If the index cannot be read, the study without a benchmark is unaffected.
+- **One request.** One observation carries both modes, so the page asks for it once (10 s class). The benchmark
+  index is read once per request (React `cache`) and only NAMES a benchmark already selected, in its own boundary.
+- **Descriptive and point-in-time are separate frames** (label, solid versus dashed left rule, mode hue, state
+  badge). A point-in-time refusal is a callout inside its own frame: it never dims or reorders the descriptive study.
+- **Nothing is recomputed in React.** Returns, benchmark returns and the abnormal return are the backend's exact
+  strings (the abnormal return is read, never subtracted). The event-study chart is server-rendered SVG with an
+  authoritative table beside it. Only `src/lib/chart/geometry.ts` turns a string into a number, to place a mark;
+  its output is never shown as a figure, a label of data, or an input to refusal or point-in-time logic
+  (`tests/research-structure.test.ts`).
+- **Refusals** are listed once in a ledger grouped by scope (code, mark, horizon, reason verbatim); sections point
+  at it. Codes must belong to their scope's vocabulary (an unknown code is contract drift, not a new state).
+- **Provenance** opens in a native-dialog drawer (`EvidenceDrawer`, the only new client component). A live study
+  has no reproducibility level: that belongs to saved baselines.
+
+Real observation responses are pinned in `tests/contract/observation.json`, captured by
+`scripts/capture_observation_fixtures.py` (see its header; it uses the backend's own integration scenario builders
+and changes no backend file).
 
 ## API contract layer
 
@@ -51,8 +88,8 @@ client component can reach the client, the decoders or the config.
   (422), `unavailable` (503), `server_error`, `unreachable` (timeout or no response) and `contract`. A domain
   status inside a 200 (REFUSED, AMBIGUOUS, MISSING, PARTIAL, NOT_REQUESTED) is `ok` data, never an error.
   Failure wording lives in `src/lib/api/messages.ts`: no address, host, stack, SQL or raw exception.
-- **Timeouts** — one class today: `READ` (4 s) for health, readiness, list pages, one event and one filing EPS.
-  The computed endpoints (research observation, record verification) will get a longer class with their clients.
+- **Timeouts** — `READ` (4 s) for health, readiness, list pages, benchmarks, one event and one filing EPS;
+  `OBSERVATION` (10 s) for the research observation only (record verification will share it).
 - **No `server-only` package** — the import-graph test gives the same guarantee without a dependency.
 
 There is no authentication, no realtime connection and no browser-side data fetching: every API read happens

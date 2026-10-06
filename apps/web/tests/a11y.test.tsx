@@ -187,3 +187,57 @@ describe("axe: the open mobile drawer", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
+
+describe("axe: the research workspace and its parts", () => {
+  it("the whole workspace page, with the filing evaluated (every section present)", async () => {
+    const { default: ResearchEventPage } = await import("@/app/research/events/[eventId]/page");
+    const { renderServer } = await import("./render-server");
+    const { CAPTURE, captured } = await import("./research-fixtures");
+    const c = captured("filing_evaluated");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string) => {
+        const url = new URL(input);
+        const body = url.pathname === "/api/v1/benchmarks" ? { ...CAPTURE.benchmarks, limit: 200, offset: 0 } : url.pathname.includes("/research/observations/") ? c.response : c.event_record;
+        return Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } }));
+      }),
+    );
+    const { container } = render(<main />);
+    container.remove();
+    const rendered = await renderServer(
+      <AppShell status={<ApiStatus />}>{await ResearchEventPage({ params: Promise.resolve({ eventId: c.event_id }), searchParams: Promise.resolve(c.params) } as never)}</AppShell>,
+    );
+    expectNoViolations(await axe(rendered.container));
+    vi.unstubAllGlobals();
+  });
+
+  it("the event-study chart and its table", async () => {
+    const { HorizonReturnsChart } = await import("@/components/research/horizon-returns-chart");
+    const { ReturnsTable } = await import("@/components/research/returns-table");
+    const { captured } = await import("./research-fixtures");
+    const study = captured("benchmark_selected").response.descriptive.study;
+    const { container } = render(
+      <main>
+        <h1>Study</h1>
+        <HorizonReturnsChart study={study} title="Descriptive return by horizon" />
+        <ReturnsTable study={study} caption="Descriptive returns by horizon" />
+      </main>,
+    );
+    expectNoViolations(await axe(container));
+  });
+
+  it("the open evidence drawer", async () => {
+    const { EvidenceDrawer } = await import("@/components/ui/evidence-drawer");
+    const user = userEvent.setup();
+    const { container } = render(
+      <main>
+        <h1>Evidence</h1>
+        <EvidenceDrawer subject="the stored event" title="Event evidence">
+          <p>Fingerprint</p>
+        </EvidenceDrawer>
+      </main>,
+    );
+    await user.click(screen.getByRole("button", { name: /Evidence for/ }));
+    expectNoViolations(await axe(container));
+  });
+});

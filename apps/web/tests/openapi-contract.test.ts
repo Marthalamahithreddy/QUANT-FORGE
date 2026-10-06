@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- tests mutate deep, deliberately untyped payloads to model drift */
 // @vitest-environment node
 /**
  * The committed OpenAPI snapshot and what is built from it.
@@ -18,6 +19,7 @@ import { describe, expect, it } from "vitest";
 import { decodeEarningsEvent, decodeEarningsPage } from "@/lib/api/decoders/earnings";
 import { decodeFilingEps, decodeFilingIndexPage } from "@/lib/api/decoders/filings";
 import { decodeHealth, decodeReadiness } from "@/lib/api/decoders/health";
+import { decodeBenchmarkPage, decodeObservation } from "@/lib/api/decoders/research";
 import * as schema from "@/lib/api/schema";
 import { BASIS_LABEL, PIT_PRESENTATION, TIMING_LABEL } from "@/lib/availability";
 import {
@@ -30,14 +32,40 @@ import {
   TRANSITION_LABEL,
 } from "@/lib/filings-view";
 import {
+  ABNORMAL_RETURN_STATE,
+  ACCOUNTING_STATE,
+  ALIGNMENT_STATE,
+  BENCHMARK_RETURN_STATE,
   CHANGE_STATE,
   COMPARATIVE_STATE,
   EPS_STATE,
+  FILING_LINK_STATE,
+  FORWARD_RETURN_STATE,
+  LISTING_STATE,
   PERCENTAGE_STATE,
   PIT_STATE,
+  POINT_IN_TIME_STATE,
+  REFUSAL_CODE_STATE,
+  SECTION_STATE,
   SURPRISE_STATE,
   TIMING_STATE,
 } from "@/lib/state-map";
+import {
+  ABNORMAL_RETURN_LABEL,
+  ACCOUNTING_STATE_LABEL,
+  ALIGNMENT_LABEL,
+  BENCHMARK_RETURN_LABEL,
+  DISCLOSURE_WORDING,
+  FILING_LINK_LABEL,
+  FORWARD_RETURN_LABEL,
+  LISTING_LABEL,
+  PERIOD_VERIFICATION_NOTE,
+  POINT_IN_TIME_STATE_LABEL,
+  REFUSAL_SCOPE_ANCHOR,
+  REFUSAL_SCOPE_LABEL,
+  SECTION_STATE_LABEL,
+} from "@/lib/research-wording";
+import { captured, clone } from "./research-fixtures";
 import { env } from "@/lib/config/env";
 import { buildEarningsPath } from "@/lib/api/earnings";
 import { buildFilingEpsPath, buildFilingsPath } from "@/lib/api/filings";
@@ -139,6 +167,21 @@ describe("enum parity: runtime lists equal the snapshot", () => {
     ["EpsSurpriseStatus", schema.EPS_SURPRISE_STATUSES],
     ["ProviderType", schema.PROVIDER_TYPES],
     ["SecurityType", schema.SECURITY_TYPES],
+    ["SectionState", schema.SECTION_STATES],
+    ["PointInTimeState", schema.POINT_IN_TIME_STATES],
+    ["ResearchMode", schema.RESEARCH_MODES],
+    ["PriceBasis", schema.PRICE_BASES],
+    ["AlignmentStatus", schema.ALIGNMENT_STATUSES],
+    ["ForwardReturnStatus", schema.FORWARD_RETURN_STATUSES],
+    ["BenchmarkReturnStatus", schema.BENCHMARK_RETURN_STATUSES],
+    ["AbnormalReturnStatus", schema.ABNORMAL_RETURN_STATUSES],
+    ["FilingLinkStatus", schema.FILING_LINK_STATUSES],
+    ["PeriodVerification", schema.PERIOD_VERIFICATIONS],
+    ["AccountingState", schema.ACCOUNTING_STATES],
+    ["DisclosureEvidenceLevel", schema.DISCLOSURE_LEVELS],
+    ["RefusalScope", schema.REFUSAL_SCOPES],
+    ["ListingResolutionStatus", schema.LISTING_RESOLUTION_STATUSES],
+    ["Evidence", schema.LISTING_EVIDENCE],
   ];
 
   it.each(PAIRS)("%s", (name, list) => {
@@ -161,6 +204,15 @@ describe("enum parity: runtime lists equal the snapshot", () => {
       ["EpsChangeStatus", CHANGE_STATE],
       ["PercentageUnavailableReason", PERCENTAGE_STATE],
       ["EarningsTiming", TIMING_STATE],
+      ["AlignmentStatus", ALIGNMENT_STATE],
+      ["ForwardReturnStatus", FORWARD_RETURN_STATE],
+      ["BenchmarkReturnStatus", BENCHMARK_RETURN_STATE],
+      ["AbnormalReturnStatus", ABNORMAL_RETURN_STATE],
+      ["SectionState", SECTION_STATE],
+      ["PointInTimeState", POINT_IN_TIME_STATE],
+      ["FilingLinkStatus", FILING_LINK_STATE],
+      ["AccountingState", ACCOUNTING_STATE],
+      ["ListingResolutionStatus", LISTING_STATE],
     ];
     for (const [name, map] of MAPPED) expect(sorted(Object.keys(map)), name).toEqual(sorted(enumOf(name)));
   });
@@ -177,6 +229,18 @@ describe("enum parity: runtime lists equal the snapshot", () => {
       ["EarningsTiming", TIMING_LABEL],
       ["AvailabilityBasis", BASIS_LABEL],
       ["PointInTimeEligibility", PIT_PRESENTATION],
+      ["AlignmentStatus", ALIGNMENT_LABEL],
+      ["ForwardReturnStatus", FORWARD_RETURN_LABEL],
+      ["BenchmarkReturnStatus", BENCHMARK_RETURN_LABEL],
+      ["AbnormalReturnStatus", ABNORMAL_RETURN_LABEL],
+      ["SectionState", SECTION_STATE_LABEL],
+      ["PointInTimeState", POINT_IN_TIME_STATE_LABEL],
+      ["FilingLinkStatus", FILING_LINK_LABEL],
+      ["AccountingState", ACCOUNTING_STATE_LABEL],
+      ["ListingResolutionStatus", LISTING_LABEL],
+      ["PeriodVerification", PERIOD_VERIFICATION_NOTE],
+      ["DisclosureEvidenceLevel", DISCLOSURE_WORDING],
+      ["RefusalScope", REFUSAL_SCOPE_LABEL],
     ];
     for (const [name, map] of WORDING) expect(sorted(Object.keys(map)), name).toEqual(sorted(enumOf(name)));
   });
@@ -270,6 +334,127 @@ describe("decoders require every key the snapshot marks required", () => {
     for (const key of required) {
       expect(Object.keys(value as Json), `${name} fixture is missing ${key}`).toContain(key);
       const without = Object.fromEntries(Object.entries(value as Json).filter(([name]) => name !== key));
+      expect(() => decode(without), `${name}.${key} absent`).toThrow();
+    }
+  });
+});
+
+describe("research observation contract parity", () => {
+  const params = (path: string) => snapshot.paths[path]!.get.parameters ?? [];
+  const OBS = "/api/v1/research/observations/{event_id}";
+
+  it("the observation request defines exactly the parameters the workspace may send (and the security knob it never sends)", () => {
+    expect(params(OBS).map((p) => p.name).sort()).toEqual(["benchmark_id", "eps_kind", "eps_period_class", "event_id", "filing_accession", "horizons", "security_id"]);
+    for (const p of params(OBS).filter((entry) => entry.in === "query")) expect(p.required ?? false, p.name).toBe(false);
+  });
+
+  it("the horizon rules and default are the API's own", () => {
+    const horizons = params(OBS).find((p) => p.name === "horizons")!;
+    const description = (horizons.schema as { description?: string }).description ?? "";
+    expect(description).toMatch(new RegExp(`at most ${schema.HORIZON_MAX_COUNT}, each at most ${schema.HORIZON_MAX_VALUE}, no duplicates`));
+    expect(description).toContain(`${schema.DEFAULT_HORIZONS.join(",")}`);
+    const maxLength = ((horizons.schema as { anyOf: { maxLength?: number }[] }).anyOf.find((entry) => entry.maxLength) ?? {}).maxLength;
+    expect(maxLength).toBe(64);
+  });
+
+  it("the filing parameters carry the accession pattern and the selector enums", () => {
+    const filing = params(OBS).find((p) => p.name === "filing_accession")!.schema as { anyOf: { pattern?: string }[]; description: string };
+    expect(filing.anyOf.find((entry) => entry.pattern)?.pattern).toBe("^[0-9]{10}-[0-9]{2}-[0-9]{6}$");
+    expect(filing.description).toMatch(/Requires eps_period_class and eps_kind/);
+    expect(JSON.stringify(params(OBS).find((p) => p.name === "eps_period_class")!.schema)).toContain("EpsPeriodClass");
+    expect(JSON.stringify(params(OBS).find((p) => p.name === "eps_kind")!.schema)).toContain("EpsKind");
+  });
+
+  it("documents the status codes the unified result maps for the observation (404, 422, 503)", () => {
+    expect(Object.keys(snapshot.paths[OBS]!.get.responses).sort()).toEqual(["200", "404", "422", "503"]);
+  });
+
+  it("the configured paths are the snapshot's paths", () => {
+    expect(snapshot.paths[`${env.apiObservationsPath}/{event_id}`]).toBeDefined();
+    expect(snapshot.paths[env.apiBenchmarksPath]).toBeDefined();
+  });
+
+  it("the benchmark index shares the page-size and offset bounds", () => {
+    const { limit, offset } = Object.fromEntries(params(env.apiBenchmarksPath).map((p) => [p.name, p]));
+    expect(limit?.schema).toMatchObject({ default: schema.PAGE_SIZE, maximum: schema.PAGE_LIMIT_MAX, minimum: 1 });
+    expect(offset?.schema).toMatchObject({ default: 0, maximum: schema.PAGE_OFFSET_MAX, minimum: 0 });
+    expect(Object.keys(snapshot.paths[env.apiBenchmarksPath]!.get.responses).sort()).toEqual(["200", "422", "503"]);
+  });
+
+  it("every refusal scope draws its codes only from enums the snapshot defines", () => {
+    const enumsOf = (...names: string[]) => new Set(names.flatMap(enumOf));
+    const ALLOWED: Record<string, Set<string>> = {
+      EVENT: enumsOf("EpsSurpriseStatus"),
+      MARKET: enumsOf("ListingResolutionStatus", "AlignmentStatus", "ForwardReturnStatus"),
+      BENCHMARK: enumsOf("BenchmarkReturnStatus"),
+      FILING_LINK: enumsOf("FilingLinkStatus"),
+      ACCOUNTING: enumsOf("EpsStatus", "ComparativeEpsStatus", "PercentageUnavailableReason"),
+      POINT_IN_TIME: enumsOf("PointInTimeEligibility", "AlignmentStatus", "ForwardReturnStatus"),
+    };
+    expect(Object.keys(REFUSAL_CODE_STATE).sort()).toEqual(sorted(enumOf("RefusalScope")));
+    for (const [scope, vocabulary] of Object.entries(REFUSAL_CODE_STATE)) {
+      for (const code of Object.keys(vocabulary)) expect(ALLOWED[scope]!.has(code), `${scope}/${code}`).toBe(true);
+    }
+    expect(Object.keys(REFUSAL_SCOPE_ANCHOR).sort()).toEqual(sorted(enumOf("RefusalScope")));
+  });
+
+  it("the same status never changes state between the tables it appears in (one code, one appearance)", () => {
+    const seen = new Map<string, string>();
+    for (const vocabulary of Object.values(REFUSAL_CODE_STATE)) {
+      for (const [code, state] of Object.entries(vocabulary)) {
+        if (seen.has(code)) expect(seen.get(code), code).toBe(state);
+        seen.set(code, state);
+      }
+    }
+  });
+});
+
+describe("observation decoders require every key the snapshot marks required", () => {
+  const base = (name = "filing_evaluated") => clone(captured(name).response) as unknown as Record<string, any>;
+  /** Replaces the object at `path` in a full observation, so one nested schema is exercised through the real decoder. */
+  const through = (path: string) => (value: unknown) => {
+    const root = base();
+    const parts = path.split(".");
+    const parent = parts.slice(0, -1).reduce((node: Record<string, any>, part) => node[part], root);
+    parent[parts[parts.length - 1]!] = value;
+    return decodeObservation(root, "$");
+  };
+  const eligible = () => clone(captured("pit_eligible").response) as unknown as Record<string, any>;
+
+  const CASES: [string, unknown, (value: unknown) => unknown][] = [
+    ["ResearchObservationResponse", base(), (v) => decodeObservation(v, "$")],
+    ["IdentityOut", base().identity, through("identity")],
+    ["ListingResolutionOut", base().identity.listing_resolution, through("identity.listing_resolution")],
+    ["ObservationParametersOut", base().parameters, through("parameters")],
+    ["EventOut", base().event, through("event")],
+    ["FilingLinkOut", base().filing_link, through("filing_link")],
+    ["DisclosureEvidenceOut", base().disclosure_evidence, through("disclosure_evidence")],
+    ["AccountingOut", base().accounting, through("accounting")],
+    ["DescriptiveOut", base().descriptive, through("descriptive")],
+    ["PointInTimeOut", eligible().point_in_time, (v) => { const root = eligible(); root.point_in_time = v; return decodeObservation(root, "$"); }],
+    ["StudyOut", base().descriptive.study, through("descriptive.study")],
+    ["AlignmentOut", base().descriptive.study.alignment, through("descriptive.study.alignment")],
+    ["SessionAlignmentOut", base().descriptive.study.alignment.session_alignment, through("descriptive.study.alignment.session_alignment")],
+    ["StockReturnsOut", base().descriptive.study.stock_returns, through("descriptive.study.stock_returns")],
+    ["BenchmarkOut", base().descriptive.study.benchmark, through("descriptive.study.benchmark")],
+    ["EpsSurpriseOut", base().descriptive.study.eps_surprise, through("descriptive.study.eps_surprise")],
+    ["ProvenanceOut", base().provenance, through("provenance")],
+    ["ArtifactDigestOut", base().provenance.accounting_artifacts[0], (v) => { const root = base(); root.provenance.accounting_artifacts[0] = v; return decodeObservation(root, "$"); }],
+    ["ForwardReturnOut", base().descriptive.study.stock_returns.forward_returns[0], (v) => { const root = base(); root.descriptive.study.stock_returns.forward_returns[0] = v; return decodeObservation(root, "$"); }],
+    ["BenchmarkReturnOut", base().descriptive.study.benchmark.returns[0], (v) => { const root = base(); root.descriptive.study.benchmark.returns[0] = v; return decodeObservation(root, "$"); }],
+    ["AbnormalReturnOut", base().descriptive.study.abnormal_returns[0], (v) => { const root = base(); root.descriptive.study.abnormal_returns[0] = v; return decodeObservation(root, "$"); }],
+    ["RefusalOut", { scope: "MARKET", code: "UNKNOWN_TIMING", reason: "r", horizon: null }, (v) => { const root = base(); root.refusals = [v]; return decodeObservation(root, "$"); }],
+    ["BenchmarkIndexPage", clone(captured("benchmark_selected")) && { items: [], total: 0, limit: 200, offset: 0 }, (v) => decodeBenchmarkPage(v, "$")],
+    ["BenchmarkIndexItem", { id: "11111111-1111-4111-8111-111111111111", name: "n", symbol: null, currency: null, is_active: true }, (v) => decodeBenchmarkPage({ items: [v], total: 1, limit: 200, offset: 0 }, "$")],
+  ];
+
+  it.each(CASES)("%s: the fixture satisfies the schema's required list, and dropping any required key is rejected", (name, value, decode) => {
+    const required = (schemas[name] as { required?: string[] }).required ?? [];
+    expect(required.length).toBeGreaterThan(0);
+    expect(() => decode(value)).not.toThrow();
+    for (const key of required) {
+      expect(Object.keys(value as Record<string, unknown>), `${name} fixture is missing ${key}`).toContain(key);
+      const without = Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([k]) => k !== key));
       expect(() => decode(without), `${name}.${key} absent`).toThrow();
     }
   });

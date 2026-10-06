@@ -10,10 +10,8 @@ import { BASIS_LABEL, PIT_PRESENTATION, TIMING_LABEL } from "@/lib/availability"
 import { fiscalPeriod, tickersAtEvent } from "@/lib/earnings-view";
 import { formatUtcInstant } from "@/lib/format";
 import type { NonValueState, StateKind } from "@/lib/state";
+import { researchHref } from "@/lib/research-view";
 import { PIT_STATE, SURPRISE_STATE, TIMING_STATE } from "@/lib/state-map";
-
-/** Where the Research action leads (the workspace route; event identity is explicit in the path). */
-export const researchHref = (eventId: string): string => `/research/events/${eventId}`;
 
 function SurpriseCell({ event }: { readonly event: EarningsEvent }) {
   const { eps_surprise: surprise } = event;

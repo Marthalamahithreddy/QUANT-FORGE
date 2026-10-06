@@ -1,6 +1,9 @@
-import { researchHref } from "@/components/earnings/earnings-table";
+import { Suspense } from "react";
+
+import { MarketReactionPreview } from "@/components/research/market-reaction-preview";
+import { Skeleton, SkeletonRegion } from "@/components/ui/skeleton";
 import { FinancialValue } from "@/components/financial/financial-value";
-import { PercentValue } from "@/components/financial/percent-value";
+import { EpsSurpriseValue } from "@/components/financial/eps-surprise";
 import { DomainState } from "@/components/state/domain-state";
 import { StatusBadge } from "@/components/state/status-badge";
 import { LinkButton } from "@/components/ui/button";
@@ -14,8 +17,8 @@ import { BASIS_LABEL, BASIS_MEANING, PIT_PRESENTATION, TIMING_LABEL } from "@/li
 import { earningsPageHref, fiscalPeriod, tickersAtEvent } from "@/lib/earnings-view";
 import { filingsPageHref } from "@/lib/filings-view";
 import { formatDate, formatUtcInstant } from "@/lib/format";
-import { PIT_STATE, SURPRISE_STATE, TIMING_STATE } from "@/lib/state-map";
-import type { NonValueState } from "@/lib/state";
+import { researchHref } from "@/lib/research-view";
+import { PIT_STATE, TIMING_STATE } from "@/lib/state-map";
 
 const LISTING_COLUMNS: readonly DataTableColumn<ListingRef>[] = [
   { id: "ticker", header: "Ticker", cell: (listing) => <span className="type-id">{listing.ticker}</span> },
@@ -44,33 +47,6 @@ const LISTING_COLUMNS: readonly DataTableColumn<ListingRef>[] = [
 
 /** A ticker is linkable only when it satisfies the API's own filter rule (1 to 32, no edge space). */
 const linkableTicker = (ticker: string): boolean => ticker.length <= 32 && ticker === ticker.trim() && ticker !== "";
-
-function SurpriseDetail({ event }: { readonly event: EarningsEvent }) {
-  const { eps_surprise: surprise } = event;
-  const nonValue: NonValueState =
-    SURPRISE_STATE[surprise.status] === "VALUE" ? "NOT_STATED" : (SURPRISE_STATE[surprise.status] as NonValueState);
-  return (
-    <div className="flex flex-col gap-1">
-      {surprise.absolute === null ? (
-        <DomainState kind={nonValue} reason={surprise.reason} />
-      ) : (
-        <span className="flex flex-wrap items-baseline gap-x-3">
-          <FinancialValue kind="signed" value={surprise.absolute} />
-          {surprise.ratio === null ? (
-            <DomainState kind="UNAVAILABLE" reason={surprise.reason} />
-          ) : (
-            <span className="text-text-2">
-              <PercentValue ratio={surprise.ratio} />
-            </span>
-          )}
-        </span>
-      )}
-      <span className="type-meta">
-        <span className="type-id">{surprise.status}</span> · {surprise.reason}
-      </span>
-    </div>
-  );
-}
 
 /**
  * The event record (spec section 8.3.2): the stored observation, then, in its own frame, the
@@ -159,7 +135,12 @@ export function EventDetail({ event }: { readonly event: EarningsEvent }) {
               <FinancialValue kind="eps" value={event.estimated_eps} />
             </KeyValue>
             <KeyValue label="EPS surprise">
-              <SurpriseDetail event={event} />
+              <EpsSurpriseValue
+                status={event.eps_surprise.status}
+                absolute={event.eps_surprise.absolute}
+                ratio={event.eps_surprise.ratio}
+                reason={event.eps_surprise.reason}
+              />
             </KeyValue>
             <KeyValue label="Currency">
               {event.currency === null ? <DomainState kind="NOT_STATED" compact /> : event.currency}
@@ -215,6 +196,10 @@ export function EventDetail({ event }: { readonly event: EarningsEvent }) {
           </p>
         </Frame>
       </div>
+
+      <Suspense fallback={<SkeletonRegion label="Loading the market-reaction preview"><Skeleton height="9rem" /></SkeletonRegion>}>
+        <MarketReactionPreview eventId={event.id} />
+      </Suspense>
 
       <DataTable
         caption="Listings of this company"

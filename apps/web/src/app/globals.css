@@ -46,6 +46,13 @@
   --dir-positive: #4fc3b0;
   --dir-negative: #e8935e;
 
+  /* Event-study chart series (stock / benchmark / abnormal-return connector) and guides. */
+  --chart-stock: #58a6ff;
+  --chart-bench: #c9d4df;
+  --chart-abnormal: #e8935e;
+  --chart-grid: var(--border-subtle);
+  --chart-zero: #6b7f92;
+
   --hover: var(--surface-elevated);
   --selected: var(--accent-subtle);
   --focus: var(--accent);
@@ -84,6 +91,12 @@
     --dir-positive: #0f766e;
     --dir-negative: #b45309;
 
+    --chart-stock: #0b63c4;
+    --chart-bench: #4a5666;
+    --chart-abnormal: #b45309;
+    --chart-grid: var(--border-subtle);
+    --chart-zero: #7b8794;
+
     --hover: var(--surface-raised);
     --selected: var(--accent-subtle);
     --focus: var(--accent);
@@ -121,6 +134,12 @@
   --dir-positive: #0f766e;
   --dir-negative: #b45309;
 
+  --chart-stock: #0b63c4;
+  --chart-bench: #4a5666;
+  --chart-abnormal: #b45309;
+  --chart-grid: var(--border-subtle);
+  --chart-zero: #7b8794;
+
   --hover: var(--surface-raised);
   --selected: var(--accent-subtle);
   --focus: var(--accent);
@@ -154,6 +173,11 @@
   --color-mode-pit: var(--mode-pit);
   --color-positive: var(--dir-positive);
   --color-negative: var(--dir-negative);
+  --color-chart-stock: var(--chart-stock);
+  --color-chart-bench: var(--chart-bench);
+  --color-chart-abnormal: var(--chart-abnormal);
+  --color-chart-grid: var(--chart-grid);
+  --color-chart-zero: var(--chart-zero);
   --color-hover: var(--hover);
   --color-selected: var(--selected);
   --color-focus: var(--focus);
@@ -314,6 +338,20 @@ dialog.qf-drawer[open] {
   animation: qf-slide-in 160ms ease-out;
 }
 
+@keyframes qf-slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+dialog.qf-evidence[open] {
+  animation: qf-slide-in-right 160ms ease-out;
+}
+
+dialog.qf-evidence::backdrop,
 dialog.qf-drawer::backdrop {
   background-color: rgb(0 0 0 / 0.5);
 }

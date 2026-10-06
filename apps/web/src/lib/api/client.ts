@@ -23,6 +23,12 @@ import { redactUrls } from "@/lib/safe-text";
 
 export const READ_TIMEOUT_MS = 4000;
 
+/**
+ * The computed class: one research observation assembles about a dozen stored reads on a possibly
+ * cold database. Only that endpoint uses it; ordinary list and detail reads keep `READ`.
+ */
+export const OBSERVATION_TIMEOUT_MS = 10_000;
+
 export interface ApiRequestOptions {
   readonly baseUrl?: string;
   readonly timeoutMs?: number;

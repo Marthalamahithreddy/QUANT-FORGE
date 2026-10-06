@@ -31,6 +31,32 @@ export type FilingIndexItem = Schemas["FilingIndexItem"];
 export type FilingIndexPage = Schemas["FilingIndexPage"];
 export type FilingEps = Schemas["FilingEpsResponse"];
 export type FactEvidence = Schemas["FactEvidence"];
+
+export type BenchmarkItem = Schemas["BenchmarkIndexItem"];
+export type BenchmarkPage = Schemas["BenchmarkIndexPage"];
+
+export type Observation = Schemas["ResearchObservationResponse"];
+export type ObservationIdentity = Schemas["IdentityOut"];
+export type ListingResolution = Schemas["ListingResolutionOut"];
+export type ObservationParameters = Schemas["ObservationParametersOut"];
+export type ObservationEvent = Schemas["EventOut"];
+export type FilingLink = Schemas["FilingLinkOut"];
+export type DisclosureEvidence = Schemas["DisclosureEvidenceOut"];
+export type AccountingSection = Schemas["AccountingOut"];
+export type DescriptiveSection = Schemas["DescriptiveOut"];
+export type PointInTimeSection = Schemas["PointInTimeOut"];
+export type Study = Schemas["StudyOut"];
+export type Alignment = Schemas["AlignmentOut"];
+export type SessionAlignment = Schemas["SessionAlignmentOut"];
+export type StockReturns = Schemas["StockReturnsOut"];
+export type ForwardReturn = Schemas["ForwardReturnOut"];
+export type BenchmarkSection = Schemas["BenchmarkOut"];
+export type BenchmarkReturn = Schemas["BenchmarkReturnOut"];
+export type AbnormalReturn = Schemas["AbnormalReturnOut"];
+export type ObservationEpsSurprise = Schemas["EpsSurpriseOut"];
+export type ObservationProvenance = Schemas["ProvenanceOut"];
+export type ArtifactDigest = Schemas["ArtifactDigestOut"];
+export type Refusal = Schemas["RefusalOut"];
 export type CurrentEps = Schemas["CurrentEpsSection"];
 export type ComparativeEps = Schemas["ComparativeEpsSection"];
 export type EpsChange = Schemas["EpsChangeSection"];
@@ -170,6 +196,108 @@ export const SECURITY_TYPES = enumList<Schemas["SecurityType"]>()([
   "OTHER",
 ]);
 export type SecurityType = Schemas["SecurityType"];
+
+// ── research observation vocabulary ───────────────────────────────────────────────────────
+
+export const SECTION_STATES = enumList<Schemas["SectionState"]>()(["AVAILABLE", "PARTIAL", "UNAVAILABLE"]);
+export type SectionState = Schemas["SectionState"];
+
+export const POINT_IN_TIME_STATES = enumList<Schemas["PointInTimeState"]>()(["REFUSED", "EVIDENCE_ELIGIBLE"]);
+export type PointInTimeState = Schemas["PointInTimeState"];
+
+export const RESEARCH_MODES = enumList<Schemas["ResearchMode"]>()(["DESCRIPTIVE", "POINT_IN_TIME"]);
+export type ResearchMode = Schemas["ResearchMode"];
+
+export const PRICE_BASES = enumList<Schemas["PriceBasis"]>()(["SPLIT_ADJUSTED", "AS_TRADED"]);
+export type PriceBasis = Schemas["PriceBasis"];
+
+export const ALIGNMENT_STATUSES = enumList<Schemas["AlignmentStatus"]>()([
+  "ALIGNED",
+  "UNKNOWN_TIMING",
+  "INTRADAY_PRECISION_UNSUPPORTED",
+  "NO_SESSION_DATA",
+  "NOT_POINT_IN_TIME_ELIGIBLE",
+]);
+export type AlignmentStatus = Schemas["AlignmentStatus"];
+
+export const FORWARD_RETURN_STATUSES = enumList<Schemas["ForwardReturnStatus"]>()([
+  "AVAILABLE",
+  "NO_ALIGNMENT",
+  "MISSING_ANCHOR_PRICE",
+  "INSUFFICIENT_FORWARD_SESSIONS",
+  "INVALID_PRICE",
+  "AMBIGUOUS_PRICE_SOURCE",
+]);
+export type ForwardReturnStatus = Schemas["ForwardReturnStatus"];
+
+export const BENCHMARK_RETURN_STATUSES = enumList<Schemas["BenchmarkReturnStatus"]>()([
+  "AVAILABLE",
+  "NO_BENCHMARK",
+  "NO_STOCK_RETURN",
+  "MISSING_ANCHOR_PRICE",
+  "MISSING_TARGET_PRICE",
+  "INVALID_PRICE",
+  "AMBIGUOUS_BENCHMARK_PRICE_SOURCE",
+]);
+export type BenchmarkReturnStatus = Schemas["BenchmarkReturnStatus"];
+
+export const ABNORMAL_RETURN_STATUSES = enumList<Schemas["AbnormalReturnStatus"]>()([
+  "AVAILABLE",
+  "STOCK_RETURN_UNAVAILABLE",
+  "BENCHMARK_RETURN_UNAVAILABLE",
+]);
+export type AbnormalReturnStatus = Schemas["AbnormalReturnStatus"];
+
+export const FILING_LINK_STATUSES = enumList<Schemas["FilingLinkStatus"]>()([
+  "NOT_LINKED",
+  "FILING_NOT_STORED",
+  "CIK_MISMATCH_REFUSED",
+  "CALLER_SUPPLIED_CIK_CONSISTENT",
+]);
+export type FilingLinkStatus = Schemas["FilingLinkStatus"];
+
+export const PERIOD_VERIFICATIONS = enumList<Schemas["PeriodVerification"]>()(["NOT_APPLICABLE", "PERIOD_UNVERIFIED"]);
+export type PeriodVerification = Schemas["PeriodVerification"];
+
+export const ACCOUNTING_STATES = enumList<Schemas["AccountingState"]>()(["NOT_REQUESTED", "LINK_REFUSED", "EVALUATED"]);
+export type AccountingState = Schemas["AccountingState"];
+
+export const DISCLOSURE_LEVELS = enumList<Schemas["DisclosureEvidenceLevel"]>()([
+  "NONE",
+  "D0_FILING_EXISTS",
+  "D1_ITEM_2_02_DECLARED",
+]);
+export type DisclosureEvidenceLevel = Schemas["DisclosureEvidenceLevel"];
+
+export const REFUSAL_SCOPES = enumList<Schemas["RefusalScope"]>()([
+  "EVENT",
+  "MARKET",
+  "BENCHMARK",
+  "FILING_LINK",
+  "ACCOUNTING",
+  "POINT_IN_TIME",
+]);
+export type RefusalScope = Schemas["RefusalScope"];
+
+export const LISTING_RESOLUTION_STATUSES = enumList<Schemas["ListingResolutionStatus"]>()([
+  "RESOLVED",
+  "NO_LISTING_FOR_DATE",
+  "AMBIGUOUS_LISTING",
+  "CONFLICTING_HISTORY",
+]);
+export type ListingResolutionStatus = Schemas["ListingResolutionStatus"];
+
+export const LISTING_EVIDENCE = enumList<Schemas["Evidence"]>()(["PROVISIONAL_FIRST_OBSERVED", "SOURCE_STATED_HISTORY"]);
+
+export const ARTIFACT_ROLES = ["current", "comparative"] as const;
+
+// ── research request bounds (parity-tested against the observation parameters) ───────────
+
+/** The observation endpoint's horizon rules: at most 10 horizons, each from 1 to 252 sessions. */
+export const HORIZON_MAX_COUNT = 10;
+export const HORIZON_MAX_VALUE = 252;
+/** Used when `horizons` is absent; echoed ascending in `parameters.horizons`. */
+export const DEFAULT_HORIZONS = [1, 5, 20] as const;
 
 export const READINESS_STATUSES = ["ready", "not_ready"] as const;
 export const DEPENDENCY_STATES = ["ok", "unavailable"] as const;

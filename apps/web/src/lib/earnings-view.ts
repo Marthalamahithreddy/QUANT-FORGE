@@ -52,9 +52,9 @@ export interface EarningsListState {
   readonly redirect: boolean;
 }
 
-function hrefFor(query: EarningsQuery, page: number): string {
+function hrefFor(query: EarningsQuery, page: number, path: string = EARNINGS_PATH): string {
   return canonicalHref(
-    EARNINGS_PATH,
+    path,
     [
       ["ticker", query.ticker],
       ["date_from", query.dateFrom],
@@ -67,7 +67,7 @@ function hrefFor(query: EarningsQuery, page: number): string {
 /** The URL of one page of a filtered earnings list. */
 export const earningsPageHref = hrefFor;
 
-export function parseEarningsList(raw: RawSearchParams): EarningsListState {
+export function parseEarningsList(raw: RawSearchParams, path: string = EARNINGS_PATH): EarningsListState {
   const ticker = readParam(raw, "ticker");
   const dateFrom = readParam(raw, "date_from");
   const dateTo = readParam(raw, "date_to");
@@ -105,7 +105,7 @@ export function parseEarningsList(raw: RawSearchParams): EarningsListState {
     dateTo: errors.some((e) => e.param === "date_to") ? undefined : dateTo.text || undefined,
     offset: offsetOfPage(page),
   };
-  const canonical = errors.length === 0 ? hrefFor(query, page) : null;
+  const canonical = errors.length === 0 ? hrefFor(query, page, path) : null;
 
   return {
     shown: { ticker: ticker.text, date_from: dateFrom.text, date_to: dateTo.text },
