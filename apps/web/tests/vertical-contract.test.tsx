@@ -13,8 +13,10 @@ import { join } from "node:path";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { decodeFilingEps, decodeFilingIndexPage } from "@/lib/api/decoders/filings";
 import FilingDetailPage from "@/app/filings/[accession]/page";
 import FilingsPage from "@/app/filings/page";
+import { FilingsTable } from "@/components/filings/filings-table";
 import {
   CHANGE_STATUS_LABEL,
   COMPARATIVE_STATUS_LABEL,
@@ -31,10 +33,9 @@ import {
   PERCENTAGE_REASONS,
   PERIOD_CLASSES,
   TRANSITIONS,
-  parseFilingEps,
-  parseFilingIndexPage,
-} from "@/types/filings";
+} from "@/lib/api/schema";
 import { jsonResponse } from "./fixtures";
+import { renderServer } from "./render-server";
 import { filingsPage, makeFiling } from "./filings-fixtures";
 
 vi.mock("next/navigation", () => ({
@@ -55,6 +56,9 @@ interface Golden {
   index: { items: Record<string, string | null>[]; total: number };
   eps: { request: Request; response: Record<string, unknown> }[];
 }
+
+const parseFilingEps = (value: unknown) => decodeFilingEps(value, "$");
+const parseFilingIndexPage = (value: unknown) => decodeFilingIndexPage(value, "$");
 
 const GOLDEN: Golden = JSON.parse(
   readFileSync(join(process.cwd(), "tests/contract/vertical.json"), "utf8"),
@@ -186,7 +190,7 @@ describe("the pinned backend JSON passes the strict parsers", () => {
 
 describe("index row -> link -> request -> response -> rendered detail", () => {
   it("keeps accession and CIK through every hop, for every index row", async () => {
-    render(await FilingsPage({ searchParams: Promise.resolve({}) } as never));
+    await renderServer(await FilingsPage({ searchParams: Promise.resolve({}) } as never));
     const rows = within(screen.getByRole("table")).getAllByRole("row").slice(1);
     const links = within(screen.getByRole("table")).getAllByRole("link");
     expect(links).toHaveLength(GOLDEN.index.items.length);
@@ -221,7 +225,7 @@ describe("index row -> link -> request -> response -> rendered detail", () => {
   });
 
   it("gives a joint accession two rows with different links and independent values", async () => {
-    render(await FilingsPage({ searchParams: Promise.resolve({}) } as never));
+    await renderServer(await FilingsPage({ searchParams: Promise.resolve({}) } as never));
     const joint = GOLDEN.index.items
       .map((item, i) => [item, i] as const)
       .filter(([item]) => item.accession === ACC);
@@ -251,7 +255,7 @@ describe("index row -> link -> request -> response -> rendered detail", () => {
   });
 
   it("keeps the null-CIK row visible and accession-only, never inventing identity", async () => {
-    render(await FilingsPage({ searchParams: Promise.resolve({}) } as never));
+    await renderServer(await FilingsPage({ searchParams: Promise.resolve({}) } as never));
     const index = GOLDEN.index.items.findIndex((i) => i.company_cik === null);
     expect(index).toBeGreaterThanOrEqual(0);
     const href = within(screen.getByRole("table"))
@@ -340,7 +344,7 @@ describe("rendered semantics of the real backend answers", () => {
       within(section("Comparative EPS")).getByText("CURRENT_UNAVAILABLE"),
     ).toBeInTheDocument();
     expect(
-      within(section("Comparative EPS")).getByText(/current EPS is MISSING/),
+      within(section("Comparative EPS")).getAllByText(/current EPS is MISSING/)[0] as HTMLElement,
     ).toBeInTheDocument();
     expect(
       within(section("EPS change")).getByText(/Not computed/),
@@ -388,9 +392,7 @@ describe("rendered semantics of the real backend answers", () => {
     expect(
       within(change).getByText(/not defined for this comparative base/),
     ).toBeInTheDocument();
-    expect(
-      within(change).getByText("The comparative EPS is zero."),
-    ).toBeInTheDocument();
+    expect(within(change).getAllByText(/The comparative EPS is zero\./).length).toBeGreaterThan(0);
     expect(change.textContent).not.toMatch(/%/);
     expect(
       within(section("Comparative EPS")).getByText("0.0000"),
@@ -404,9 +406,7 @@ describe("rendered semantics of the real backend answers", () => {
     expect(
       within(change).getByText("Loss per share narrowed"),
     ).toBeInTheDocument();
-    expect(
-      within(change).getByText("The comparative EPS is negative."),
-    ).toBeInTheDocument();
+    expect(within(change).getAllByText(/The comparative EPS is negative\./).length).toBeGreaterThan(0);
     expect(change.textContent).not.toMatch(/%/);
   });
 
@@ -428,9 +428,9 @@ describe("rendered semantics of the real backend answers", () => {
   it("a ratio that rounds to 0.00% is flagged non-zero and its exact value is kept", async () => {
     await open("0000320193-24-000080", CIK_A);
     const change = section("EPS change");
-    expect(
-      within(change).getByText(/Not zero: the ratio is too small/),
-    ).toBeInTheDocument();
+    // PercentValue flags it beside the figure; the exact ratio stays for assistive technology.
+    expect(within(change).getByText(/\(not zero\)/)).toBeInTheDocument();
+    expect(within(change).getByText(/exact ratio 0\.000001/)).toBeInTheDocument();
     const details = screen
       .getByText("Evidence and exact values")
       .closest("details") as HTMLElement;
@@ -477,42 +477,52 @@ describe("rendered semantics of the real backend answers", () => {
 });
 
 describe("large page sanity", () => {
-  it("parses and renders a maximum-size page, keeping every row and a correct Older link", async () => {
-    const items = Array.from({ length: 200 }, (_, n) =>
+  const rows = (count: number) =>
+    Array.from({ length: count }, (_, n) =>
       makeFiling({
         accession: `0001000000-24-${String(n).padStart(6, "0")}`,
         company_cik: `${1_000_000 + (n % 23)}`.padStart(10, "0"),
       }),
     );
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string) =>
-        Promise.resolve(
-          jsonResponse(
-            new URL(input).pathname === "/api/v1/filings"
-              ? filingsPage(items, 450, 0, 200)
-              : HEALTH,
-          ),
-        ),
-      ),
-    );
-    expect(
-      parseFilingIndexPage(filingsPage(items, 450, 0, 200)).items,
-    ).toHaveLength(200);
-    render(await FilingsPage({ searchParams: Promise.resolve({}) } as never));
+
+  it("decodes and renders the API's largest page (200 rows), keeping every row", () => {
+    const items = rows(200);
+    expect(parseFilingIndexPage(filingsPage(items, 450, 0, 200)).items).toHaveLength(200);
+    render(<FilingsTable filings={items} offset={0} />);
 
     const links = within(screen.getByRole("table")).getAllByRole("link");
     expect(links).toHaveLength(200);
     expect(new Set(links.map((a) => a.getAttribute("href"))).size).toBe(200);
-    expect(
-      screen.getByText(/450 stored filings · rows 1–200/),
-    ).toBeInTheDocument();
-    expect(
-      within(screen.getByRole("navigation", { name: "Pagination" })).getByRole(
-        "link",
-        { name: /Older/ },
+  });
+
+  it("renders the page the UI actually requests (50 rows of 450) with a correct Next link", async () => {
+    const items = rows(50);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string) =>
+        Promise.resolve(
+          jsonResponse(new URL(input).pathname === "/api/v1/filings" ? filingsPage(items, 450, 0, 50) : HEALTH),
+        ),
       ),
+    );
+    await renderServer(await FilingsPage({ searchParams: Promise.resolve({}) } as never));
+
+    expect(within(screen.getByRole("table")).getAllByRole("link")).toHaveLength(50);
+    expect(screen.getByTestId("pagination-position")).toHaveTextContent("Rows 1–50 of 450 stored filings");
+    expect(
+      within(screen.getByRole("navigation", { name: "Pagination" })).getByRole("link", { name: "Next page" }),
     ).toHaveAttribute("href", "/filings?page=2");
+  });
+
+  it("refuses a page larger than the limit it was asked for, instead of showing it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(jsonResponse(filingsPage(rows(200), 450, 0, 200)))),
+    );
+    await renderServer(await FilingsPage({ searchParams: Promise.resolve({}) } as never));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("does not understand");
+    expect(screen.queryByRole("table")).toBeNull();
   });
 });
 
@@ -524,7 +534,9 @@ describe("language and provider audit of the accounting UI sources", () => {
     "src/components/filings/filings-table.tsx",
     "src/lib/filings-view.ts",
     "src/lib/api/filings.ts",
-    "src/types/filings.ts",
+    "src/lib/api/decode.ts",
+    "src/lib/api/decoders/filings.ts",
+    "src/lib/api/schema.ts",
   ];
   const text = (file: string) =>
     readFileSync(join(process.cwd(), file), "utf8")

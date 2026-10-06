@@ -4,6 +4,7 @@ import { axe } from "vitest-axe";
 import { describe, expect, it, vi } from "vitest";
 
 import { FinancialValue } from "@/components/financial/financial-value";
+import { ApiStatus } from "@/components/layout/api-status";
 import { AppShell } from "@/components/layout/app-shell";
 import { DomainState } from "@/components/state/domain-state";
 import { RefusalNotice } from "@/components/state/refusal-notice";
@@ -37,11 +38,14 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/earnings" }));
 const NON_VALUE = STATE_KINDS.filter((k): k is NonValueState => k !== "VALUE");
 
 describe("axe: foundational components and the shell", () => {
-  it("the application shell (rail, header strip, theme control, breadcrumbs, status)", async () => {
+  it("the application shell (rail, header strip, theme control, section label, status)", async () => {
     const { container } = render(
       <AppShell
-        status={{ state: "connected", health: { status: "ok", service: "quantforge-api", version: "0.1.0", environment: "local" } }}
-        breadcrumbs={[{ label: "Earnings", href: "/earnings" }, { label: "Acme · 2026-04-30" }]}
+        status={
+          <ApiStatus
+            status={{ state: "connected", health: { status: "ok", service: "quantforge-api", version: "0.1.0", environment: "local" } }}
+          />
+        }
       >
         <PageContainer>
           <PageHeader eyebrow="Research" title="Earnings" description="Stored observations." />
@@ -53,14 +57,14 @@ describe("axe: foundational components and the shell", () => {
 
   it("the shell before any API answer, and with the API unavailable", async () => {
     const checking = render(
-      <AppShell>
+      <AppShell status={<ApiStatus />}>
         <p>body</p>
       </AppShell>,
     );
     expectNoViolations(await axe(checking.container));
     checking.unmount();
     const down = render(
-      <AppShell status={{ state: "unavailable", detail: "The QuantForge API could not be reached." }}>
+      <AppShell status={<ApiStatus status={{ state: "unavailable", detail: "The QuantForge API could not be reached." }} />}>
         <p>body</p>
       </AppShell>,
     );
@@ -173,7 +177,7 @@ describe("axe: the open mobile drawer", () => {
   it("has no violations and no duplicate ids with the rail AND the drawer in the DOM", async () => {
     const user = userEvent.setup();
     const { container } = render(
-      <AppShell>
+      <AppShell status={<ApiStatus />}>
         <p>body</p>
       </AppShell>,
     );

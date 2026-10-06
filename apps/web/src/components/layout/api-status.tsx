@@ -1,5 +1,5 @@
 import { redactUrls } from "@/lib/safe-text";
-import type { BackendStatus } from "@/types/api";
+import type { BackendStatus } from "@/lib/api/health";
 
 export interface ApiStatusProps {
   /** `undefined` while the shell is painted before the API has answered ("checking"). */
@@ -19,7 +19,7 @@ export function ApiStatus({ status }: ApiStatusProps) {
   const description = checking
     ? "Waiting for the QuantForge API to answer."
     : connected
-      ? `${status.health.service} ${status.health.version} (${status.health.environment})`
+      ? `${status.health.service} ${status.health.version} (${status.health.environment}). Checked when this page was loaded.`
       : redactUrls((status as Extract<BackendStatus, { state: "unavailable" }>).detail);
 
   const environment = connected && status.health.environment !== "production" ? status.health.environment : null;
@@ -31,7 +31,10 @@ export function ApiStatus({ status }: ApiStatusProps) {
           env: {environment}
         </span>
       ) : null}
-      <div className="flex items-center gap-2 rounded-md border border-border-subtle bg-surface-elevated px-2.5 py-1.5">
+      <div
+        title={checking ? undefined : "Checked when this page was loaded"}
+        className="flex items-center gap-2 rounded-md border border-border-subtle bg-surface-elevated px-2.5 py-1.5"
+      >
         <span aria-hidden="true" className={`size-2 rounded-full ${dot}`} />
         <span className={`text-xs font-medium ${checking || !connected ? "text-text-2" : "text-text"}`}>{label}</span>
         <span className="sr-only">{description}</span>

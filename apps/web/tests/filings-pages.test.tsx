@@ -3,9 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import FilingDetailPage from "@/app/filings/[accession]/page";
 import FilingsPage from "@/app/filings/page";
-import { TRANSITIONS } from "@/types/filings";
+import { TRANSITIONS } from "@/lib/api/schema";
 import { TRANSITION_LABEL } from "@/lib/filings-view";
 import { jsonResponse } from "./fixtures";
+import { renderServer } from "./render-server";
 import {
   UNAVAILABLE_CHANGE,
   filingsPage,
@@ -91,7 +92,7 @@ describe("Filings list page", () => {
         ]),
       ),
     });
-    render(await FilingsPage(listProps()));
+    await renderServer(await FilingsPage(listProps()));
 
     const table = screen.getByRole("table");
     for (const header of [
@@ -125,7 +126,7 @@ describe("Filings list page", () => {
         filingsPage([makeFiling({ company_cik: "0000555555" }), makeFiling()]),
       ),
     });
-    render(await FilingsPage(listProps()));
+    await renderServer(await FilingsPage(listProps()));
 
     const rows = within(screen.getByRole("table")).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(2);
@@ -146,27 +147,30 @@ describe("Filings list page", () => {
         ]),
       ),
     });
-    render(await FilingsPage(listProps()));
+    await renderServer(await FilingsPage(listProps()));
 
     const row = within(screen.getByRole("table")).getAllByRole(
       "row",
     )[1] as HTMLElement;
-    expect(within(row).getAllByText("Not stated")).toHaveLength(3);
+    // CIK, report date and FSDS period end each say NOT_STATED (a mark and a spoken name), never a date.
+    expect(row.querySelectorAll('[data-state="NOT_STATED"]')).toHaveLength(3);
+    expect(within(row).getAllByText(/Not stated/)).toHaveLength(3);
     expect(row.textContent).not.toMatch(/1970|Invalid Date|NaN|undefined|null/);
   });
 
   it("shows no ticker, company, exchange, EPS, acceptance or availability columns", async () => {
     route({ filings: jsonResponse(filingsPage([makeFiling()])) });
-    render(await FilingsPage(listProps()));
+    await renderServer(await FilingsPage(listProps()));
 
     const headers = within(screen.getByRole("table"))
       .getAllByRole("columnheader")
       .map((h) => h.textContent);
+    // The accession is the identity column (first, sticky, carries the link).
     expect(headers).toEqual([
-      "Filing date",
+      "Accession",
       "Form",
       "CIK",
-      "Accession",
+      "Filing date",
       "Report date",
       "FSDS period end",
     ]);
@@ -176,7 +180,7 @@ describe("Filings list page", () => {
     route({
       filings: jsonResponse(filingsPage([makeFiling()], 120, 50)),
     });
-    render(
+    await renderServer(
       await FilingsPage(
         listProps({ page: "2", form: "10-Q", cik: "0000320193" }),
       ),
@@ -185,11 +189,11 @@ describe("Filings list page", () => {
     expect(apiCalls("/api/v1/filings")[0]).toContain("offset=50");
     expect(apiCalls("/api/v1/filings")[0]).toContain("limit=50");
     const nav = screen.getByRole("navigation", { name: "Pagination" });
-    expect(within(nav).getByRole("link", { name: /Newer/ })).toHaveAttribute(
+    expect(within(nav).getByRole("link", { name: "Previous page" })).toHaveAttribute(
       "href",
       "/filings?form=10-Q&cik=0000320193",
     );
-    expect(within(nav).getByRole("link", { name: /Older/ })).toHaveAttribute(
+    expect(within(nav).getByRole("link", { name: "Next page" })).toHaveAttribute(
       "href",
       "/filings?form=10-Q&cik=0000320193&page=3",
     );
@@ -198,7 +202,7 @@ describe("Filings list page", () => {
 
   it("sends exact form and ten-digit CIK filters, leading zeros intact", async () => {
     route({ filings: jsonResponse(filingsPage([])) });
-    render(await FilingsPage(listProps({ form: "10-Q", cik: "0000320193" })));
+    await renderServer(await FilingsPage(listProps({ form: "10-Q", cik: "0000320193" })));
 
     const url = apiCalls("/api/v1/filings")[0];
     expect(url).toContain("form=10-Q");
@@ -224,18 +228,18 @@ describe("Filings list page", () => {
     ["a negative page", { page: "-3" }],
     ["a page beyond the offset bound", { page: "10001" }],
   ])("rejects %s locally without calling the API", async (_name, search) => {
-    render(await FilingsPage(listProps(search)));
+    await renderServer(await FilingsPage(listProps(search)));
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Invalid filter");
+    expect(screen.getByRole("alert")).toHaveTextContent("These filters cannot be used");
     expect(apiCalls("/api/v1/filings")).toHaveLength(0);
   });
 
   it("explains an empty index without claiming no SEC filings exist", async () => {
     route({ filings: jsonResponse(filingsPage([])) });
-    render(await FilingsPage(listProps()));
+    await renderServer(await FilingsPage(listProps()));
 
     expect(
-      screen.getByText("No FSDS-backed filings are currently stored"),
+      screen.getByText("No FSDS-backed filings are stored"),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/does not mean no filings exist/),
@@ -245,7 +249,7 @@ describe("Filings list page", () => {
 
   it("treats a page past the end as such, not as empty data", async () => {
     route({ filings: jsonResponse(filingsPage([], 3, 500)) });
-    render(await FilingsPage(listProps({ page: "11" })));
+    await renderServer(await FilingsPage(listProps({ page: "11" })));
 
     expect(
       screen.getByText("This page is past the last result"),
@@ -254,11 +258,9 @@ describe("Filings list page", () => {
 
   it("shows a database-unavailable state for 503, never an empty list", async () => {
     route({ filings: jsonResponse({ detail: "Database unavailable." }, 503) });
-    render(await FilingsPage(listProps()));
+    await renderServer(await FilingsPage(listProps()));
 
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "The database is unavailable",
-    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Temporarily unavailable");
     expect(screen.queryByText(/No FSDS-backed filings/)).toBeNull();
   });
 
@@ -268,15 +270,15 @@ describe("Filings list page", () => {
         filingsPage([makeFiling({ form: "S-1" as never })]),
       ),
     });
-    render(await FilingsPage(listProps()));
+    await renderServer(await FilingsPage(listProps()));
 
-    expect(screen.getByRole("alert")).toHaveTextContent("unsupported response");
+    expect(screen.getByRole("alert")).toHaveTextContent("does not understand");
     expect(screen.queryByRole("table")).toBeNull();
   });
 
   it("issues only GET requests to the QuantForge API", async () => {
     route({ filings: jsonResponse(filingsPage([makeFiling()])) });
-    render(await FilingsPage(listProps()));
+    await renderServer(await FilingsPage(listProps()));
 
     for (const [url, init] of vi.mocked(fetch).mock.calls) {
       expect(String(url)).toMatch(/^http:\/\/localhost:8000\/api\/v1\//);
@@ -552,7 +554,8 @@ describe("Filing detail page: AVAILABLE chain", () => {
       expect(
         within(change).getByText(/not defined for this comparative base/),
       ).toBeInTheDocument();
-      expect(within(change).getByText(detail)).toBeInTheDocument();
+      // The backend's reason for the undefined percentage stays on screen, as words.
+      expect(within(change).getAllByText(new RegExp(detail.replace(".", "\\."))).length).toBeGreaterThan(0);
       expect(change.textContent).not.toMatch(/0(\.0+)?%/);
     },
   );
@@ -569,9 +572,8 @@ describe("Filing detail page: request integrity and presentation", () => {
       route({ eps: jsonResponse(makeEps(override)) });
       render(await FilingDetailPage(detailProps(SELECTED)));
 
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "does not echo the requested selection",
-      );
+      expect(screen.getByRole("alert")).toHaveTextContent("does not understand");
+      expect(screen.getByRole("alert")).toHaveTextContent("expected the requested");
       expect(screen.queryByRole("region", { name: "Current EPS" })).toBeNull();
       expectBoundary();
     },
@@ -595,9 +597,9 @@ describe("Filing detail page: request integrity and presentation", () => {
     render(await FilingDetailPage(detailProps(SELECTED)));
 
     const change = screen.getByRole("region", { name: "EPS change" });
-    expect(
-      within(change).getByText(/Not zero: the ratio is too small/),
-    ).toBeInTheDocument();
+    // PercentValue says so beside the figure and keeps the exact ratio for assistive technology.
+    expect(within(change).getByText(/\(not zero\)/)).toBeInTheDocument();
+    expect(within(change).getByText(/exact ratio 0\.000012/)).toBeInTheDocument();
   });
 
   it("labels each panel by its visible heading", async () => {
@@ -796,9 +798,7 @@ describe("Filing detail page: refusals and states", () => {
     route({ eps: jsonResponse({ detail: "Database unavailable." }, 503) });
     render(await FilingDetailPage(detailProps(SELECTED)));
 
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "The database is unavailable",
-    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Temporarily unavailable");
     expectBoundary();
   });
 
@@ -839,9 +839,7 @@ describe("Filing detail page: refusals and states", () => {
       route({ eps: jsonResponse(payload) });
       render(await FilingDetailPage(detailProps(SELECTED)));
 
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "The API returned an unsupported response",
-      );
+      expect(screen.getByRole("alert")).toHaveTextContent("does not understand");
       expect(screen.queryByRole("region", { name: "Current EPS" })).toBeNull();
       expectBoundary();
     },
@@ -1043,12 +1041,8 @@ describe("Registrant-qualified detail (10.6M)", () => {
       route({ eps: jsonResponse(payload) });
       render(await FilingDetailPage(detailProps(QUALIFIED)));
 
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "The API returned an unsupported response",
-      );
-      expect(screen.getByRole("alert")).toHaveTextContent(
-        "requested registrant",
-      );
+      expect(screen.getByRole("alert")).toHaveTextContent("does not understand");
+      expect(screen.getByRole("alert")).toHaveTextContent("requested registrant");
       expect(screen.queryByRole("region", { name: "Current EPS" })).toBeNull();
       expectBoundary();
     },
@@ -1141,7 +1135,7 @@ describe("Filings list: joint accessions link to their own registrant (10.6M)", 
         ]),
       ),
     });
-    render(await FilingsPage(listProps()));
+    await renderServer(await FilingsPage(listProps()));
 
     const hrefs = within(screen.getByRole("table"))
       .getAllByRole("link")

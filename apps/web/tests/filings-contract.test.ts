@@ -3,16 +3,16 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { ContractError } from "@/lib/api/decode";
+import { decodeFilingEps, decodeFilingIndexPage } from "@/lib/api/decoders/filings";
 import {
   CHANGE_STATUSES,
   COMPARATIVE_STATUSES,
   EPS_STATUSES,
-  FilingsContractError,
+  FILING_FORMS,
   PERCENTAGE_REASONS,
   TRANSITIONS,
-  parseFilingEps,
-  parseFilingIndexPage,
-} from "@/types/filings";
+} from "@/lib/api/schema";
 import {
   CHANGE_STATUS_LABEL,
   COMPARATIVE_STATUS_LABEL,
@@ -25,10 +25,15 @@ import {
   isPeriodClass,
 } from "@/lib/filings-view";
 import { buildFilingEpsPath, buildFilingsPath } from "@/lib/api/filings";
-import { FILING_FORMS } from "@/types/filings";
 import { filingsPage, makeEps, makeFact, makeFiling } from "./filings-fixtures";
 
 type Json = Record<string, unknown>;
+
+// The decoders are the strict boundary; these names keep the original assertions readable.
+const FilingsContractError = ContractError;
+const parseFilingEps = (value: unknown) => decodeFilingEps(value, "$");
+const parseFilingIndexPage = (value: unknown) => decodeFilingIndexPage(value, "$");
+const MEANING = "comparative EPS as presented in this filing";
 const withChange = (change: Json) =>
   makeEps({ change: { ...(makeEps().change as Json), ...change } });
 
@@ -149,7 +154,7 @@ describe("filing EPS parser", () => {
         comparative: {
           status: "NEW_STATE",
           reason: "r",
-          meaning: "m",
+          meaning: MEANING,
           fact: null,
         },
       }),
@@ -228,7 +233,7 @@ describe("filing EPS parser", () => {
         comparative: {
           status: "COMPARATIVE_WRONG_UNIT",
           reason: "r",
-          meaning: "m",
+          meaning: MEANING,
           fact: makeFact(),
         },
       }),
@@ -246,7 +251,7 @@ describe("filing EPS parser", () => {
         comparative: {
           status: "COMPARATIVE_NULL_VALUE",
           reason: "r",
-          meaning: "m",
+          meaning: MEANING,
           fact: makeFact({ value: null }),
         },
         change: {
@@ -418,7 +423,9 @@ describe("navigation helpers", () => {
 
 describe("financial decimals never pass through JS numbers", () => {
   const files = [
-    "src/types/filings.ts",
+    "src/lib/api/decode.ts",
+    "src/lib/api/decoders/filings.ts",
+    "src/lib/api/schema.ts",
     "src/lib/filings-view.ts",
     "src/lib/api/filings.ts",
     "src/components/filings/eps-panels.tsx",

@@ -84,7 +84,7 @@ describe("getBackendStatus", () => {
 
     expect(status.state).toBe("unavailable");
     if (status.state === "unavailable") {
-      expect(status.detail).toContain("500");
+      expect(status.detail).toContain("HTTP 500");
     }
   });
 
@@ -95,7 +95,7 @@ describe("getBackendStatus", () => {
 
     expect(status.state).toBe("unavailable");
     if (status.state === "unavailable") {
-      expect(status.detail).toContain("not valid JSON");
+      expect(status.detail).toMatch(/does not understand/);
     }
   });
 
@@ -106,7 +106,7 @@ describe("getBackendStatus", () => {
 
     expect(status.state).toBe("unavailable");
     if (status.state === "unavailable") {
-      expect(status.detail).toContain("health endpoint");
+      expect(status.detail).toMatch(/does not understand/);
     }
   });
 

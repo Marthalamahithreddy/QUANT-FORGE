@@ -1,54 +1,42 @@
 /**
  * Backend health integration.
  *
- * The status is resolved on the server during render, so no client-side state
- * or polling is involved. Failures are returned as data rather than thrown, so
- * the shell always renders.
+ * Resolved on the server during render, so no client state or polling is involved. A failure is
+ * returned as data, never thrown, so the shell always renders.
  */
 
-import { apiGet, ApiError, type ApiGetOptions } from "@/lib/api/client";
+import { cache } from "react";
+
+import { apiRequest, type ApiRequestOptions } from "@/lib/api/client";
+import { decodeHealth } from "@/lib/api/decoders/health";
+import { failureSummary } from "@/lib/api/messages";
+import type { HealthResponse } from "@/lib/api/schema";
 import { env } from "@/lib/config/env";
-import {
-  HealthContractError,
-  parseHealthResponse,
-  type BackendStatus,
-  type HealthResponse,
-} from "@/types/api";
 
-export type { BackendStatus, HealthResponse } from "@/types/api";
+export type { HealthResponse } from "@/lib/api/schema";
 
-/** Fetches and validates the backend health payload. Throws on any failure. */
-export async function fetchBackendHealth(
-  options: ApiGetOptions = {},
-): Promise<HealthResponse> {
-  const payload = await apiGet<unknown>(env.apiHealthPath, options);
-  return parseHealthResponse(payload);
+/**
+ * Outcome of contacting the backend. A discriminated union, so the UI can never render a
+ * fabricated "connected" state: there is no connected variant without a validated payload.
+ */
+export type BackendStatus =
+  | { readonly state: "connected"; readonly health: HealthResponse }
+  | { readonly state: "unavailable"; readonly detail: string };
+
+async function resolveStatus(options: ApiRequestOptions): Promise<BackendStatus> {
+  const result = await apiRequest(env.apiHealthPath, decodeHealth, options);
+  return result.kind === "ok"
+    ? { state: "connected", health: result.data }
+    : { state: "unavailable", detail: failureSummary(result) };
 }
 
-function describeFailure(error: unknown): string {
-  if (error instanceof ApiError) {
-    return error.publicMessage;
-  }
-  if (error instanceof HealthContractError) {
-    return error.message; // names the expected shape, never an address
-  }
-  // Anything else may carry a host or a driver message: say only what is safe.
-  return "Unexpected error while contacting the QuantForge API.";
+/** Never rejects: an unreachable or misbehaving backend becomes `unavailable`. */
+export function getBackendStatus(options: ApiRequestOptions = {}): Promise<BackendStatus> {
+  return resolveStatus(options);
 }
 
 /**
- * Resolves the backend status for display.
- *
- * Never rejects: an unreachable or misbehaving backend becomes an
- * `unavailable` state instead of an error boundary.
+ * The same read, shared by everything rendered in one request (the layout's status chip and the
+ * Overview page both ask), so a page view costs one health call, not two.
  */
-export async function getBackendStatus(
-  options: ApiGetOptions = {},
-): Promise<BackendStatus> {
-  try {
-    const health = await fetchBackendHealth(options);
-    return { state: "connected", health };
-  } catch (error) {
-    return { state: "unavailable", detail: describeFailure(error) };
-  }
-}
+export const getRequestBackendStatus = cache(() => resolveStatus({}));

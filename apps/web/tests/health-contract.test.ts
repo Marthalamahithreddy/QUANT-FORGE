@@ -1,60 +1,46 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  HealthContractError,
-  isHealthResponse,
-  parseHealthResponse,
-} from "@/types/api";
+import { ContractError } from "@/lib/api/decode";
+import { decodeHealth, decodeReadiness } from "@/lib/api/decoders/health";
 
-const VALID = {
-  status: "ok",
-  service: "quantforge-api",
-  version: "0.1.0",
-  environment: "local",
-} as const;
+const VALID = { status: "ok", service: "quantforge-api", version: "0.1.0", environment: "local" } as const;
+const health = (value: unknown) => decodeHealth(value, "$");
 
-describe("isHealthResponse", () => {
+describe("decodeHealth", () => {
   it("accepts the documented payload", () => {
-    expect(isHealthResponse(VALID)).toBe(true);
+    expect(health(VALID)).toEqual(VALID);
   });
 
-  it("accepts a payload carrying additional fields", () => {
-    expect(isHealthResponse({ ...VALID, uptimeSeconds: 12 })).toBe(true);
+  it("ignores unknown extra fields so additive backend changes do not break the client", () => {
+    expect(health({ ...VALID, uptime_seconds: 12 })).toEqual(VALID);
   });
 
   it.each([
-    ["null", null],
-    ["undefined", undefined],
-    ["a string", "ok"],
-    ["a number", 42],
+    ["status other than ok", { ...VALID, status: "degraded" }],
+    ["a blank service", { ...VALID, service: "  " }],
+    ["a missing version", Object.fromEntries(Object.entries(VALID).filter(([key]) => key !== "version"))],
+    ["a non-string environment", { ...VALID, environment: 1 }],
     ["an array", [VALID]],
-    ["an empty object", {}],
-  ])("rejects %s", (_label, value) => {
-    expect(isHealthResponse(value)).toBe(false);
-  });
-
-  it.each([
-    ["status", { ...VALID, status: "degraded" }],
-    ["service", { ...VALID, service: 1 }],
-    ["version", { ...VALID, version: null }],
-    ["environment", { ...VALID, environment: "" }],
-  ])("rejects a payload with a bad %s field", (_label, value) => {
-    expect(isHealthResponse(value)).toBe(false);
+    ["null", null],
+    ["a string", "ok"],
+  ])("rejects %s", (_name, value) => {
+    expect(() => health(value)).toThrow(ContractError);
   });
 });
 
-describe("parseHealthResponse", () => {
-  it("returns the narrowed payload unchanged", () => {
-    expect(parseHealthResponse(VALID)).toEqual(VALID);
+describe("decodeReadiness", () => {
+  const READY = { status: "ready", service: "s", dependencies: { database: "ok", redis: "ok" } };
+
+  it("treats the optional detail as optional, but not as null-or-absent interchangeably elsewhere", () => {
+    expect(decodeReadiness(READY, "$")).toEqual(READY);
+    expect(decodeReadiness({ ...READY, detail: null }, "$").detail).toBeNull();
   });
 
-  it("throws a typed error on contract drift", () => {
-    expect(() => parseHealthResponse({ status: "ok" })).toThrow(
-      HealthContractError,
-    );
-  });
-
-  it("explains what it expected", () => {
-    expect(() => parseHealthResponse(null)).toThrow(/status: 'ok'/);
+  it.each([
+    ["an unknown readiness status", { ...READY, status: "warming" }],
+    ["an unknown dependency state", { ...READY, dependencies: { database: "slow", redis: "ok" } }],
+    ["a missing dependency", { ...READY, dependencies: { database: "ok" } }],
+  ])("rejects %s", (_name, value) => {
+    expect(() => decodeReadiness(value, "$")).toThrow(ContractError);
   });
 });

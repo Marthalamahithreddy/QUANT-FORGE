@@ -1,7 +1,18 @@
 import type { ReactNode } from "react";
 
-import { Badge } from "@/components/ui/badge";
+import { FinancialValue } from "@/components/financial/financial-value";
+import { PercentValue } from "@/components/financial/percent-value";
+import { DomainState } from "@/components/state/domain-state";
+import { StatusBadge } from "@/components/state/status-badge";
 import { Frame } from "@/components/ui/frame";
+import { KeyValue, KeyValueList } from "@/components/ui/key-value";
+import type {
+  ComparativeEps,
+  CurrentEps,
+  EpsChange,
+  FactEvidence,
+  FilingEps,
+} from "@/lib/api/schema";
 import {
   CHANGE_STATUS_LABEL,
   COMPARATIVE_STATUS_LABEL,
@@ -10,267 +21,195 @@ import {
   PERCENTAGE_REASON_DETAIL,
   PERIOD_CLASS_LABEL,
   TRANSITION_LABEL,
-  statusTone,
 } from "@/lib/filings-view";
-import {
-  MISSING,
-  formatDate,
-  formatDecimal,
-  formatRatioAsPercent,
-  formatSignedDecimal,
-} from "@/lib/format";
-import type {
-  ComparativeEps,
-  CurrentEps,
-  EpsChange,
-  FactEvidence,
-  FilingEps,
-} from "@/types/filings";
+import { formatDate } from "@/lib/format";
+import type { NonValueState, StateKind } from "@/lib/state";
+import { CHANGE_STATE, COMPARATIVE_STATE, EPS_STATE } from "@/lib/state-map";
 
-function Section({
-  title,
-  note,
-  children,
-}: {
-  readonly title: string;
-  readonly note?: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <Frame title={title} note={note}>
-      <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[11rem_minmax(0,1fr)]">{children}</dl>
-    </Frame>
-  );
-}
+const code = (text: string) => <span className="type-id text-text-3">{text}</span>;
 
-function Row({
+/**
+ * The backend's status, said three ways that never replace each other: the domain state (its
+ * mark), the status's own label, and its code. EXTENSION_ONLY, WRONG_UNIT, DIMENSIONAL_ONLY,
+ * COREG_ONLY, MISSING and the rest are therefore always distinguishable, even though several
+ * share the REFUSED mark.
+ */
+function StatusRows({
+  state,
   label,
-  children,
-}: {
-  readonly label: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <>
-      <dt className="text-xs text-text-muted">{label}</dt>
-      <dd className="num min-w-0 text-sm break-words text-text-primary">
-        {children}
-      </dd>
-    </>
-  );
-}
-
-const muted = (text: string) => <span className="text-text-muted">{text}</span>;
-
-/** Status as text (code and readable label); the badge tone is only a secondary cue. */
-function StatusRow({
   status,
-  label,
   reason,
 }: {
-  readonly status: string;
+  readonly state: StateKind;
   readonly label: string;
+  readonly status: string;
   readonly reason: string;
 }) {
   return (
     <>
-      <Row label="Status">
-        <Badge tone={statusTone(status)}>{label}</Badge>{" "}
-        <span aria-hidden="true" className="font-mono text-xs text-text-muted">
-          {status}
+      <KeyValue label="Status">
+        <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+          {state === "VALUE" ? <span>{label}</span> : <DomainState kind={state as NonValueState} reason={reason} />}
+          {state === "VALUE" ? null : <span className="text-text">{label}</span>}
+          {code(status)}
         </span>
-      </Row>
-      <Row label="Reason">
-        <span className="text-text-secondary">{reason}</span>
-      </Row>
+      </KeyValue>
+      <KeyValue label="Reason">
+        <span className="text-text-2">{reason}</span>
+      </KeyValue>
     </>
   );
 }
 
-/** A fact value: exact string, or an explicit statement that the source gave none (never 0). */
-function FactValue({ fact }: { readonly fact: FactEvidence }) {
-  return fact.value === null ? (
-    muted("No value stated by the source (null, not zero)")
-  ) : (
-    <span className="font-mono">{formatDecimal(fact.value)}</span>
-  );
-}
-
-function FactRows({ fact }: { readonly fact: FactEvidence }) {
+/** A fact value: the exact string, or an explicit statement that the source gave none (never 0). */
+function FactRows({ fact, kind }: { readonly fact: FactEvidence; readonly kind: "eps" }) {
   return (
     <>
-      <Row label="Value">
-        <FactValue fact={fact} />
-      </Row>
-      <Row label="Unit">{fact.unit}</Row>
-      <Row label="Period end">{formatDate(fact.period_end)}</Row>
+      <KeyValue label="Value">
+        {fact.value === null ? (
+          <DomainState kind="NOT_STATED" reason="The source stated no value (null, not zero)." />
+        ) : (
+          <FinancialValue kind={kind} value={fact.value} />
+        )}
+      </KeyValue>
+      <KeyValue label="Unit">{fact.unit}</KeyValue>
+      <KeyValue label="Period end">{formatDate(fact.period_end)}</KeyValue>
     </>
   );
+}
+
+function PanelBadge({ state, children }: { readonly state: StateKind; readonly children: ReactNode }) {
+  return <StatusBadge kind={state}>{children}</StatusBadge>;
 }
 
 export function CurrentEpsPanel({ current }: { readonly current: CurrentEps }) {
+  const state = EPS_STATE[current.status];
   return (
-    <Section title="Current EPS">
-      <StatusRow
-        status={current.status}
-        label={EPS_STATUS_LABEL[current.status]}
-        reason={current.reason}
-      />
-      {current.fact ? <FactRows fact={current.fact} /> : null}
-    </Section>
+    <Frame title="Current EPS" actions={<PanelBadge state={state}>{EPS_STATUS_LABEL[current.status]}</PanelBadge>}>
+      <KeyValueList>
+        <StatusRows state={state} label={EPS_STATUS_LABEL[current.status]} status={current.status} reason={current.reason} />
+        {current.fact ? <FactRows fact={current.fact} kind="eps" /> : null}
+      </KeyValueList>
+    </Frame>
   );
 }
 
-export function ComparativeEpsPanel({
-  comparative,
-}: {
-  readonly comparative: ComparativeEps;
-}) {
+export function ComparativeEpsPanel({ comparative }: { readonly comparative: ComparativeEps }) {
+  const state = COMPARATIVE_STATE[comparative.status];
   return (
-    <Section title="Comparative EPS" note="As presented in this filing">
-      <StatusRow
-        status={comparative.status}
-        label={COMPARATIVE_STATUS_LABEL[comparative.status]}
-        reason={comparative.reason}
-      />
-      {comparative.fact ? <FactRows fact={comparative.fact} /> : null}
-      {comparative.status === "COMPARATIVE_NULL_VALUE" ? (
-        <Row label="Source evidence">
-          Matching source evidence exists, but its value is null. It is not
-          treated as zero.
-        </Row>
-      ) : null}
-    </Section>
+    <Frame
+      title="Comparative EPS"
+      note="As presented in this filing"
+      actions={<PanelBadge state={state}>{COMPARATIVE_STATUS_LABEL[comparative.status]}</PanelBadge>}
+    >
+      <KeyValueList>
+        <StatusRows
+          state={state}
+          label={COMPARATIVE_STATUS_LABEL[comparative.status]}
+          status={comparative.status}
+          reason={comparative.reason}
+        />
+        {comparative.fact ? <FactRows fact={comparative.fact} kind="eps" /> : null}
+        {comparative.status === "COMPARATIVE_NULL_VALUE" ? (
+          <KeyValue label="Source evidence">
+            Matching source evidence exists, but its value is null. It is not treated as zero.
+          </KeyValue>
+        ) : null}
+      </KeyValueList>
+      <p className="type-meta mt-3 max-w-3xl">
+        This is the prior-period figure shown in the same filing&rsquo;s own comparative column, not the earlier
+        filing&rsquo;s original number and not a restatement search.
+      </p>
+    </Frame>
   );
 }
 
 export function EpsChangePanel({ change }: { readonly change: EpsChange }) {
+  const state = CHANGE_STATE[change.status];
   return (
-    <Section
+    <Frame
       title="EPS change"
       note="Current minus comparative, computed by the API"
+      actions={<PanelBadge state={state}>{CHANGE_STATUS_LABEL[change.status]}</PanelBadge>}
     >
-      <Row label="Status">
-        <Badge tone={statusTone(change.status)}>
-          {CHANGE_STATUS_LABEL[change.status]}
-        </Badge>{" "}
-        <span aria-hidden="true" className="font-mono text-xs text-text-muted">
-          {change.status}
-        </span>
-      </Row>
-      {change.status === "INPUT_UNAVAILABLE" || change.eps_change === null ? (
-        <Row label="EPS change">
-          {muted(
-            "Not computed: the current or comparative EPS is unavailable (see their statuses above). No value is shown.",
-          )}
-        </Row>
-      ) : (
-        <>
-          <Row label="EPS change">
-            <span className="font-mono">
-              {formatSignedDecimal(change.eps_change)}
+      <KeyValueList>
+        <KeyValue label="Status">
+          <span className="inline-flex flex-wrap items-center gap-x-2">
+            {state === "VALUE" ? null : <DomainState kind={state as NonValueState} />}
+            <span>{CHANGE_STATUS_LABEL[change.status]}</span>
+            {code(change.status)}
+          </span>
+        </KeyValue>
+        {change.status === "INPUT_UNAVAILABLE" || change.eps_change === null ? (
+          <KeyValue label="EPS change">
+            <span className="text-text-2">
+              Not computed: the current or comparative EPS is unavailable (see their statuses above). No value is shown.
             </span>
-          </Row>
-          <Row label="Transition">
-            {change.transition === null
-              ? MISSING
-              : TRANSITION_LABEL[change.transition]}
-            {change.transition === null ? null : (
-              <>
-                {" "}
-                <span
-                  aria-hidden="true"
-                  className="font-mono text-xs text-text-muted"
-                >
-                  {change.transition}
+          </KeyValue>
+        ) : (
+          <>
+            <KeyValue label="EPS change">
+              <FinancialValue kind="signed" value={change.eps_change} />
+            </KeyValue>
+            <KeyValue label="Transition">
+              {change.transition === null ? (
+                <DomainState kind="NOT_STATED" compact />
+              ) : (
+                <span className="inline-flex flex-wrap items-center gap-x-2">
+                  {TRANSITION_LABEL[change.transition]} {code(change.transition)}
                 </span>
-              </>
-            )}
-          </Row>
-          <Row label="Percentage change">
-            {change.percentage_change === null ? (
-              <>
-                {muted(
-                  "Percentage change is not defined for this comparative base.",
-                )}
-                {change.percentage_unavailable_reason === null ? null : (
-                  <div className="text-xs text-text-muted">
-                    {
-                      PERCENTAGE_REASON_DETAIL[
-                        change.percentage_unavailable_reason
-                      ]
+              )}
+            </KeyValue>
+            <KeyValue label="Percentage change">
+              {change.percentage_change === null ? (
+                <span className="flex flex-col gap-1">
+                  <DomainState
+                    kind="UNAVAILABLE"
+                    reason={
+                      change.percentage_unavailable_reason === null
+                        ? "Percentage change is not defined for this comparative base."
+                        : PERCENTAGE_REASON_DETAIL[change.percentage_unavailable_reason]
                     }
-                  </div>
-                )}
-              </>
-            ) : (
-              <PercentageValue ratio={change.percentage_change} />
-            )}
-          </Row>
-        </>
-      )}
-    </Section>
+                  />
+                  <span className="type-meta">
+                    Percentage change is not defined for this comparative base
+                    {change.percentage_unavailable_reason === null
+                      ? "."
+                      : `. ${PERCENTAGE_REASON_DETAIL[change.percentage_unavailable_reason]}`}
+                  </span>
+                </span>
+              ) : (
+                <PercentValue ratio={change.percentage_change} />
+              )}
+            </KeyValue>
+          </>
+        )}
+      </KeyValueList>
+    </Frame>
   );
 }
 
-/** The ratio as a rounded percentage; a non-zero ratio that rounds to zero says so, never "0%". */
-function PercentageValue({ ratio }: { readonly ratio: string }) {
-  const text = formatRatioAsPercent(ratio);
-  const hiddenByRounding = !/^[+-]/.test(text) && /[1-9]/.test(ratio);
-  return (
-    <>
-      <span className="font-mono">{text}</span>
-      {hiddenByRounding ? (
-        <div className="text-xs text-text-muted">
-          Not zero: the ratio is too small to show at this precision. See the
-          exact ratio under Evidence and exact values.
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function FactEvidenceBlock({
-  title,
-  fact,
-}: {
-  readonly title: string;
-  readonly fact: FactEvidence;
-}) {
+function FactEvidenceBlock({ title, fact }: { readonly title: string; readonly fact: FactEvidence }) {
   return (
     <div className="flex flex-col gap-2">
-      <h3 className="text-xs font-medium text-text-secondary">{title}</h3>
-      <dl className="grid gap-x-6 gap-y-2 text-xs sm:grid-cols-[11rem_minmax(0,1fr)]">
-        <Row label="Fact id">
-          <span className="font-mono">{fact.fact_id}</span>
-        </Row>
-        <Row label="Tag">
-          <span className="font-mono">{fact.tag}</span>
-        </Row>
-        <Row label="Taxonomy version">
-          <span className="font-mono">{fact.taxonomy_version}</span>
-        </Row>
-        <Row label="Unit">{fact.unit}</Row>
-        <Row label="Period end">{formatDate(fact.period_end)}</Row>
-        <Row label="Quarters (qtrs)">{fact.qtrs}</Row>
-        <Row label="Segments">
-          {fact.segments === "" ? (
-            muted("(empty, as stored)")
-          ) : (
-            <code>{fact.segments}</code>
-          )}
-        </Row>
-        <Row label="Co-registrant">
-          {fact.coreg === "" ? (
-            muted("(empty, as stored)")
-          ) : (
-            <code>{fact.coreg}</code>
-          )}
-        </Row>
-        <Row label="Exact value">
-          {fact.value === null ? muted("null") : <code>{fact.value}</code>}
-        </Row>
-      </dl>
+      <h3 className="text-xs font-medium text-text-2">{title}</h3>
+      <KeyValueList>
+        <KeyValue label="Fact id">{code(fact.fact_id)}</KeyValue>
+        <KeyValue label="Tag">{code(fact.tag)}</KeyValue>
+        <KeyValue label="Taxonomy version">{code(fact.taxonomy_version)}</KeyValue>
+        <KeyValue label="Unit">{fact.unit}</KeyValue>
+        <KeyValue label="Period end">{formatDate(fact.period_end)}</KeyValue>
+        <KeyValue label="Quarters (qtrs)">{fact.qtrs}</KeyValue>
+        <KeyValue label="Segments">
+          {fact.segments === "" ? <span className="text-text-3">(empty, as stored)</span> : <code>{fact.segments}</code>}
+        </KeyValue>
+        <KeyValue label="Co-registrant">
+          {fact.coreg === "" ? <span className="text-text-3">(empty, as stored)</span> : <code>{fact.coreg}</code>}
+        </KeyValue>
+        <KeyValue label="Exact value">
+          {fact.value === null ? <span className="text-text-3">null</span> : <code>{fact.value}</code>}
+        </KeyValue>
+      </KeyValueList>
     </div>
   );
 }
@@ -279,44 +218,32 @@ function FactEvidenceBlock({
 export function EvidenceDetails({ eps }: { readonly eps: FilingEps }) {
   const { current, comparative, change } = eps;
   return (
-    <details className="rounded-md border border-border-subtle bg-surface-1">
-      <summary className="cursor-pointer rounded-md px-4 py-2 text-sm font-medium text-text-primary focus-visible:outline-2 focus-visible:outline-accent">
+    <details className="rounded border border-border bg-surface">
+      <summary className="cursor-pointer rounded px-3 py-2 text-sm font-medium text-text max-lg:min-h-11">
         Evidence and exact values
       </summary>
-      <div className="flex flex-col gap-5 border-t border-border-subtle p-4">
-        <p className="text-xs text-text-muted">
-          Exactly what the API returned for the selected facts. It carries no
-          availability or acceptance time.
+      <div className="flex flex-col gap-5 border-t border-border-subtle p-3">
+        <p className="type-meta">
+          Exactly what the API returned for the selected facts. It carries no availability or acceptance time.
         </p>
-        {current.fact ? (
-          <FactEvidenceBlock title="Current EPS fact" fact={current.fact} />
-        ) : null}
-        {comparative.fact ? (
-          <FactEvidenceBlock
-            title="Comparative EPS fact"
-            fact={comparative.fact}
-          />
-        ) : null}
+        {current.fact ? <FactEvidenceBlock title="Current EPS fact" fact={current.fact} /> : null}
+        {comparative.fact ? <FactEvidenceBlock title="Comparative EPS fact" fact={comparative.fact} /> : null}
         {change.eps_change !== null ? (
-          <dl className="grid gap-x-6 gap-y-2 text-xs sm:grid-cols-[11rem_minmax(0,1fr)]">
-            <Row label="Exact EPS change">
+          <KeyValueList>
+            <KeyValue label="Exact EPS change">
               <code>{change.eps_change}</code>
-            </Row>
-            <Row label="Exact ratio">
+            </KeyValue>
+            <KeyValue label="Exact ratio">
               {change.percentage_change === null ? (
-                muted("not defined")
+                <span className="text-text-3">not defined</span>
               ) : (
                 <code>{change.percentage_change}</code>
               )}
-            </Row>
-          </dl>
+            </KeyValue>
+          </KeyValueList>
         ) : null}
-        {current.fact === null &&
-        comparative.fact === null &&
-        change.eps_change === null ? (
-          <p className="text-sm text-text-secondary">
-            No fact was selected for this request.
-          </p>
+        {current.fact === null && comparative.fact === null && change.eps_change === null ? (
+          <p className="text-sm text-text-2">No fact was selected for this request.</p>
         ) : null}
       </div>
     </details>
@@ -325,10 +252,9 @@ export function EvidenceDetails({ eps }: { readonly eps: FilingEps }) {
 
 export function RequestSummary({ eps }: { readonly eps: FilingEps }) {
   return (
-    <p className="text-xs text-text-muted">
-      Showing {PERIOD_CLASS_LABEL[eps.period_class].toLowerCase()} EPS ·{" "}
-      {EPS_KIND_LABEL[eps.eps_kind].toLowerCase()}. No fallback to another EPS
-      concept is made.
+    <p className="type-meta">
+      Showing {PERIOD_CLASS_LABEL[eps.period_class].toLowerCase()} EPS · {EPS_KIND_LABEL[eps.eps_kind].toLowerCase()}. No
+      fallback to another EPS concept is made.
     </p>
   );
 }

@@ -1,9 +1,7 @@
-import { AppShell } from "@/components/layout/app-shell";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageContainer } from "@/components/ui/page-container";
 import { PageHeader } from "@/components/ui/page-header";
 import { Section } from "@/components/ui/section";
-import { getBackendStatus } from "@/lib/api/health";
 
 export const metadata = { title: "Research" };
 
@@ -26,34 +24,30 @@ const PRINCIPLES = [
   },
 ] as const;
 
-export default async function ResearchPage() {
-  const status = await getBackendStatus();
-
+export default function ResearchPage() {
   return (
-    <AppShell status={status}>
-      <PageContainer>
-        <PageHeader
-          eyebrow="Research"
-          title="Research"
-          description="How the research engine behaves today. This page reports principles, not results."
-        />
+    <PageContainer>
+      <PageHeader
+        eyebrow="Research"
+        title="Research"
+        description="How the research engine behaves today. This page reports principles, not results."
+      />
 
-        <EmptyState title="The event-study workspace is not part of the interface yet">
-          The API serves research observations, but this interface does not display them yet, so
-          no returns are shown here. No sample or illustrative returns are displayed.
-        </EmptyState>
+      <EmptyState title="The event-study workspace is not part of the interface yet">
+        The API serves research observations, but this interface does not display them yet, so
+        no returns are shown here. No sample or illustrative returns are displayed.
+      </EmptyState>
 
-        <Section title="Engine principles">
-          <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
-            {PRINCIPLES.map((item) => (
-              <div key={item.title}>
-                <dt className="text-sm font-medium text-text">{item.title}</dt>
-                <dd className="mt-1 text-sm leading-relaxed text-text-2">{item.body}</dd>
-              </div>
-            ))}
-          </dl>
-        </Section>
-      </PageContainer>
-    </AppShell>
+      <Section title="Engine principles">
+        <dl className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
+          {PRINCIPLES.map((item) => (
+            <div key={item.title}>
+              <dt className="text-sm font-medium text-text">{item.title}</dt>
+              <dd className="mt-1 text-sm leading-relaxed text-text-2">{item.body}</dd>
+            </div>
+          ))}
+        </dl>
+      </Section>
+    </PageContainer>
   );
 }

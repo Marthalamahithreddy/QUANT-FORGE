@@ -1,4 +1,4 @@
-import type { EarningsEvent } from "@/types/earnings";
+import type { EarningsEvent } from "@/lib/api/schema";
 
 /** Test-only builder. Production code never contains sample data. */
 export function makeEvent(overrides: Partial<EarningsEvent> = {}): EarningsEvent {
@@ -24,6 +24,7 @@ export function makeEvent(overrides: Partial<EarningsEvent> = {}): EarningsEvent
         valid_on_event_date: true,
       },
     ],
+    resolved_tickers: ["ACME"],
     fiscal_year: 2024,
     fiscal_quarter: 1,
     event_date: "2024-03-15",

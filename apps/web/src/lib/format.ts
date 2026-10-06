@@ -76,27 +76,6 @@ export function formatSignedDecimal(raw: string | null): string {
 }
 
 /**
- * Compares two decimal strings exactly. Unparseable or missing values sort
- * last in both directions and compare equal to each other.
- */
-export function compareDecimalStrings(a: string | null, b: string | null): number {
-  const left = a === null ? null : parseDecimal(a);
-  const right = b === null ? null : parseDecimal(b);
-  if (left === null && right === null) return 0;
-  if (left === null) return 1;
-  if (right === null) return -1;
-
-  const scale = Math.max(left.scale, right.scale);
-  const lift = (value: ParsedDecimal): bigint => {
-    const scaled = value.digits * pow10(scale - value.scale);
-    return value.negative ? -scaled : scaled;
-  };
-  const x = lift(left);
-  const y = lift(right);
-  return x < y ? -1 : x > y ? 1 : 0;
-}
-
-/**
  * Renders a ratio string as a percentage with `places` decimals, using exact
  * integer arithmetic and round-half-away-from-zero. Display only.
  */

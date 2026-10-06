@@ -1,0 +1,3741 @@
+{
+  "components": {
+    "schemas": {
+      "AbnormalReturnOut": {
+        "properties": {
+          "abnormal_return": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abnormal Return"
+          },
+          "horizon": {
+            "title": "Horizon",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AbnormalReturnStatus"
+          }
+        },
+        "required": [
+          "horizon",
+          "status",
+          "abnormal_return",
+          "reason"
+        ],
+        "title": "AbnormalReturnOut",
+        "type": "object"
+      },
+      "AbnormalReturnStatus": {
+        "description": "Why an abnormal return could, or honestly could not, be computed.",
+        "enum": [
+          "AVAILABLE",
+          "STOCK_RETURN_UNAVAILABLE",
+          "BENCHMARK_RETURN_UNAVAILABLE"
+        ],
+        "title": "AbnormalReturnStatus",
+        "type": "string"
+      },
+      "AccountingOut": {
+        "properties": {
+          "eps": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FilingEpsResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The existing filing EPS contract, present only when state is EVALUATED."
+          },
+          "state": {
+            "$ref": "#/components/schemas/AccountingState"
+          }
+        },
+        "required": [
+          "state",
+          "eps"
+        ],
+        "title": "AccountingOut",
+        "type": "object"
+      },
+      "AccountingState": {
+        "enum": [
+          "NOT_REQUESTED",
+          "LINK_REFUSED",
+          "EVALUATED"
+        ],
+        "title": "AccountingState",
+        "type": "string"
+      },
+      "AlignmentOut": {
+        "properties": {
+          "event_date": {
+            "format": "date",
+            "title": "Event Date",
+            "type": "string"
+          },
+          "session_alignment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionAlignmentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timing": {
+            "$ref": "#/components/schemas/EarningsTiming"
+          }
+        },
+        "required": [
+          "event_date",
+          "timing",
+          "session_alignment"
+        ],
+        "title": "AlignmentOut",
+        "type": "object"
+      },
+      "AlignmentStatus": {
+        "description": "How (or whether) an earnings event was mapped onto trading sessions.\n\n``ALIGNED`` is the only status under which a caller may treat\n``first_post_event_session`` as a usable research anchor. Every other\nmember is a documented refusal, not a partial answer -- the point of this\nenum is that a caller can never mistake \"we could not determine this\" for\na session that happens to be ``None`` by coincidence.",
+        "enum": [
+          "ALIGNED",
+          "UNKNOWN_TIMING",
+          "INTRADAY_PRECISION_UNSUPPORTED",
+          "NO_SESSION_DATA",
+          "NOT_POINT_IN_TIME_ELIGIBLE"
+        ],
+        "title": "AlignmentStatus",
+        "type": "string"
+      },
+      "ArtifactDigestOut": {
+        "properties": {
+          "role": {
+            "enum": [
+              "current",
+              "comparative"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "sha256"
+        ],
+        "title": "ArtifactDigestOut",
+        "type": "object"
+      },
+      "Availability": {
+        "properties": {
+          "observed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "observed_at_basis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AvailabilityBasis"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pit_eligibility": {
+            "$ref": "#/components/schemas/PointInTimeEligibility"
+          },
+          "pit_reason": {
+            "title": "Pit Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "observed_at",
+          "observed_at_basis",
+          "pit_eligibility",
+          "pit_reason"
+        ],
+        "title": "Availability",
+        "type": "object"
+      },
+      "AvailabilityBasis": {
+        "description": "What an ``observed_at`` timestamp *proves* -- separate from whether it may be used.\n\nA bare timestamp cannot say whether it is a provider's own statement of\nwhen a result was published, the acceptance time of a regulatory filing, or\nsomething weaker, and those prove different things. This names the evidence;\n:data:`quantforge.research.availability.APPROVED_AVAILABILITY_BASES` decides\nwhich kinds QuantForge will treat as point-in-time availability. A member\nexisting here never makes it tradable.\n\n``observed_at`` and ``observed_at_basis`` are NULL together or present\ntogether (a database CHECK): a timestamp without a stated meaning, or a\nmeaning with no timestamp, is never stored. A date-only value is not an\ninstant and is never stored in ``observed_at``.",
+        "enum": [
+          "SOURCE_PUBLICATION",
+          "SEC_FILING_ACCEPTANCE"
+        ],
+        "title": "AvailabilityBasis",
+        "type": "string"
+      },
+      "BenchmarkIndexItem": {
+        "properties": {
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO 4217 code the series is quoted in; may be null.",
+            "title": "Currency"
+          },
+          "id": {
+            "description": "Pass this as benchmark_id to the research observation.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "description": "False once the series is no longer used; kept so history stays understandable.",
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "Full name of the reference series. Not unique.",
+            "title": "Name",
+            "type": "string"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Vendor symbol, descriptive only (not unique); may be null.",
+            "title": "Symbol"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "symbol",
+          "currency",
+          "is_active"
+        ],
+        "title": "BenchmarkIndexItem",
+        "type": "object"
+      },
+      "BenchmarkIndexPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BenchmarkIndexItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Stored benchmarks (active and inactive), before pagination.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "BenchmarkIndexPage",
+        "type": "object"
+      },
+      "BenchmarkOut": {
+        "properties": {
+          "benchmark_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Id"
+          },
+          "returns": {
+            "items": {
+              "$ref": "#/components/schemas/BenchmarkReturnOut"
+            },
+            "title": "Returns",
+            "type": "array"
+          }
+        },
+        "required": [
+          "benchmark_id",
+          "returns"
+        ],
+        "title": "BenchmarkOut",
+        "type": "object"
+      },
+      "BenchmarkReturnOut": {
+        "properties": {
+          "anchor_close": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anchor Close"
+          },
+          "anchor_session": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anchor Session"
+          },
+          "benchmark_return": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Return"
+          },
+          "horizon": {
+            "title": "Horizon",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BenchmarkReturnStatus"
+          },
+          "target_close": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Close"
+          },
+          "target_session": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Session"
+          }
+        },
+        "required": [
+          "horizon",
+          "status",
+          "anchor_session",
+          "anchor_close",
+          "target_session",
+          "target_close",
+          "benchmark_return",
+          "reason"
+        ],
+        "title": "BenchmarkReturnOut",
+        "type": "object"
+      },
+      "BenchmarkReturnStatus": {
+        "description": "Why a benchmark return could, or honestly could not, be computed.",
+        "enum": [
+          "AVAILABLE",
+          "NO_BENCHMARK",
+          "NO_STOCK_RETURN",
+          "MISSING_ANCHOR_PRICE",
+          "MISSING_TARGET_PRICE",
+          "INVALID_PRICE",
+          "AMBIGUOUS_BENCHMARK_PRICE_SOURCE"
+        ],
+        "title": "BenchmarkReturnStatus",
+        "type": "string"
+      },
+      "CompanyRef": {
+        "properties": {
+          "cik": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cik"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "legal_name": {
+            "title": "Legal Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "display_name",
+          "legal_name",
+          "cik"
+        ],
+        "title": "CompanyRef",
+        "type": "object"
+      },
+      "ComparativeEpsSection": {
+        "properties": {
+          "fact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FactEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present only when the domain identified an authoritative comparative fact."
+          },
+          "meaning": {
+            "const": "comparative EPS as presented in this filing",
+            "default": "comparative EPS as presented in this filing",
+            "description": "Not the originally reported prior-year EPS; it may be restated.",
+            "title": "Meaning",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ComparativeEpsStatus"
+          }
+        },
+        "required": [
+          "status",
+          "reason",
+          "meaning",
+          "fact"
+        ],
+        "title": "ComparativeEpsSection",
+        "type": "object"
+      },
+      "ComparativeEpsStatus": {
+        "description": "Why a comparative observation exists or why it was refused.",
+        "enum": [
+          "AVAILABLE",
+          "CURRENT_UNAVAILABLE",
+          "COMPARATIVE_MISSING",
+          "COMPARATIVE_PERIOD_MISMATCH",
+          "COMPARATIVE_DIMENSIONAL_ONLY",
+          "COMPARATIVE_COREG_ONLY",
+          "COMPARATIVE_WRONG_UNIT",
+          "COMPARATIVE_NULL_VALUE",
+          "COMPARATIVE_AMBIGUOUS"
+        ],
+        "title": "ComparativeEpsStatus",
+        "type": "string"
+      },
+      "CurrentEpsSection": {
+        "properties": {
+          "fact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FactEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present only when a fact was selected."
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EpsStatus"
+          }
+        },
+        "required": [
+          "status",
+          "reason",
+          "fact"
+        ],
+        "title": "CurrentEpsSection",
+        "type": "object"
+      },
+      "DependencyReadiness": {
+        "description": "Per-dependency readiness, reported for every dependency on every call.",
+        "properties": {
+          "database": {
+            "description": "PostgreSQL connectivity.",
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
+            "title": "Database",
+            "type": "string"
+          },
+          "redis": {
+            "description": "Redis connectivity.",
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
+            "title": "Redis",
+            "type": "string"
+          }
+        },
+        "required": [
+          "database",
+          "redis"
+        ],
+        "title": "DependencyReadiness",
+        "type": "object"
+      },
+      "DescriptiveOut": {
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/SectionState"
+          },
+          "study": {
+            "$ref": "#/components/schemas/StudyOut"
+          }
+        },
+        "required": [
+          "state",
+          "study"
+        ],
+        "title": "DescriptiveOut",
+        "type": "object"
+      },
+      "DisclosureEvidenceLevel": {
+        "description": "Evidence CATEGORIES from stored filing metadata, not a ladder and never an availability time.",
+        "enum": [
+          "NONE",
+          "D0_FILING_EXISTS",
+          "D1_ITEM_2_02_DECLARED"
+        ],
+        "title": "DisclosureEvidenceLevel",
+        "type": "string"
+      },
+      "DisclosureEvidenceOut": {
+        "description": "Stored-metadata category only. There is deliberately no time field, and no level\nimplies availability or point-in-time eligibility.",
+        "properties": {
+          "accession_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accession Number"
+          },
+          "form": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SecFormType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Items"
+          },
+          "level": {
+            "$ref": "#/components/schemas/DisclosureEvidenceLevel"
+          }
+        },
+        "required": [
+          "level",
+          "accession_number",
+          "form",
+          "items"
+        ],
+        "title": "DisclosureEvidenceOut",
+        "type": "object"
+      },
+      "EarningsEventItem": {
+        "properties": {
+          "availability": {
+            "$ref": "#/components/schemas/Availability"
+          },
+          "company": {
+            "$ref": "#/components/schemas/CompanyRef"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "eps_surprise": {
+            "$ref": "#/components/schemas/EpsSurprise"
+          },
+          "estimated_eps": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Eps"
+          },
+          "estimated_revenue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Revenue"
+          },
+          "event_date": {
+            "format": "date",
+            "title": "Event Date",
+            "type": "string"
+          },
+          "event_timestamp": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Timestamp"
+          },
+          "fiscal_quarter": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fiscal Quarter"
+          },
+          "fiscal_year": {
+            "title": "Fiscal Year",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "ingested_at": {
+            "format": "date-time",
+            "title": "Ingested At",
+            "type": "string"
+          },
+          "listings": {
+            "items": {
+              "$ref": "#/components/schemas/ListingRef"
+            },
+            "title": "Listings",
+            "type": "array"
+          },
+          "reported_eps": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reported Eps"
+          },
+          "reported_revenue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reported Revenue"
+          },
+          "resolved_tickers": {
+            "description": "Tickers proven for this company on the event date by the historical resolver (first-observed listings and source-stated history). May name a ticker no stored listing carries; empty when nothing is proven or the evidence conflicts.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Resolved Tickers",
+            "type": "array"
+          },
+          "source": {
+            "$ref": "#/components/schemas/SourceRef"
+          },
+          "timing": {
+            "$ref": "#/components/schemas/EarningsTiming"
+          }
+        },
+        "required": [
+          "id",
+          "company",
+          "source",
+          "listings",
+          "resolved_tickers",
+          "fiscal_year",
+          "fiscal_quarter",
+          "event_date",
+          "event_timestamp",
+          "timing",
+          "currency",
+          "reported_eps",
+          "estimated_eps",
+          "reported_revenue",
+          "estimated_revenue",
+          "eps_surprise",
+          "availability",
+          "ingested_at"
+        ],
+        "title": "EarningsEventItem",
+        "type": "object"
+      },
+      "EarningsEventPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EarningsEventItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "EarningsEventPage",
+        "type": "object"
+      },
+      "EarningsTiming": {
+        "description": "When in the trading session an earnings event occurred.\n\nThis records only what the source stated. It is *not* a tradability flag:\nwhether the event is actionable is derived later from the event timestamp,\nthe venue calendar and the security's listing, because a \"before market\"\nrelease at 07:00 and one at 09:31 are both ``BEFORE_MARKET`` yet have very\ndifferent information content.",
+        "enum": [
+          "BEFORE_MARKET",
+          "DURING_MARKET",
+          "AFTER_MARKET",
+          "UNKNOWN"
+        ],
+        "title": "EarningsTiming",
+        "type": "string"
+      },
+      "EpsChangeSection": {
+        "properties": {
+          "eps_change": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "current - comparative: signed, exact, fixed-point string.",
+            "title": "Eps Change"
+          },
+          "percentage_change": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(current - comparative) / comparative as a RATIO string (0.5 = +50%).",
+            "title": "Percentage Change"
+          },
+          "percentage_semantics": {
+            "const": "ratio",
+            "default": "ratio",
+            "title": "Percentage Semantics",
+            "type": "string"
+          },
+          "percentage_unavailable_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PercentageUnavailableReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why percentage_change is null although eps_change exists."
+          },
+          "status": {
+            "$ref": "#/components/schemas/EpsChangeStatus"
+          },
+          "transition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EpsTransition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "eps_change",
+          "transition",
+          "percentage_change",
+          "percentage_semantics",
+          "percentage_unavailable_reason"
+        ],
+        "title": "EpsChangeSection",
+        "type": "object"
+      },
+      "EpsChangeStatus": {
+        "enum": [
+          "AVAILABLE",
+          "INPUT_UNAVAILABLE"
+        ],
+        "title": "EpsChangeStatus",
+        "type": "string"
+      },
+      "EpsKind": {
+        "description": "Which standardized EPS concept is requested. Never substituted for one another.",
+        "enum": [
+          "DILUTED",
+          "BASIC_AND_DILUTED"
+        ],
+        "title": "EpsKind",
+        "type": "string"
+      },
+      "EpsPeriodClass": {
+        "description": "The accounting period the caller wants. Always explicit; never guessed from the form.",
+        "enum": [
+          "QUARTER",
+          "ANNUAL"
+        ],
+        "title": "EpsPeriodClass",
+        "type": "string"
+      },
+      "EpsStatus": {
+        "description": "Why an extraction produced an observation or refused. Each refusal names its evidence.",
+        "enum": [
+          "AVAILABLE",
+          "NOT_INGESTED",
+          "UNSUPPORTED_FORM_PERIOD",
+          "MISSING",
+          "EXTENSION_ONLY",
+          "WRONG_UNIT",
+          "DIMENSIONAL_ONLY",
+          "COREG_ONLY",
+          "NULL_VALUE",
+          "AMBIGUOUS"
+        ],
+        "title": "EpsStatus",
+        "type": "string"
+      },
+      "EpsSurprise": {
+        "properties": {
+          "absolute": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Absolute"
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ratio"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EpsSurpriseStatus"
+          }
+        },
+        "required": [
+          "status",
+          "absolute",
+          "ratio",
+          "reason"
+        ],
+        "title": "EpsSurprise",
+        "type": "object"
+      },
+      "EpsSurpriseOut": {
+        "properties": {
+          "absolute_surprise": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Absolute Surprise"
+          },
+          "estimated_eps": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Eps"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "reported_eps": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reported Eps"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EpsSurpriseStatus"
+          },
+          "surprise_ratio": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Surprise Ratio"
+          }
+        },
+        "required": [
+          "status",
+          "reported_eps",
+          "estimated_eps",
+          "absolute_surprise",
+          "surprise_ratio",
+          "reason"
+        ],
+        "title": "EpsSurpriseOut",
+        "type": "object"
+      },
+      "EpsSurpriseStatus": {
+        "description": "Why an EPS surprise could, or honestly could not, be computed.",
+        "enum": [
+          "AVAILABLE",
+          "MISSING_REPORTED_EPS",
+          "MISSING_ESTIMATED_EPS",
+          "ZERO_ESTIMATE",
+          "NOT_POINT_IN_TIME_ELIGIBLE"
+        ],
+        "title": "EpsSurpriseStatus",
+        "type": "string"
+      },
+      "EpsTransition": {
+        "description": "One non-overlapping numeric relationship between comparative and current EPS.\n\nDescriptive only. \"Profit\" and \"loss\" mean a positive and a negative EPS figure; ``LOSS_NARROWED`` and\n``LOSS_WIDENED`` describe the loss getting smaller or larger in magnitude, not good or bad news.",
+        "enum": [
+          "POSITIVE_INCREASED",
+          "POSITIVE_DECREASED",
+          "POSITIVE_UNCHANGED",
+          "LOSS_NARROWED",
+          "LOSS_WIDENED",
+          "LOSS_UNCHANGED",
+          "LOSS_TO_PROFIT",
+          "PROFIT_TO_LOSS",
+          "ZERO_TO_PROFIT",
+          "ZERO_TO_LOSS",
+          "PROFIT_TO_ZERO",
+          "LOSS_TO_ZERO",
+          "ZERO_UNCHANGED"
+        ],
+        "title": "EpsTransition",
+        "type": "string"
+      },
+      "EventOut": {
+        "description": "The selected vendor observation as stored. ``observed_at`` is vendor availability evidence\nonly together with ``observed_at_basis``; both are null when the source gave none.",
+        "properties": {
+          "estimated_eps": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Eps"
+          },
+          "event_date": {
+            "format": "date",
+            "title": "Event Date",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_timestamp": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Timestamp"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "fiscal_quarter": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fiscal Quarter"
+          },
+          "fiscal_year": {
+            "title": "Fiscal Year",
+            "type": "integer"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "observed_at_basis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AvailabilityBasis"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reported_eps": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reported Eps"
+          },
+          "timing": {
+            "$ref": "#/components/schemas/EarningsTiming"
+          }
+        },
+        "required": [
+          "event_id",
+          "fingerprint",
+          "fiscal_year",
+          "fiscal_quarter",
+          "event_date",
+          "event_timestamp",
+          "timing",
+          "reported_eps",
+          "estimated_eps",
+          "observed_at",
+          "observed_at_basis"
+        ],
+        "title": "EventOut",
+        "type": "object"
+      },
+      "Evidence": {
+        "description": "How a resolved identity is proven. Not a score: two kinds, never blended.",
+        "enum": [
+          "PROVISIONAL_FIRST_OBSERVED",
+          "SOURCE_STATED_HISTORY"
+        ],
+        "title": "Evidence",
+        "type": "string"
+      },
+      "FactEvidence": {
+        "description": "One stored fact, as the domain selected it. No ingestion/availability fields.",
+        "properties": {
+          "coreg": {
+            "description": "Co-registrant text verbatim; empty when the source states none.",
+            "title": "Coreg",
+            "type": "string"
+          },
+          "fact_id": {
+            "format": "uuid",
+            "title": "Fact Id",
+            "type": "string"
+          },
+          "period_end": {
+            "description": "The source's month-end-rounded period end.",
+            "format": "date",
+            "title": "Period End",
+            "type": "string"
+          },
+          "qtrs": {
+            "description": "Quarters spanned (FSDS qtrs): 1 = a quarter, 4 = a year.",
+            "title": "Qtrs",
+            "type": "integer"
+          },
+          "segments": {
+            "description": "Dimension text verbatim; empty when the source states none.",
+            "title": "Segments",
+            "type": "string"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          },
+          "taxonomy_version": {
+            "title": "Taxonomy Version",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exact fixed-point string; null if the source stated none.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "fact_id",
+          "tag",
+          "taxonomy_version",
+          "unit",
+          "period_end",
+          "qtrs",
+          "value",
+          "segments",
+          "coreg"
+        ],
+        "title": "FactEvidence",
+        "type": "object"
+      },
+      "FilingEpsResponse": {
+        "properties": {
+          "accession": {
+            "title": "Accession",
+            "type": "string"
+          },
+          "boundary_note": {
+            "default": "Descriptive accounting data from SEC FSDS. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+            "title": "Boundary Note",
+            "type": "string"
+          },
+          "change": {
+            "$ref": "#/components/schemas/EpsChangeSection"
+          },
+          "company_cik": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The registrant's CIK when a filing resolved; when a CIK was requested and no stored filing matched, the requested CIK is echoed with a NOT_INGESTED status (a request echo, not a resolved identity). Null for an unqualified refusal.",
+            "title": "Company Cik"
+          },
+          "comparative": {
+            "$ref": "#/components/schemas/ComparativeEpsSection"
+          },
+          "current": {
+            "$ref": "#/components/schemas/CurrentEpsSection"
+          },
+          "descriptive_only": {
+            "const": true,
+            "default": true,
+            "title": "Descriptive Only",
+            "type": "boolean"
+          },
+          "eps_kind": {
+            "$ref": "#/components/schemas/EpsKind"
+          },
+          "form": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SecFormType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "no_point_in_time_claim": {
+            "const": true,
+            "default": true,
+            "title": "No Point In Time Claim",
+            "type": "boolean"
+          },
+          "period_class": {
+            "$ref": "#/components/schemas/EpsPeriodClass"
+          }
+        },
+        "required": [
+          "accession",
+          "company_cik",
+          "form",
+          "period_class",
+          "eps_kind",
+          "descriptive_only",
+          "no_point_in_time_claim",
+          "boundary_note",
+          "current",
+          "comparative",
+          "change"
+        ],
+        "title": "FilingEpsResponse",
+        "type": "object"
+      },
+      "FilingIndexItem": {
+        "properties": {
+          "accession": {
+            "description": "The stored dashed accession, exactly.",
+            "pattern": "^[0-9]{10}-[0-9]{2}-[0-9]{6}$",
+            "title": "Accession",
+            "type": "string"
+          },
+          "company_cik": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The registrant's ten-digit zero-padded CIK as stored (null if none is stored).",
+            "title": "Company Cik"
+          },
+          "filing_date": {
+            "description": "The SEC filing date (source metadata). Not availability or acceptance.",
+            "format": "date",
+            "title": "Filing Date",
+            "type": "string"
+          },
+          "form": {
+            "$ref": "#/components/schemas/SecFormType",
+            "description": "The stored form; never inferred from facts."
+          },
+          "fsds_period_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The period end that all of this filing's FSDS submissions state; null when they disagree (no latest, earliest or first is chosen).",
+            "title": "Fsds Period End"
+          },
+          "report_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The source's report date if stated; never derived from FSDS.",
+            "title": "Report Date"
+          }
+        },
+        "required": [
+          "accession",
+          "company_cik",
+          "form",
+          "filing_date",
+          "report_date",
+          "fsds_period_end"
+        ],
+        "title": "FilingIndexItem",
+        "type": "object"
+      },
+      "FilingIndexPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FilingIndexItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Logical filings matching the filters, before pagination.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "FilingIndexPage",
+        "type": "object"
+      },
+      "FilingLinkOut": {
+        "properties": {
+          "accession_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accession Number"
+          },
+          "company_cik": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company Cik"
+          },
+          "form": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SecFormType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "period_verification": {
+            "$ref": "#/components/schemas/PeriodVerification"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/FilingLinkStatus"
+          }
+        },
+        "required": [
+          "status",
+          "period_verification",
+          "accession_number",
+          "company_cik",
+          "form",
+          "reason"
+        ],
+        "title": "FilingLinkOut",
+        "type": "object"
+      },
+      "FilingLinkStatus": {
+        "enum": [
+          "NOT_LINKED",
+          "FILING_NOT_STORED",
+          "CIK_MISMATCH_REFUSED",
+          "CALLER_SUPPLIED_CIK_CONSISTENT"
+        ],
+        "title": "FilingLinkStatus",
+        "type": "string"
+      },
+      "ForwardReturnOut": {
+        "properties": {
+          "anchor_close": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anchor Close"
+          },
+          "anchor_session": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anchor Session"
+          },
+          "horizon": {
+            "title": "Horizon",
+            "type": "integer"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "return_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Return Value"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ForwardReturnStatus"
+          },
+          "target_close": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Close"
+          },
+          "target_session": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Session"
+          }
+        },
+        "required": [
+          "horizon",
+          "status",
+          "anchor_session",
+          "anchor_close",
+          "target_session",
+          "target_close",
+          "return_value",
+          "reason"
+        ],
+        "title": "ForwardReturnOut",
+        "type": "object"
+      },
+      "ForwardReturnStatus": {
+        "description": "Why a forward return could, or honestly could not, be computed.",
+        "enum": [
+          "AVAILABLE",
+          "NO_ALIGNMENT",
+          "MISSING_ANCHOR_PRICE",
+          "INSUFFICIENT_FORWARD_SESSIONS",
+          "INVALID_PRICE",
+          "AMBIGUOUS_PRICE_SOURCE"
+        ],
+        "title": "ForwardReturnStatus",
+        "type": "string"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "description": "Liveness payload for the API process itself.",
+        "properties": {
+          "environment": {
+            "description": "Deployment environment name.",
+            "title": "Environment",
+            "type": "string"
+          },
+          "service": {
+            "description": "Logical service name.",
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "const": "ok",
+            "description": "Liveness status of this API process.",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "description": "Deployed application version.",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "service",
+          "version",
+          "environment"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "IdentityOut": {
+        "properties": {
+          "benchmark_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Id"
+          },
+          "company_cik": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9]{10}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company Cik"
+          },
+          "company_id": {
+            "format": "uuid",
+            "title": "Company Id",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "filing_accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Accession"
+          },
+          "listing_resolution": {
+            "$ref": "#/components/schemas/ListingResolutionOut"
+          }
+        },
+        "required": [
+          "company_id",
+          "company_cik",
+          "event_id",
+          "listing_resolution",
+          "benchmark_id",
+          "filing_accession"
+        ],
+        "title": "IdentityOut",
+        "type": "object"
+      },
+      "ListingRef": {
+        "description": "One of the company's venue listings. Not necessarily the one reporting.",
+        "properties": {
+          "exchange_name": {
+            "title": "Exchange Name",
+            "type": "string"
+          },
+          "is_primary": {
+            "title": "Is Primary",
+            "type": "boolean"
+          },
+          "mic": {
+            "title": "Mic",
+            "type": "string"
+          },
+          "security_name": {
+            "title": "Security Name",
+            "type": "string"
+          },
+          "security_type": {
+            "$ref": "#/components/schemas/SecurityType"
+          },
+          "ticker": {
+            "title": "Ticker",
+            "type": "string"
+          },
+          "valid_from": {
+            "format": "date",
+            "title": "Valid From",
+            "type": "string"
+          },
+          "valid_on_event_date": {
+            "description": "Whether the listing was valid on the event date, half-open [from, to).",
+            "title": "Valid On Event Date",
+            "type": "boolean"
+          },
+          "valid_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exclusive end of validity; null while current.",
+            "title": "Valid To"
+          }
+        },
+        "required": [
+          "ticker",
+          "mic",
+          "exchange_name",
+          "security_name",
+          "security_type",
+          "valid_from",
+          "valid_to",
+          "is_primary",
+          "valid_on_event_date"
+        ],
+        "title": "ListingRef",
+        "type": "object"
+      },
+      "ListingResolutionOut": {
+        "properties": {
+          "evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Evidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "exchange_mic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Mic"
+          },
+          "listing_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Id"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ListingResolutionStatus"
+          }
+        },
+        "required": [
+          "status",
+          "listing_id",
+          "security_id",
+          "exchange_mic",
+          "evidence",
+          "reason"
+        ],
+        "title": "ListingResolutionOut",
+        "type": "object"
+      },
+      "ListingResolutionStatus": {
+        "description": "The outcome of resolving a company to one listing as of a date.",
+        "enum": [
+          "RESOLVED",
+          "NO_LISTING_FOR_DATE",
+          "AMBIGUOUS_LISTING",
+          "CONFLICTING_HISTORY"
+        ],
+        "title": "ListingResolutionStatus",
+        "type": "string"
+      },
+      "ObservationParametersOut": {
+        "description": "Every effective input, defaults included.",
+        "properties": {
+          "benchmark_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Id"
+          },
+          "eps_kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EpsKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "eps_period_class": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EpsPeriodClass"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "filing_accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Accession"
+          },
+          "horizons": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Horizons",
+            "type": "array"
+          },
+          "price_basis": {
+            "$ref": "#/components/schemas/PriceBasis"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          }
+        },
+        "required": [
+          "horizons",
+          "price_basis",
+          "security_id",
+          "benchmark_id",
+          "filing_accession",
+          "eps_period_class",
+          "eps_kind"
+        ],
+        "title": "ObservationParametersOut",
+        "type": "object"
+      },
+      "PercentageUnavailableReason": {
+        "description": "Why ``percentage_change`` is ``None`` although ``eps_change`` and ``transition`` exist.",
+        "enum": [
+          "ZERO_COMPARATIVE",
+          "NEGATIVE_COMPARATIVE"
+        ],
+        "title": "PercentageUnavailableReason",
+        "type": "string"
+      },
+      "PeriodVerification": {
+        "description": "There is no VERIFIED member: no explicit safe event<->filing period relationship exists.",
+        "enum": [
+          "NOT_APPLICABLE",
+          "PERIOD_UNVERIFIED"
+        ],
+        "title": "PeriodVerification",
+        "type": "string"
+      },
+      "PointInTimeEligibility": {
+        "description": "Whether one observation may be treated as point-in-time tradable.",
+        "enum": [
+          "NOT_APPLICABLE",
+          "ELIGIBLE",
+          "INELIGIBLE_NO_AVAILABILITY_EVIDENCE",
+          "INELIGIBLE_UNAPPROVED_AVAILABILITY_BASIS"
+        ],
+        "title": "PointInTimeEligibility",
+        "type": "string"
+      },
+      "PointInTimeOut": {
+        "properties": {
+          "eligibility": {
+            "$ref": "#/components/schemas/PointInTimeEligibility"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PointInTimeState"
+          },
+          "study": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudyOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present only when availability evidence is eligible; null when REFUSED."
+          }
+        },
+        "required": [
+          "state",
+          "eligibility",
+          "study"
+        ],
+        "title": "PointInTimeOut",
+        "type": "object"
+      },
+      "PointInTimeState": {
+        "enum": [
+          "REFUSED",
+          "EVIDENCE_ELIGIBLE"
+        ],
+        "title": "PointInTimeState",
+        "type": "string"
+      },
+      "PriceBasis": {
+        "description": "Which split-adjustment basis one stored price row is expressed in.\n\nEach ``DailyPriceBar`` / ``BenchmarkPriceBar`` row has exactly ONE basis and\nevery price field on it (open, high, low, close, vwap, ...) belongs to that\nbasis. The same listing/session/source may hold one row per basis. The\nnames describe meaning, not a vendor flag, so they survive a provider\nchange; the vendor translation lives in the provider adapter.\n\n``AS_TRADED`` is deliberately not called \"raw\": ``raw`` already means the\nuntouched provider payload bytes in this codebase's provenance model, and\nan as-traded *price* is parsed, validated data.",
+        "enum": [
+          "SPLIT_ADJUSTED",
+          "AS_TRADED"
+        ],
+        "title": "PriceBasis",
+        "type": "string"
+      },
+      "ProvenanceOut": {
+        "description": "Existing references only. Benchmark ingestion run, methodology/calendar versions and an\ninput manifest do not exist yet and are not represented.",
+        "properties": {
+          "accounting_artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactDigestOut"
+            },
+            "title": "Accounting Artifacts",
+            "type": "array"
+          },
+          "benchmark_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Id"
+          },
+          "event_fingerprint": {
+            "title": "Event Fingerprint",
+            "type": "string"
+          },
+          "event_ingestion_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Ingestion Run Id"
+          },
+          "event_source_id": {
+            "format": "uuid",
+            "title": "Event Source Id",
+            "type": "string"
+          },
+          "filing_ingestion_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Ingestion Run Id"
+          },
+          "filing_source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Source Id"
+          },
+          "stock_price_source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock Price Source Id"
+          }
+        },
+        "required": [
+          "event_fingerprint",
+          "event_source_id",
+          "event_ingestion_run_id",
+          "stock_price_source_id",
+          "benchmark_id",
+          "filing_source_id",
+          "filing_ingestion_run_id",
+          "accounting_artifacts"
+        ],
+        "title": "ProvenanceOut",
+        "type": "object"
+      },
+      "ProviderType": {
+        "description": "The kind of organisation behind a :class:`DataSource`.\n\nDistinguishing a regulatory filing from a market-data vendor from a broker\nAPI is what lets a later ingestion layer apply different trust,\nreconciliation and licensing policies per source. ``MANUAL`` exists so an\noperator-entered figure is never silently attributed to a feed.",
+        "enum": [
+          "REGULATORY_FILING",
+          "EXCHANGE_FEED",
+          "MARKET_DATA_VENDOR",
+          "BROKER_API",
+          "MANUAL",
+          "OTHER"
+        ],
+        "title": "ProviderType",
+        "type": "string"
+      },
+      "ReadinessResponse": {
+        "description": "Readiness payload including the outcome for each backing service.",
+        "properties": {
+          "dependencies": {
+            "$ref": "#/components/schemas/DependencyReadiness",
+            "description": "State of each dependency."
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For each unavailable dependency, the exception class name. Never contains a message, DSN, password or stack trace.",
+            "title": "Detail"
+          },
+          "service": {
+            "description": "Logical service name.",
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "description": "'ready' only when every dependency is reachable.",
+            "enum": [
+              "ready",
+              "not_ready"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "service",
+          "dependencies"
+        ],
+        "title": "ReadinessResponse",
+        "type": "object"
+      },
+      "RecordFingerprints": {
+        "properties": {
+          "evidence": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Evidence",
+            "type": "string"
+          },
+          "manifest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Manifest",
+            "type": "string"
+          },
+          "methodology": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Methodology",
+            "type": "string"
+          },
+          "request": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Request",
+            "type": "string"
+          },
+          "result": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request",
+          "methodology",
+          "evidence",
+          "manifest",
+          "result"
+        ],
+        "title": "RecordFingerprints",
+        "type": "object"
+      },
+      "RecordRequestSummary": {
+        "description": "What was asked, as stored in the record's manifest (the effective inputs after defaults).",
+        "properties": {
+          "benchmark_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Benchmark Id"
+          },
+          "eps_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eps Kind"
+          },
+          "eps_period_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eps Period Class"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "filing_accession": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filing Accession"
+          },
+          "horizons": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Horizons",
+            "type": "array"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Id"
+          }
+        },
+        "required": [
+          "event_id",
+          "horizons",
+          "benchmark_id",
+          "security_id",
+          "filing_accession",
+          "eps_period_class",
+          "eps_kind"
+        ],
+        "title": "RecordRequestSummary",
+        "type": "object"
+      },
+      "RecordVerificationResponse": {
+        "description": "The outcome of re-running a stored record against the CURRENT stored evidence. Nothing is saved.",
+        "properties": {
+          "actual": {
+            "$ref": "#/components/schemas/RecordVerificationSide",
+            "description": "The rerun against current stored data."
+          },
+          "baseline": {
+            "description": "SUPPLIED: compared with this stored record (always so for this endpoint).",
+            "enum": [
+              "SUPPLIED",
+              "RERUN"
+            ],
+            "title": "Baseline",
+            "type": "string"
+          },
+          "changed_paths": {
+            "description": "Dotted paths inside the manifest that differ.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed Paths",
+            "type": "array"
+          },
+          "changed_result_paths": {
+            "description": "Dotted paths inside the result that differ.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed Result Paths",
+            "type": "array"
+          },
+          "changed_sections": {
+            "items": {
+              "enum": [
+                "request",
+                "methodology",
+                "evidence"
+              ],
+              "type": "string"
+            },
+            "title": "Changed Sections",
+            "type": "array"
+          },
+          "expected": {
+            "$ref": "#/components/schemas/RecordVerificationSide",
+            "description": "The stored baseline."
+          },
+          "record_id": {
+            "format": "uuid",
+            "title": "Record Id",
+            "type": "string"
+          },
+          "reproducibility_level": {
+            "$ref": "#/components/schemas/ReproducibilityLevel",
+            "description": "Level of the rerun (actual)."
+          },
+          "status": {
+            "description": "MANIFEST_CHANGED outranks RESULT_CHANGED, which outranks EVIDENCE_INCOMPLETE (the match is genuine but the baseline or rerun is PARTIAL); MATCH only when both are COMPLETE. MATCH proves current stored evidence reproduces the baseline, not that unpinned external source bytes still exist.",
+            "enum": [
+              "MATCH",
+              "MANIFEST_CHANGED",
+              "RESULT_CHANGED",
+              "EVIDENCE_INCOMPLETE"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "status",
+          "baseline",
+          "reproducibility_level",
+          "changed_sections",
+          "changed_paths",
+          "changed_result_paths",
+          "expected",
+          "actual"
+        ],
+        "title": "RecordVerificationResponse",
+        "type": "object"
+      },
+      "RecordVerificationSide": {
+        "properties": {
+          "fingerprints": {
+            "$ref": "#/components/schemas/RecordFingerprints"
+          },
+          "reproducibility_gaps": {
+            "items": {
+              "$ref": "#/components/schemas/ReproducibilityGap"
+            },
+            "title": "Reproducibility Gaps",
+            "type": "array"
+          },
+          "reproducibility_level": {
+            "$ref": "#/components/schemas/ReproducibilityLevel"
+          }
+        },
+        "required": [
+          "reproducibility_level",
+          "reproducibility_gaps",
+          "fingerprints"
+        ],
+        "title": "RecordVerificationSide",
+        "type": "object"
+      },
+      "RefusalOut": {
+        "description": "One unavailable part: the scope and the originating layer's own status name as ``code``.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "horizon": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Horizon"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/RefusalScope"
+          }
+        },
+        "required": [
+          "scope",
+          "code",
+          "reason",
+          "horizon"
+        ],
+        "title": "RefusalOut",
+        "type": "object"
+      },
+      "RefusalScope": {
+        "enum": [
+          "EVENT",
+          "MARKET",
+          "BENCHMARK",
+          "FILING_LINK",
+          "ACCOUNTING",
+          "POINT_IN_TIME"
+        ],
+        "title": "RefusalScope",
+        "type": "string"
+      },
+      "ReproducibilityGap": {
+        "description": "Why an observation is PARTIAL. The level is derived from these and from nothing else.",
+        "enum": [
+          "EVENT_WITHOUT_INGESTION_RUN",
+          "STOCK_BAR_WITHOUT_INGESTION_RUN",
+          "BENCHMARK_BARS_WITHOUT_INGESTION_RUN",
+          "FILING_WITHOUT_INGESTION_RUN",
+          "ACCOUNTING_NOT_INGESTED"
+        ],
+        "title": "ReproducibilityGap",
+        "type": "string"
+      },
+      "ReproducibilityLevel": {
+        "description": "How completely a research observation's consumed evidence is pinned (derived, never chosen).",
+        "enum": [
+          "COMPLETE",
+          "PARTIAL"
+        ],
+        "title": "ReproducibilityLevel",
+        "type": "string"
+      },
+      "ResearchMode": {
+        "description": "Which of the two research questions a caller is asking.\n\nThis is a caller-stated intent, not something inferred from the data --\nthe same :class:`~quantforge.models.earnings.EarningsEvent` row can\nlegitimately be read either way, and it is the research question, not the\nrow, that decides which rules apply.",
+        "enum": [
+          "DESCRIPTIVE",
+          "POINT_IN_TIME"
+        ],
+        "title": "ResearchMode",
+        "type": "string"
+      },
+      "ResearchObservationResponse": {
+        "properties": {
+          "accounting": {
+            "$ref": "#/components/schemas/AccountingOut"
+          },
+          "descriptive": {
+            "$ref": "#/components/schemas/DescriptiveOut"
+          },
+          "disclosure_evidence": {
+            "$ref": "#/components/schemas/DisclosureEvidenceOut"
+          },
+          "event": {
+            "$ref": "#/components/schemas/EventOut"
+          },
+          "filing_link": {
+            "$ref": "#/components/schemas/FilingLinkOut"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/IdentityOut"
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/ObservationParametersOut"
+          },
+          "point_in_time": {
+            "$ref": "#/components/schemas/PointInTimeOut"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/ProvenanceOut"
+          },
+          "refusals": {
+            "items": {
+              "$ref": "#/components/schemas/RefusalOut"
+            },
+            "title": "Refusals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "identity",
+          "parameters",
+          "event",
+          "filing_link",
+          "disclosure_evidence",
+          "accounting",
+          "descriptive",
+          "point_in_time",
+          "provenance",
+          "refusals"
+        ],
+        "title": "ResearchObservationResponse",
+        "type": "object"
+      },
+      "ResearchRecordDetail": {
+        "properties": {
+          "created_at": {
+            "description": "When this baseline was saved (persistence metadata, not data availability).",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "hash_algorithm": {
+            "const": "sha256",
+            "description": "The algorithm of both fingerprints. The stored text is re-hashed on get and verify, not when listing.",
+            "title": "Hash Algorithm",
+            "type": "string"
+          },
+          "manifest": {
+            "additionalProperties": true,
+            "description": "The stored manifest (request, methodology, evidence), parsed.",
+            "title": "Manifest",
+            "type": "object"
+          },
+          "manifest_fingerprint": {
+            "description": "Identity of the request, methodology and consumed evidence (not of the record).",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Manifest Fingerprint",
+            "type": "string"
+          },
+          "record_id": {
+            "description": "The identity of this persisted record.",
+            "format": "uuid",
+            "title": "Record Id",
+            "type": "string"
+          },
+          "reproducibility_gaps": {
+            "description": "Why the record is PARTIAL (empty when COMPLETE).",
+            "items": {
+              "$ref": "#/components/schemas/ReproducibilityGap"
+            },
+            "title": "Reproducibility Gaps",
+            "type": "array"
+          },
+          "reproducibility_level": {
+            "$ref": "#/components/schemas/ReproducibilityLevel",
+            "description": "COMPLETE or PARTIAL, derived from the gaps at save time; never chosen."
+          },
+          "request": {
+            "$ref": "#/components/schemas/RecordRequestSummary"
+          },
+          "result": {
+            "additionalProperties": true,
+            "description": "The stored result, parsed. Decimals are strings.",
+            "title": "Result",
+            "type": "object"
+          },
+          "result_fingerprint": {
+            "description": "Identity of the produced observation.",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Result Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "created_at",
+          "hash_algorithm",
+          "manifest_fingerprint",
+          "result_fingerprint",
+          "reproducibility_level",
+          "reproducibility_gaps",
+          "request",
+          "manifest",
+          "result"
+        ],
+        "title": "ResearchRecordDetail",
+        "type": "object"
+      },
+      "ResearchRecordPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchRecordSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Stored records, before pagination.",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "ResearchRecordPage",
+        "type": "object"
+      },
+      "ResearchRecordSummary": {
+        "properties": {
+          "created_at": {
+            "description": "When this baseline was saved (persistence metadata, not data availability).",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "hash_algorithm": {
+            "const": "sha256",
+            "description": "The algorithm of both fingerprints. The stored text is re-hashed on get and verify, not when listing.",
+            "title": "Hash Algorithm",
+            "type": "string"
+          },
+          "manifest_fingerprint": {
+            "description": "Identity of the request, methodology and consumed evidence (not of the record).",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Manifest Fingerprint",
+            "type": "string"
+          },
+          "record_id": {
+            "description": "The identity of this persisted record.",
+            "format": "uuid",
+            "title": "Record Id",
+            "type": "string"
+          },
+          "reproducibility_gaps": {
+            "description": "Why the record is PARTIAL (empty when COMPLETE).",
+            "items": {
+              "$ref": "#/components/schemas/ReproducibilityGap"
+            },
+            "title": "Reproducibility Gaps",
+            "type": "array"
+          },
+          "reproducibility_level": {
+            "$ref": "#/components/schemas/ReproducibilityLevel",
+            "description": "COMPLETE or PARTIAL, derived from the gaps at save time; never chosen."
+          },
+          "request": {
+            "$ref": "#/components/schemas/RecordRequestSummary"
+          },
+          "result_fingerprint": {
+            "description": "Identity of the produced observation.",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Result Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "created_at",
+          "hash_algorithm",
+          "manifest_fingerprint",
+          "result_fingerprint",
+          "reproducibility_level",
+          "reproducibility_gaps",
+          "request"
+        ],
+        "title": "ResearchRecordSummary",
+        "type": "object"
+      },
+      "SecFormType": {
+        "description": "The SEC form types QuantForge ingests as filing metadata.\n\nDeliberately narrow: only the forms a filing-based earnings analysis could\nneed. An ``8-K`` is merely a filing -- it can report many unrelated events,\nand nothing here says it contains earnings. Amendments are their own\nmembers because each amendment is a separate accession with its own\nacceptance time.",
+        "enum": [
+          "10-K",
+          "10-K/A",
+          "10-Q",
+          "10-Q/A",
+          "8-K",
+          "8-K/A"
+        ],
+        "title": "SecFormType",
+        "type": "string"
+      },
+      "SectionState": {
+        "enum": [
+          "AVAILABLE",
+          "PARTIAL",
+          "UNAVAILABLE"
+        ],
+        "title": "SectionState",
+        "type": "string"
+      },
+      "SecurityType": {
+        "description": "What kind of instrument a :class:`~quantforge.models.security.Security` is.\n\nDeliberately a *type* of instrument rather than a listing attribute. A\ncommon share and an ADR of the same issuer are different securities with\ndifferent identifiers and different venues, so instrument class belongs\nhere and never on the company.\n\nMembership is intentionally short. Derivatives are *not* modelled yet; when\nthey are, contracts, strikes and expiries will need their own tables\nhanging off a security rather than new members of a growing enum.",
+        "enum": [
+          "EQUITY",
+          "PREFERRED_EQUITY",
+          "DEPOSITORY_RECEIPT",
+          "ETF",
+          "MUTUAL_FUND",
+          "BOND",
+          "OTHER"
+        ],
+        "title": "SecurityType",
+        "type": "string"
+      },
+      "SessionAlignmentOut": {
+        "properties": {
+          "event_session": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Session"
+          },
+          "first_post_event_session": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Post Event Session"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AlignmentStatus"
+          }
+        },
+        "required": [
+          "status",
+          "event_session",
+          "first_post_event_session",
+          "reason"
+        ],
+        "title": "SessionAlignmentOut",
+        "type": "object"
+      },
+      "SourceRef": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider_type": {
+            "$ref": "#/components/schemas/ProviderType"
+          }
+        },
+        "required": [
+          "name",
+          "provider_type"
+        ],
+        "title": "SourceRef",
+        "type": "object"
+      },
+      "StockReturnsOut": {
+        "properties": {
+          "anchor_session": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anchor Session"
+          },
+          "forward_returns": {
+            "items": {
+              "$ref": "#/components/schemas/ForwardReturnOut"
+            },
+            "title": "Forward Returns",
+            "type": "array"
+          },
+          "listing_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Id"
+          },
+          "price_source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Source Id"
+          }
+        },
+        "required": [
+          "listing_id",
+          "price_source_id",
+          "anchor_session",
+          "forward_returns"
+        ],
+        "title": "StockReturnsOut",
+        "type": "object"
+      },
+      "StudyOut": {
+        "description": "One event-study result, whole, in one research mode.",
+        "properties": {
+          "abnormal_returns": {
+            "items": {
+              "$ref": "#/components/schemas/AbnormalReturnOut"
+            },
+            "title": "Abnormal Returns",
+            "type": "array"
+          },
+          "alignment": {
+            "$ref": "#/components/schemas/AlignmentOut"
+          },
+          "benchmark": {
+            "$ref": "#/components/schemas/BenchmarkOut"
+          },
+          "eps_surprise": {
+            "$ref": "#/components/schemas/EpsSurpriseOut"
+          },
+          "point_in_time_eligibility": {
+            "$ref": "#/components/schemas/PointInTimeEligibility"
+          },
+          "price_basis_note": {
+            "title": "Price Basis Note",
+            "type": "string"
+          },
+          "research_mode": {
+            "$ref": "#/components/schemas/ResearchMode"
+          },
+          "stock_returns": {
+            "$ref": "#/components/schemas/StockReturnsOut"
+          }
+        },
+        "required": [
+          "research_mode",
+          "point_in_time_eligibility",
+          "eps_surprise",
+          "alignment",
+          "stock_returns",
+          "benchmark",
+          "abnormal_returns",
+          "price_basis_note"
+        ],
+        "title": "StudyOut",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "summary": "Event-driven equity research and quantitative backtesting platform.",
+    "title": "QuantForge API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/benchmarks": {
+      "get": {
+        "description": "Stored benchmarks by name, then id, active and inactive alike (see is_active). Each id can be passed as benchmark_id to the research observation. No benchmark is chosen, recommended or defaulted, and no price level or return is exposed.",
+        "operationId": "list_benchmarks_api_v1_benchmarks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BenchmarkIndexPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "The database is unavailable."
+          }
+        },
+        "summary": "Benchmarks a caller can explicitly select",
+        "tags": [
+          "benchmarks"
+        ]
+      }
+    },
+    "/api/v1/earnings-events": {
+      "get": {
+        "description": "Newest event date first. EPS and revenue are decimal strings. pit_eligibility is the backend's POINT_IN_TIME classification.",
+        "operationId": "list_earnings_events_api_v1_earnings_events_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ticker",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "minLength": 1,
+                  "pattern": "^\\S(.*\\S)?$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ticker"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EarningsEventPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List earnings events",
+        "tags": [
+          "earnings"
+        ]
+      }
+    },
+    "/api/v1/earnings-events/{event_id}": {
+      "get": {
+        "operationId": "get_earnings_event_api_v1_earnings_events__event_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EarningsEventItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such event."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get one earnings event",
+        "tags": [
+          "earnings"
+        ]
+      }
+    },
+    "/api/v1/filings": {
+      "get": {
+        "description": "Stored filings that have at least one FSDS submission, newest filing date first. Not all SEC filings, not historically available filings and not tradable filings. filing_date and report_date are source metadata; fsds_period_end is null when a filing's submissions disagree. form and cik are exact filters combined with AND.",
+        "operationId": "list_filings_api_v1_filings_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Exact stored form: '10-Q' does not include '10-Q/A'.",
+            "in": "query",
+            "name": "form",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SecFormType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact stored form: '10-Q' does not include '10-Q/A'.",
+              "title": "Form"
+            }
+          },
+          {
+            "description": "Ten-digit zero-padded registrant CIK.",
+            "in": "query",
+            "name": "cik",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9]{10}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ten-digit zero-padded registrant CIK.",
+              "title": "Cik"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilingIndexPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "The database is unavailable."
+          }
+        },
+        "summary": "Index of stored filings with FSDS financial-fact data",
+        "tags": [
+          "filings"
+        ]
+      }
+    },
+    "/api/v1/filings/{accession}/eps": {
+      "get": {
+        "description": "Descriptive accounting data from SEC FSDS for one accession; no point-in-time availability claim. period_class and eps_kind are required. Every status, including refusals, is returned with HTTP 200. Financial values are fixed-point strings; percentage_change is a ratio (0.5 = +50%) defined only for a positive comparative. The comparative is 'comparative EPS as presented in this filing', not the originally reported prior-year EPS.",
+        "operationId": "get_filing_eps_api_v1_filings__accession__eps_get",
+        "parameters": [
+          {
+            "description": "Dashed EDGAR accession, e.g. 0000320193-24-000123.",
+            "in": "path",
+            "name": "accession",
+            "required": true,
+            "schema": {
+              "description": "Dashed EDGAR accession, e.g. 0000320193-24-000123.",
+              "pattern": "^[0-9]{10}-[0-9]{2}-[0-9]{6}$",
+              "title": "Accession",
+              "type": "string"
+            }
+          },
+          {
+            "description": "QUARTER (qtrs = 1) or ANNUAL (qtrs = 4).",
+            "in": "query",
+            "name": "period_class",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EpsPeriodClass",
+              "description": "QUARTER (qtrs = 1) or ANNUAL (qtrs = 4)."
+            }
+          },
+          {
+            "description": "Optional ten-digit zero-padded registrant CIK that qualifies WHICH stored filing (company, accession) is meant, for an accession stored under several registrants. Identity only: it never changes how EPS is selected. Absent: the accession alone resolves, and a joint accession is reported AMBIGUOUS. Present but matching no stored filing: NOT_INGESTED for that CIK (never another registrant's filing).",
+            "in": "query",
+            "name": "cik",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9]{10}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional ten-digit zero-padded registrant CIK that qualifies WHICH stored filing (company, accession) is meant, for an accession stored under several registrants. Identity only: it never changes how EPS is selected. Absent: the accession alone resolves, and a joint accession is reported AMBIGUOUS. Present but matching no stored filing: NOT_INGESTED for that CIK (never another registrant's filing).",
+              "title": "Cik"
+            }
+          },
+          {
+            "description": "DILUTED (EarningsPerShareDiluted) or BASIC_AND_DILUTED (EarningsPerShareBasicAndDiluted). Never a fallback between them.",
+            "in": "query",
+            "name": "eps_kind",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EpsKind",
+              "description": "DILUTED (EarningsPerShareDiluted) or BASIC_AND_DILUTED (EarningsPerShareBasicAndDiluted). Never a fallback between them."
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilingEpsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "The database is unavailable."
+          }
+        },
+        "summary": "Current EPS, comparative EPS and EPS change for one filing",
+        "tags": [
+          "filings"
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "description": "Reports that the API process is serving requests. Does not assert the health of any backing datastore.",
+        "operationId": "health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Liveness probe",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/health/ready": {
+      "get": {
+        "description": "Reports whether PostgreSQL and Redis are reachable. Returns 200 when both are available and 503 otherwise, always with a typed body naming the failing dependency.",
+        "operationId": "readiness_api_v1_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Readiness probe",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/research/observations/{event_id}": {
+      "get": {
+        "description": "Descriptive market and accounting evidence plus the point-in-time verdict for one stored earnings event. Domain refusals are sections of the response (HTTP 200), not errors. A filing is linked only when filing_accession is supplied (with eps_period_class and eps_kind); nothing is inferred. Financial values are fixed-point strings. Not a signal, forecast or recommendation.",
+        "operationId": "get_research_observation_api_v1_research_observations__event_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated positive session counts, e.g. 1,5,20 (at most 10, each at most 252, no duplicates). Absent: the research default 1,5,20. Echoed ascending in parameters.horizons.",
+            "in": "query",
+            "name": "horizons",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Comma-separated positive session counts, e.g. 1,5,20 (at most 10, each at most 252, no duplicates). Absent: the research default 1,5,20. Echoed ascending in parameters.horizons.",
+              "title": "Horizons"
+            }
+          },
+          {
+            "description": "Explicit benchmark. Absent: no benchmark (never inferred).",
+            "in": "query",
+            "name": "benchmark_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Explicit benchmark. Absent: no benchmark (never inferred).",
+              "title": "Benchmark Id"
+            }
+          },
+          {
+            "description": "Disambiguates a multi-security issuer (the existing research knob).",
+            "in": "query",
+            "name": "security_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Disambiguates a multi-security issuer (the existing research knob).",
+              "title": "Security Id"
+            }
+          },
+          {
+            "description": "Caller-supplied dashed accession. Absent: NOT_LINKED; a filing is never inferred. Requires eps_period_class and eps_kind.",
+            "in": "query",
+            "name": "filing_accession",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9]{10}-[0-9]{2}-[0-9]{6}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Caller-supplied dashed accession. Absent: NOT_LINKED; a filing is never inferred. Requires eps_period_class and eps_kind.",
+              "title": "Filing Accession"
+            }
+          },
+          {
+            "description": "Only with filing_accession.",
+            "in": "query",
+            "name": "eps_period_class",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/EpsPeriodClass"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only with filing_accession.",
+              "title": "Eps Period Class"
+            }
+          },
+          {
+            "description": "Only with filing_accession.",
+            "in": "query",
+            "name": "eps_kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/EpsKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only with filing_accession.",
+              "title": "Eps Kind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchObservationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such earnings event."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "The database is unavailable."
+          }
+        },
+        "summary": "One research observation for one earnings event",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/v1/research/records": {
+      "get": {
+        "description": "Stored baselines of completed research computations, newest saved first. Each item identifies the record, its fingerprints, its derived reproducibility level and gaps, and what was asked; the stored manifest and result are served by the detail endpoint. created_at is when the baseline was saved, not a data availability time. Items are summaries of stored columns and are not re-hashed here; get and verify validate integrity. total and the page are separate reads: a record saved between them can shift offset pages.",
+        "operationId": "list_research_records_api_v1_research_records_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRecordPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "description": "Stored research record failed integrity validation."
+          },
+          "503": {
+            "description": "The database is unavailable."
+          }
+        },
+        "summary": "Saved research records",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/v1/research/records/{record_id}": {
+      "get": {
+        "description": "The immutable stored baseline: fingerprints, derived level and gaps, and the parsed manifest and result (financial values are fixed-point strings). The fingerprints are re-verified against the stored canonical text before the response is returned.",
+        "operationId": "get_research_record_api_v1_research_records__record_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Record Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResearchRecordDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such research record."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "description": "Stored research record failed integrity validation."
+          },
+          "503": {
+            "description": "The database is unavailable."
+          }
+        },
+        "summary": "One saved research record",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/api/v1/research/records/{record_id}/verify": {
+      "get": {
+        "description": "Re-runs the stored computation (the baseline's own request) and compares it with the baseline. MATCH means current stored evidence reproduces the baseline; it does not prove that unpinned external source bytes still exist. Read-only: nothing is saved and the baseline is never changed.",
+        "operationId": "verify_research_record_api_v1_research_records__record_id__verify_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "record_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Record Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordVerificationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such research record."
+          },
+          "409": {
+            "description": "The record's earnings event is not stored."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "description": "Stored research record failed integrity validation."
+          },
+          "503": {
+            "description": "The database is unavailable."
+          }
+        },
+        "summary": "Re-verify one saved research record against current stored evidence",
+        "tags": [
+          "research"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Reports that the API process is serving requests. Does not assert the health of any backing datastore.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Liveness probe",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  }
+}

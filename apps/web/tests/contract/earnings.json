@@ -1,0 +1,181 @@
+{
+  "_note": "Captured from the real backend (create_app, seeded local database) by Step 11.1C; the decoders must accept these exactly. Refresh by re-capturing, never by hand-editing.",
+  "event": {
+    "availability": {
+      "observed_at": null,
+      "observed_at_basis": null,
+      "pit_eligibility": "INELIGIBLE_NO_AVAILABILITY_EVIDENCE",
+      "pit_reason": "The source did not supply a historical availability time (observed_at is not set)."
+    },
+    "company": {
+      "cik": "0000320187",
+      "display_name": "Nike, Inc.",
+      "id": "69b082c7-4345-4346-8e8c-2ed19ed1189d",
+      "legal_name": "Nike, Inc."
+    },
+    "currency": null,
+    "eps_surprise": {
+      "absolute": null,
+      "ratio": null,
+      "reason": "reported_eps is not yet available",
+      "status": "MISSING_REPORTED_EPS"
+    },
+    "estimated_eps": "0.5142",
+    "estimated_revenue": "11912165674.0000",
+    "event_date": "2026-12-16",
+    "event_timestamp": null,
+    "fiscal_quarter": 2,
+    "fiscal_year": 2027,
+    "id": "92c89480-aaf0-4234-bb8f-f33c2ac1eb88",
+    "ingested_at": "2026-10-02T10:15:35.240362Z",
+    "listings": [
+      {
+        "exchange_name": "New York Stock Exchange",
+        "is_primary": true,
+        "mic": "XNYS",
+        "security_name": "NKE Common Stock",
+        "security_type": "EQUITY",
+        "ticker": "NKE",
+        "valid_from": "2026-10-02",
+        "valid_on_event_date": true,
+        "valid_to": null
+      }
+    ],
+    "reported_eps": null,
+    "reported_revenue": null,
+    "resolved_tickers": [
+      "NKE"
+    ],
+    "source": {
+      "name": "finnhub",
+      "provider_type": "MARKET_DATA_VENDOR"
+    },
+    "timing": "AFTER_MARKET"
+  },
+  "health": {
+    "environment": "local",
+    "service": "quantforge-api",
+    "status": "ok",
+    "version": "0.1.0"
+  },
+  "page": {
+    "items": [
+      {
+        "availability": {
+          "observed_at": null,
+          "observed_at_basis": null,
+          "pit_eligibility": "INELIGIBLE_NO_AVAILABILITY_EVIDENCE",
+          "pit_reason": "The source did not supply a historical availability time (observed_at is not set)."
+        },
+        "company": {
+          "cik": "0000320187",
+          "display_name": "Nike, Inc.",
+          "id": "69b082c7-4345-4346-8e8c-2ed19ed1189d",
+          "legal_name": "Nike, Inc."
+        },
+        "currency": null,
+        "eps_surprise": {
+          "absolute": null,
+          "ratio": null,
+          "reason": "reported_eps is not yet available",
+          "status": "MISSING_REPORTED_EPS"
+        },
+        "estimated_eps": "0.5142",
+        "estimated_revenue": "11912165674.0000",
+        "event_date": "2026-12-16",
+        "event_timestamp": null,
+        "fiscal_quarter": 2,
+        "fiscal_year": 2027,
+        "id": "92c89480-aaf0-4234-bb8f-f33c2ac1eb88",
+        "ingested_at": "2026-10-02T10:15:35.240362Z",
+        "listings": [
+          {
+            "exchange_name": "New York Stock Exchange",
+            "is_primary": true,
+            "mic": "XNYS",
+            "security_name": "NKE Common Stock",
+            "security_type": "EQUITY",
+            "ticker": "NKE",
+            "valid_from": "2026-10-02",
+            "valid_on_event_date": true,
+            "valid_to": null
+          }
+        ],
+        "reported_eps": null,
+        "reported_revenue": null,
+        "resolved_tickers": [
+          "NKE"
+        ],
+        "source": {
+          "name": "finnhub",
+          "provider_type": "MARKET_DATA_VENDOR"
+        },
+        "timing": "AFTER_MARKET"
+      },
+      {
+        "availability": {
+          "observed_at": null,
+          "observed_at_basis": null,
+          "pit_eligibility": "INELIGIBLE_NO_AVAILABILITY_EVIDENCE",
+          "pit_reason": "The source did not supply a historical availability time (observed_at is not set)."
+        },
+        "company": {
+          "cik": "0001913510",
+          "display_name": "VinFast Auto Ltd. Ordinary Shares",
+          "id": "291888e7-33bb-4c09-958c-d089f1f094d4",
+          "legal_name": "VinFast Auto Ltd. Ordinary Shares"
+        },
+        "currency": null,
+        "eps_surprise": {
+          "absolute": null,
+          "ratio": null,
+          "reason": "reported_eps is not yet available",
+          "status": "MISSING_REPORTED_EPS"
+        },
+        "estimated_eps": "-0.3333",
+        "estimated_revenue": "1160828350.0000",
+        "event_date": "2026-10-02",
+        "event_timestamp": null,
+        "fiscal_quarter": 2,
+        "fiscal_year": 2026,
+        "id": "aaf174e3-e116-4577-a716-d00c81f61718",
+        "ingested_at": "2026-10-02T04:56:18.152644Z",
+        "listings": [
+          {
+            "exchange_name": "Nasdaq Stock Market",
+            "is_primary": true,
+            "mic": "XNAS",
+            "security_name": "VFS Common Stock",
+            "security_type": "EQUITY",
+            "ticker": "VFS",
+            "valid_from": "2026-10-02",
+            "valid_on_event_date": true,
+            "valid_to": null
+          }
+        ],
+        "reported_eps": null,
+        "reported_revenue": null,
+        "resolved_tickers": [
+          "VFS"
+        ],
+        "source": {
+          "name": "finnhub",
+          "provider_type": "MARKET_DATA_VENDOR"
+        },
+        "timing": "UNKNOWN"
+      }
+    ],
+    "limit": 50,
+    "offset": 0,
+    "total": 2
+  },
+  "ready": {
+    "dependencies": {
+      "database": "ok",
+      "redis": "ok"
+    },
+    "detail": null,
+    "service": "quantforge-api",
+    "status": "ready"
+  }
+}

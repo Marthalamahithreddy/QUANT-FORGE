@@ -18,7 +18,9 @@ import { Frame } from "@/components/ui/frame";
 import { PageContainer } from "@/components/ui/page-container";
 import { Section } from "@/components/ui/section";
 import { Skeleton, SkeletonRegion } from "@/components/ui/skeleton";
-import { ApiError, apiGet } from "@/lib/api/client";
+import { apiRequest } from "@/lib/api/client";
+import { object, string } from "@/lib/api/decode";
+import { failureCopy } from "@/lib/api/messages";
 import { getEarningsPage } from "@/lib/api/earnings";
 import { getBackendStatus } from "@/lib/api/health";
 import { getFilings } from "@/lib/api/filings";
@@ -411,23 +413,26 @@ describe("no internal address in any user-visible error", () => {
   const fail = (value: Response | Error) =>
     vi.stubGlobal("fetch", vi.fn(() => (value instanceof Response ? Promise.resolve(value) : Promise.reject(value))));
 
-  it("ApiError.publicMessage names no address, for transport, timeout, HTTP and JSON failures", async () => {
-    fail(new TypeError("fetch failed"));
-    await expect(apiGet("/api/v1/x", { baseUrl: "http://secret-host:9999" })).rejects.toSatisfy(
-      (e: ApiError) => e.publicMessage === "The QuantForge API could not be reached." && !/secret-host|http/.test(e.publicMessage),
-    );
-    fail(new DOMException("t", "TimeoutError"));
-    await expect(apiGet("/api/v1/x", { baseUrl: "http://secret-host:9999" })).rejects.toSatisfy(
-      (e: ApiError) => e.publicMessage === "The QuantForge API did not answer in time.",
-    );
-    fail(new Response("{}", { status: 503, statusText: "Service Unavailable" }));
-    await expect(apiGet("/api/v1/x", { baseUrl: "http://secret-host:9999" })).rejects.toSatisfy(
-      (e: ApiError) => e.publicMessage === "The QuantForge API answered HTTP 503." && /secret-host/.test(e.message),
-    );
-    fail(new Response("not json", { status: 200 }));
-    await expect(apiGet("/api/v1/x", { baseUrl: "http://secret-host:9999" })).rejects.toSatisfy(
-      (e: ApiError) => /not valid JSON/.test(e.publicMessage) && !/secret-host/.test(e.publicMessage),
-    );
+  it("a failed read names no address, for transport, timeout, HTTP and contract failures", async () => {
+    const decoder = object<{ a: string }>({ a: string });
+    const read = () => apiRequest("/api/v1/x", decoder, { baseUrl: "http://secret-host:9999" });
+    const copyOf = async () => {
+      const result = await read();
+      if (result.kind === "ok") throw new Error("expected a failure");
+      return { kind: result.kind, text: JSON.stringify([result, failureCopy(result)]) };
+    };
+    for (const arrange of [
+      () => fail(new TypeError("fetch failed")),
+      () => fail(new DOMException("t", "TimeoutError")),
+      () => fail(new Response("{}", { status: 503, statusText: "Service Unavailable" })),
+      () => fail(new Response("{}", { status: 500 })),
+      () => fail(new Response("not json", { status: 200 })),
+      () => fail(new Response(JSON.stringify({ a: 1 }), { status: 200 })),
+    ]) {
+      arrange();
+      const { text } = await copyOf();
+      expect(text).not.toMatch(/secret-host|9999|https?:|\/api\/v1/);
+    }
     vi.unstubAllGlobals();
   });
 
@@ -437,8 +442,10 @@ describe("no internal address in any user-visible error", () => {
     const filings = await getFilings();
     const health = await getBackendStatus();
     vi.unstubAllGlobals();
-    expect(earnings.state === "error" && earnings.detail).not.toMatch(/https?:|localhost/);
-    expect(filings.state === "error" && filings.detail).not.toMatch(/https?:|localhost/);
+    for (const result of [earnings, filings]) {
+      expect(result.kind).toBe("unreachable");
+      if (result.kind !== "ok") expect(JSON.stringify(failureCopy(result))).not.toMatch(/https?:|localhost/);
+    }
     expect(health.state === "unavailable" && health.detail).not.toMatch(/https?:|localhost/);
   });
 });
@@ -483,7 +490,7 @@ describe("source guards for the foundation", () => {
     expect(clients).toEqual(
       [
         "app/error.tsx", // Next error boundary: receives `retry`, must be a Client Component
-        "components/earnings/earnings-table.tsx", // legacy local sort/filter state (removed in 11.1C)
+        "components/layout/header-context.tsx", // usePathname for the section label
         "components/layout/mobile-nav.tsx", // opens/closes a native <dialog>
         "components/layout/nav-link.tsx", // usePathname for the current section
         "components/layout/theme-control.tsx", // writes the theme cookie and root attribute
@@ -498,7 +505,7 @@ describe("source guards for the foundation", () => {
         expect(read(join(SRC, "components", dir, name)), `${dir}/${name}`).not.toMatch(/use client|useState|useEffect|useRef/);
       }
     }
-    for (const server of ["app-shell", "header", "nav-groups", "wordmark", "api-status"]) {
+    for (const server of ["app-shell", "header", "nav-groups", "wordmark", "api-status", "live-api-status"]) {
       expect(read(join(SRC, "components/layout", `${server}.tsx`))).not.toMatch(/use client/);
     }
   });
@@ -511,10 +518,6 @@ describe("source guards for the foundation", () => {
   it("has no Inter @font-face or remote font, and no global tabular numerals", () => {
     const css = read(join(SRC, "app/globals.css"));
     expect(css).not.toMatch(/font-feature-settings:\s*"cv|"tnum"/);
-  });
-
-  it("adds no data-layer or contract-generation code", () => {
-    expect(files.some((f) => /openapi|generated/i.test(relative(SRC, f)))).toBe(false);
   });
 });
 
@@ -557,13 +560,12 @@ describe("review regressions (11.1B)", () => {
     expect(ratioRoundsToZero("0.125")).toBe(false);
   });
 
-  it("ApiError carries a structured kind, and its public text does not depend on message wording", async () => {
-    const make = (kind: "timeout" | "unreachable" | "http" | "invalid_json", status = 0) =>
-      new ApiError("upstream request timed out at http://h:1/x", { url: "http://h:1/x", status, kind });
-    expect(make("unreachable").publicMessage).toBe("The QuantForge API could not be reached."); // despite 'timed out' in the text
-    expect(make("timeout").publicMessage).toBe("The QuantForge API did not answer in time.");
-    expect(make("http", 502).publicMessage).toBe("The QuantForge API answered HTTP 502.");
-    expect(make("invalid_json", 200).publicMessage).toMatch(/not valid JSON/);
+  it("failure wording is fixed per kind and does not depend on any response text", () => {
+    expect(failureCopy({ kind: "unreachable", timedOut: false }).body).toBe("The service is not running or cannot be reached.");
+    expect(failureCopy({ kind: "unreachable", timedOut: true }).body).toMatch(/timed out/);
+    expect(failureCopy({ kind: "server_error", status: 502 }).body).toMatch(/HTTP 502/);
+    expect(failureCopy({ kind: "unavailable" }).title).toBe("Temporarily unavailable");
+    expect(failureCopy({ kind: "contract", path: "$.x", expected: "a string" }, false).body).not.toMatch(/\$\.x/);
   });
 
   it("redacts scheme-less host:port and localhost text, not just URLs", () => {

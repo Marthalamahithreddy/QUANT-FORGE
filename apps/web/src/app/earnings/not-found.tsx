@@ -1,16 +1,21 @@
 import Link from "next/link";
 
-import { StatePanel } from "@/components/ui/state-panel";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageContainer } from "@/components/ui/page-container";
 
 export default function EarningsEventNotFound() {
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-4 p-8">
-      <StatePanel kind="empty" title="Earnings event not found">
-        No stored event has this identifier.
-      </StatePanel>
-      <Link href="/earnings" className="text-sm text-accent hover:underline">
-        ← Earnings explorer
-      </Link>
-    </main>
+    <PageContainer>
+      <EmptyState
+        title="No stored event has this identifier"
+        action={
+          <Link href="/earnings" className="text-accent hover:underline">
+            Back to earnings
+          </Link>
+        }
+      >
+        The event may never have been stored, or the address was mistyped.
+      </EmptyState>
+    </PageContainer>
   );
 }

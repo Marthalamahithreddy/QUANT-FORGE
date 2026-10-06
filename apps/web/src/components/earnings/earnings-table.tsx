@@ -1,262 +1,177 @@
-"use client";
-
 import Link from "next/link";
-import { useId, useMemo, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
-import { CONTROL } from "@/components/ui/controls";
-import {
-  BASIS_LABEL,
-  PIT_PRESENTATION,
-  TIMING_LABEL,
-} from "@/lib/availability";
-import {
-  matchesFilters,
-  sortEvents,
-  tickersAtEvent,
-  type PitFilter,
-  type SortDirection,
-  type SortKey,
-} from "@/lib/earnings-view";
-import {
-  MISSING,
-  formatDecimal,
-  formatRatioAsPercent,
-  formatSignedDecimal,
-  formatUtcInstant,
-} from "@/lib/format";
-import type { EarningsEvent } from "@/types/earnings";
+import { FinancialValue } from "@/components/financial/financial-value";
+import { PercentValue } from "@/components/financial/percent-value";
+import { DomainState } from "@/components/state/domain-state";
+import { StatusBadge } from "@/components/state/status-badge";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import type { EarningsEvent } from "@/lib/api/schema";
+import { BASIS_LABEL, PIT_PRESENTATION, TIMING_LABEL } from "@/lib/availability";
+import { fiscalPeriod, tickersAtEvent } from "@/lib/earnings-view";
+import { formatUtcInstant } from "@/lib/format";
+import type { NonValueState, StateKind } from "@/lib/state";
+import { PIT_STATE, SURPRISE_STATE, TIMING_STATE } from "@/lib/state-map";
 
-interface Column {
-  readonly key: SortKey | null;
-  readonly label: string;
-  readonly numeric?: boolean;
+/** Where the Research action leads (the workspace route; event identity is explicit in the path). */
+export const researchHref = (eventId: string): string => `/research/events/${eventId}`;
+
+function SurpriseCell({ event }: { readonly event: EarningsEvent }) {
+  const { eps_surprise: surprise } = event;
+  if (surprise.absolute === null) {
+    return <DomainState kind={nonValue(SURPRISE_STATE[surprise.status])} reason={surprise.reason} compact />;
+  }
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <FinancialValue kind="signed" value={surprise.absolute} />
+      {surprise.ratio === null ? (
+        <DomainState kind="UNAVAILABLE" reason={surprise.reason} />
+      ) : (
+        <span className="text-text-3" title={surprise.reason}>
+          <PercentValue ratio={surprise.ratio} />
+        </span>
+      )}
+    </div>
+  );
 }
 
-const COLUMNS: readonly Column[] = [
-  { key: "event_date", label: "Event date" },
-  { key: "company", label: "Company" },
-  { key: "ticker", label: "Ticker" },
-  { key: "timing", label: "Timing" },
-  { key: "reported_eps", label: "Reported EPS", numeric: true },
-  { key: "estimated_eps", label: "Est. EPS", numeric: true },
-  { key: "surprise", label: "EPS surprise", numeric: true },
-  { key: "source", label: "Source" },
-  { key: "observed_at", label: "Observed at" },
-  { key: null, label: "Basis" },
-  { key: null, label: "PIT status" },
-];
+/**
+ * A surprise with no figure is, by definition, not a VALUE. (`AVAILABLE` without an absolute would
+ * be a backend inconsistency: it is shown as not stated rather than as a fabricated number.)
+ */
+function nonValue(kind: StateKind): NonValueState {
+  return kind === "VALUE" ? "NOT_STATED" : kind;
+}
 
-const CELL = "px-3 py-1.5 align-top";
+function PitCell({ event }: { readonly event: EarningsEvent }) {
+  const { availability } = event;
+  const presentation = PIT_PRESENTATION[availability.pit_eligibility];
+  const state = PIT_STATE[availability.pit_eligibility];
+  return (
+    <div className="flex flex-col items-start gap-0.5">
+      <StatusBadge kind={state} mode={state === "NOT_APPLICABLE" ? undefined : "pit"}>
+        {presentation.label}
+      </StatusBadge>
+      <span className="type-meta" title={availability.pit_reason}>
+        {presentation.short}
+      </span>
+    </div>
+  );
+}
+
+const COLUMNS: readonly DataTableColumn<EarningsEvent>[] = [
+  {
+    id: "event_date",
+    header: "Event date",
+    cell: (event) => (
+      <>
+        <Link href={`/earnings/${event.id}`} className="font-medium text-accent underline-offset-2 hover:underline">
+          {event.event_date}
+        </Link>
+        <div className="type-meta">{fiscalPeriod(event)}</div>
+      </>
+    ),
+  },
+  {
+    id: "company",
+    header: "Company",
+    cell: (event) => (
+      <div className="min-w-40">
+        <div className="text-text">{event.company.display_name}</div>
+        {event.company.cik ? <div className="type-id text-text-3">CIK {event.company.cik}</div> : null}
+      </div>
+    ),
+  },
+  {
+    id: "ticker",
+    header: "Ticker",
+    cell: (event) => {
+      const tickers = tickersAtEvent(event);
+      return tickers.length > 0 ? (
+        <span className="type-id whitespace-nowrap">{tickers.join(", ")}</span>
+      ) : (
+        <span className="text-text-3" title="No ticker is proven for this company on the event date.">
+          Not resolved
+        </span>
+      );
+    },
+  },
+  {
+    id: "reported_eps",
+    header: "Reported EPS",
+    align: "end",
+    cell: (event) => <FinancialValue kind="eps" value={event.reported_eps} />,
+  },
+  {
+    id: "estimated_eps",
+    header: "Est. EPS",
+    align: "end",
+    cell: (event) => <FinancialValue kind="eps" value={event.estimated_eps} />,
+  },
+  { id: "surprise", header: "EPS surprise", align: "end", cell: (event) => <SurpriseCell event={event} /> },
+  { id: "pit", header: "PIT status", cell: (event) => <PitCell event={event} /> },
+  {
+    id: "research",
+    header: "Research",
+    cell: (event) => (
+      <Link
+        href={researchHref(event.id)}
+        aria-label={`Research ${event.company.display_name}, ${event.event_date}`}
+        className="text-accent underline-offset-2 hover:underline"
+      >
+        Research
+      </Link>
+    ),
+  },
+  {
+    id: "timing",
+    header: "Timing",
+    priority: "P2",
+    cell: (event) =>
+      TIMING_STATE[event.timing] === "VALUE" ? (
+        <span className="whitespace-nowrap text-text-2">{TIMING_LABEL[event.timing]}</span>
+      ) : (
+        <DomainState kind="NOT_STATED" reason="The source did not state when in the day the report was made." />
+      ),
+  },
+  {
+    id: "observed_at",
+    header: "Observed at",
+    priority: "P3",
+    cell: (event) =>
+      event.availability.observed_at === null ? (
+        <DomainState kind="NOT_STATED" reason="The source did not supply a historical availability time." />
+      ) : (
+        <span className="num whitespace-nowrap">{formatUtcInstant(event.availability.observed_at)}</span>
+      ),
+  },
+  {
+    id: "basis",
+    header: "Basis",
+    priority: "P3",
+    cell: (event) =>
+      event.availability.observed_at_basis === null ? (
+        <DomainState kind="NOT_STATED" compact />
+      ) : (
+        <span className="whitespace-nowrap text-text-2">{BASIS_LABEL[event.availability.observed_at_basis]}</span>
+      ),
+  },
+  {
+    id: "source",
+    header: "Source",
+    priority: "P3",
+    cell: (event) => <span className="whitespace-nowrap text-text-2">{event.source.name}</span>,
+  },
+];
 
 export interface EarningsTableProps {
   readonly events: readonly EarningsEvent[];
 }
 
 /**
- * Research table over one loaded page of events.
- *
- * Sorting and filtering are local and apply to the rows already fetched; the
- * caption says so. Values are the backend's strings; PIT status is the
- * backend's classification.
+ * One page of the earnings list, in the API's order (newest event date first). Every value is
+ * the backend's string or classification; nothing is sorted, filtered or computed here, and a
+ * revision or a second source for the same fiscal period is its own row.
  */
 export function EarningsTable({ events }: EarningsTableProps) {
-  const [sortKey, setSortKey] = useState<SortKey>("event_date");
-  const [direction, setDirection] = useState<SortDirection>("desc");
-  const [query, setQuery] = useState("");
-  const [pit, setPit] = useState<PitFilter>("all");
-  const searchId = useId();
-  const pitId = useId();
-
-  const rows = useMemo(
-    () =>
-      sortEvents(
-        events.filter((event) => matchesFilters(event, query, pit)),
-        sortKey,
-        direction,
-      ),
-    [events, query, pit, sortKey, direction],
-  );
-
-  function toggleSort(key: SortKey) {
-    if (key === sortKey) {
-      setDirection((current) => (current === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      setDirection("asc");
-    }
-  }
-
-  return (
-    <section aria-label="Earnings events" className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1">
-          <label htmlFor={searchId} className="text-xs text-text-muted">
-            Filter loaded rows
-          </label>
-          <input
-            id={searchId}
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Company, ticker or source"
-            className={`${CONTROL} w-64`}
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor={pitId} className="text-xs text-text-muted">
-            PIT status
-          </label>
-          <select
-            id={pitId}
-            value={pit}
-            onChange={(e) => setPit(e.target.value as PitFilter)}
-            className={CONTROL}
-          >
-            <option value="all">All</option>
-            <option value="eligible">PIT eligible</option>
-            <option value="ineligible">Not PIT eligible</option>
-          </select>
-        </div>
-        <p className="ml-auto text-xs text-text-muted" aria-live="polite">
-          Showing {rows.length} of {events.length} loaded rows · sorting and filtering apply to
-          this page only
-        </p>
-      </div>
-
-      {rows.length === 0 ? (
-        <p role="status" className="rounded-md border border-dashed border-border-strong p-4 text-sm text-text-secondary">
-          No loaded rows match this filter.
-        </p>
-      ) : (
-        <div
-          // Focusable so keyboard users can scroll the rows and wide columns.
-          tabIndex={0}
-          role="region"
-          aria-label="Earnings table, scrollable"
-          className="max-h-[70vh] overflow-auto rounded-md border border-border-subtle"
-        >
-          <table className="font-tabular w-full border-collapse text-xs">
-            <caption className="sr-only">
-              Earnings events. Sorting and filtering apply to the loaded page only.
-            </caption>
-            <thead className="sticky top-0 z-10 bg-surface-2">
-              <tr className="border-b border-border-strong text-left text-text-muted">
-                {COLUMNS.map((column) => {
-                  const active = column.key !== null && column.key === sortKey;
-                  return (
-                    <th
-                      key={column.label}
-                      scope="col"
-                      aria-sort={
-                        active ? (direction === "asc" ? "ascending" : "descending") : undefined
-                      }
-                      className={`px-3 py-2 font-medium whitespace-nowrap ${
-                        column.numeric ? "text-right" : ""
-                      }`}
-                    >
-                      {column.key === null ? (
-                        column.label
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => toggleSort(column.key as SortKey)}
-                          className="inline-flex items-center gap-1 rounded hover:text-text-primary"
-                        >
-                          {column.label}
-                          <span aria-hidden="true" className="w-2 text-accent">
-                            {active ? (direction === "asc" ? "▲" : "▼") : ""}
-                          </span>
-                        </button>
-                      )}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((event) => (
-                <EventRow key={event.id} event={event} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function EventRow({ event }: { readonly event: EarningsEvent }) {
-  const { availability, eps_surprise: surprise } = event;
-  const tickers = tickersAtEvent(event);
-  const pit = PIT_PRESENTATION[availability.pit_eligibility];
-  const period =
-    event.fiscal_quarter === null
-      ? `FY${event.fiscal_year}`
-      : `FY${event.fiscal_year} Q${event.fiscal_quarter}`;
-
-  return (
-    <tr className="border-b border-border-subtle hover:bg-surface-1">
-      <td className={`${CELL} whitespace-nowrap`}>
-        <Link
-          href={`/earnings/${event.id}`}
-          className="font-medium text-accent underline-offset-2 hover:underline"
-        >
-          {event.event_date}
-        </Link>
-        <div className="text-text-muted">{period}</div>
-      </td>
-      <td className={`${CELL} min-w-40`}>
-        <div className="text-text-primary">{event.company.display_name}</div>
-        {event.company.cik ? (
-          <div className="text-text-muted">CIK {event.company.cik}</div>
-        ) : null}
-      </td>
-      <td className={`${CELL} font-mono whitespace-nowrap`}>
-        {tickers.length > 0 ? (
-          tickers.join(", ")
-        ) : (
-          <span className="text-text-muted" title="No listing was valid on the event date">
-            Not resolved
-          </span>
-        )}
-      </td>
-      <td className={`${CELL} whitespace-nowrap text-text-secondary`}>
-        {TIMING_LABEL[event.timing]}
-      </td>
-      <td className={`${CELL} text-right font-mono`}>{formatDecimal(event.reported_eps)}</td>
-      <td className={`${CELL} text-right font-mono`}>{formatDecimal(event.estimated_eps)}</td>
-      <td className={`${CELL} text-right font-mono whitespace-nowrap`}>
-        {surprise.absolute === null ? (
-          <span className="text-text-muted" title={surprise.reason}>
-            {MISSING}
-          </span>
-        ) : (
-          <>
-            <div>{formatSignedDecimal(surprise.absolute)}</div>
-            <div className="text-text-muted" title={surprise.reason}>
-              {formatRatioAsPercent(surprise.ratio)}
-            </div>
-          </>
-        )}
-      </td>
-      <td className={`${CELL} whitespace-nowrap text-text-secondary`}>{event.source.name}</td>
-      <td className={`${CELL} font-mono whitespace-nowrap`}>
-        {availability.observed_at === null ? (
-          <span className="font-sans text-text-muted">Not disclosed</span>
-        ) : (
-          formatUtcInstant(availability.observed_at)
-        )}
-      </td>
-      <td className={`${CELL} whitespace-nowrap text-text-secondary`}>
-        {availability.observed_at_basis === null
-          ? MISSING
-          : BASIS_LABEL[availability.observed_at_basis]}
-      </td>
-      <td className={CELL}>
-        <Badge tone={pit.tone}>{pit.label}</Badge>
-        <div className="mt-0.5 text-text-muted">{pit.short}</div>
-      </td>
-    </tr>
-  );
+  return <DataTable caption="Earnings events" columns={COLUMNS} rows={events} rowKey={(event) => event.id} />;
 }

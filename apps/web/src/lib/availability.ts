@@ -9,7 +9,7 @@ import type {
   AvailabilityBasis,
   EarningsTiming,
   PitEligibility,
-} from "@/types/earnings";
+} from "@/lib/api/schema";
 
 export const BASIS_LABEL: Record<AvailabilityBasis, string> = {
   SOURCE_PUBLICATION: "Source publication",
@@ -30,25 +30,15 @@ export const TIMING_LABEL: Record<EarningsTiming, string> = {
   UNKNOWN: "Not stated",
 };
 
-export type Tone = "neutral" | "positive" | "caution" | "negative";
-
 export interface PitPresentation {
   readonly label: string;
+  /** The short reason shown beneath the label in a dense table. */
   readonly short: string;
-  readonly tone: Tone;
 }
 
 export const PIT_PRESENTATION: Record<PitEligibility, PitPresentation> = {
-  ELIGIBLE: { label: "PIT eligible", short: "Approved evidence", tone: "positive" },
-  INELIGIBLE_NO_AVAILABILITY_EVIDENCE: {
-    label: "Not PIT eligible",
-    short: "No availability evidence",
-    tone: "caution",
-  },
-  INELIGIBLE_UNAPPROVED_AVAILABILITY_BASIS: {
-    label: "Not PIT eligible",
-    short: "Basis not approved",
-    tone: "caution",
-  },
-  NOT_APPLICABLE: { label: "Descriptive", short: "Not applicable", tone: "neutral" },
+  ELIGIBLE: { label: "PIT eligible", short: "Approved evidence" },
+  INELIGIBLE_NO_AVAILABILITY_EVIDENCE: { label: "Not PIT eligible", short: "No availability evidence" },
+  INELIGIBLE_UNAPPROVED_AVAILABILITY_BASIS: { label: "Not PIT eligible", short: "Basis not approved" },
+  NOT_APPLICABLE: { label: "Descriptive", short: "Not applicable" },
 };

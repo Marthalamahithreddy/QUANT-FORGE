@@ -13,6 +13,8 @@ function redactNode(node: ReactNode): ReactNode {
 }
 
 export interface ErrorStateProps {
+  /** Lets a form control point at this explanation (`aria-describedby`). */
+  readonly id?: string;
   readonly title: string;
   /** A short, already-safe description. Any address in it is redacted before it is shown. */
   readonly detail?: string;
@@ -25,11 +27,12 @@ export interface ErrorStateProps {
  * Domain refusals are not errors and use `RefusalNotice` instead.
  *
  * Safe by construction: it never prints a service address (URLs in `detail` are redacted), a
- * driver or SQL message, a stack or a DSN. Callers pass `ApiError.publicMessage`, not `message`.
+ * driver or SQL message, a stack or a DSN. Callers pass `failureCopy(...)` text (api/messages.ts), never a raw error message.
  */
-export function ErrorState({ title, detail, children, action }: ErrorStateProps) {
+export function ErrorState({ id, title, detail, children, action }: ErrorStateProps) {
   return (
     <div
+      id={id}
       role="alert"
       className="rounded border border-danger/60 border-l-[3px] border-l-danger bg-surface p-4"
     >

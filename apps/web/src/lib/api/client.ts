@@ -1,70 +1,43 @@
 /**
- * Minimal typed wrapper around the platform `fetch`.
+ * The single server-side HTTP boundary to the QuantForge API.
  *
- * Deliberately small: no retry, no cache, no interceptors. Those belong to the
- * domain layer once real endpoints exist.
+ * `apiRequest` performs one GET, maps every outcome onto `ApiResult` (see result.ts) and validates
+ * a success body with the caller's decoder, so an unchecked cast never reaches the UI. It does not
+ * retry or cache.
+ *
+ * Browser code never calls the API: only server modules import this file (tests/server-boundary
+ * pins the import graph), so the base URL and every request stay on the server.
+ *
+ * Timeout classes (the API serves bounded, indexed reads; see README "API contract"):
+ *
+ * - `READ` (4 s, the default): health, readiness, list pages, one event, one filing EPS;
+ * - a longer class is reserved for the computed endpoints (research observation, record
+ *   verification) and arrives with their clients; no endpoint used today needs it, so none is
+ *   given more than 4 s merely for uniformity.
  */
 
+import { decode, type Decoder } from "@/lib/api/decode";
+import type { ApiIssue, ApiResult } from "@/lib/api/result";
 import { env } from "@/lib/config/env";
+import { redactUrls } from "@/lib/safe-text";
 
-/** Short enough that a dead backend surfaces quickly in the UI. */
-export const DEFAULT_REQUEST_TIMEOUT_MS = 4000;
+export const READ_TIMEOUT_MS = 4000;
 
-/** How a request failed, decided at the throw site (never inferred from message text). */
-export type ApiErrorKind = "timeout" | "unreachable" | "http" | "invalid_json";
-
-/** A user-visible description of a failed request that never contains the address. */
-function publicMessageFor(kind: ApiErrorKind, status: number): string {
-  switch (kind) {
-    case "timeout":
-      return "The QuantForge API did not answer in time.";
-    case "unreachable":
-      return "The QuantForge API could not be reached.";
-    case "invalid_json":
-      return "The QuantForge API returned a response that was not valid JSON.";
-    case "http":
-      return `The QuantForge API answered HTTP ${status}.`;
-  }
-}
-
-export class ApiError extends Error {
-  readonly url: string;
-
-  /** HTTP status, or `0` when the request never produced a response. */
-  readonly status: number;
-
-  readonly kind: ApiErrorKind;
-
-  /**
-   * What a reader may be shown: no address, no host, no response text. The full `message` (which
-   * names the URL) is for logs and tests only.
-   */
-  readonly publicMessage: string;
-
-  constructor(
-    message: string,
-    options: { url: string; status: number; kind: ApiErrorKind; cause?: unknown },
-  ) {
-    super(message, { cause: options.cause });
-    this.name = "ApiError";
-    this.url = options.url;
-    this.status = options.status;
-    this.kind = options.kind;
-    this.publicMessage = publicMessageFor(options.kind, options.status);
-  }
-}
-
-export interface ApiGetOptions {
+export interface ApiRequestOptions {
   readonly baseUrl?: string;
   readonly timeoutMs?: number;
-  readonly headers?: Readonly<Record<string, string>>;
   readonly signal?: AbortSignal;
   /**
-   * Non-2xx statuses whose JSON body is still a documented contract (e.g. the
-   * readiness probe answers 503 with a structured body). Every other non-2xx
-   * status throws.
+   * Non-2xx statuses whose JSON body is a documented success contract (the readiness probe
+   * answers 503 with a structured body). Every other non-2xx status maps to its failure kind.
    */
   readonly acceptStatuses?: readonly number[];
+  /**
+   * Whether a 404 is the API saying "nothing is stored under this identifier" (a read of ONE
+   * resource). For a collection, health or readiness read a 404 can only mean a wrong path or a
+   * misrouted gateway, which is a service fault, not a domain answer, so it stays `server_error`.
+   */
+  readonly notFoundMeansAbsent?: boolean;
 }
 
 /** Joins a base URL and a path with exactly one separating slash. */
@@ -74,77 +47,91 @@ export function buildUrl(baseUrl: string, path: string): string {
   return `${base}${suffix}`;
 }
 
-function describeTransportFailure(cause: unknown, timeoutMs: number): string {
-  if (cause instanceof DOMException && cause.name === "TimeoutError") {
-    return `timed out after ${timeoutMs}ms`;
-  }
-  if (cause instanceof Error) {
-    return cause.message;
-  }
-  return "no response from the server";
+const MAX_ISSUES = 10;
+const MAX_TEXT = 200;
+
+function clip(text: string): string {
+  const safe = redactUrls(text);
+  return safe.length > MAX_TEXT ? `${safe.slice(0, MAX_TEXT)}…` : safe;
 }
 
-/**
- * Performs a typed GET.
- *
- * @throws {ApiError} on transport failure, timeout, non-2xx status, or an
- * unparseable body. The raw payload is returned as `unknown` and must be
- * validated by the caller, so an unchecked cast never reaches the UI.
- */
-export async function apiGet<TResponse = unknown>(
+/** FastAPI's 422 body: `{ detail: [{ loc, msg, type }] }`. The echoed `input` is never read. */
+function issuesFrom(body: unknown): readonly ApiIssue[] {
+  if (typeof body !== "object" || body === null || !("detail" in body)) return [];
+  const detail = (body as { detail: unknown }).detail;
+  if (!Array.isArray(detail)) return [];
+  const issues: ApiIssue[] = [];
+  for (const entry of detail.slice(0, MAX_ISSUES)) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const { loc, msg } = entry as { loc?: unknown; msg?: unknown };
+    if (typeof msg !== "string") continue;
+    const where = Array.isArray(loc)
+      ? loc.filter((part): part is string | number => typeof part === "string" || typeof part === "number").join(".")
+      : "";
+    issues.push({ where: clip(where), message: clip(msg) });
+  }
+  return issues;
+}
+
+async function readJson(response: Response): Promise<{ ok: true; body: unknown } | { ok: false }> {
+  try {
+    return { ok: true, body: await response.json() };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** One GET, mapped onto `ApiResult`. Never throws for an expected failure. */
+export async function apiRequest<T>(
   path: string,
-  options: ApiGetOptions = {},
-): Promise<TResponse> {
+  decoder: Decoder<T>,
+  options: ApiRequestOptions = {},
+): Promise<ApiResult<T>> {
   const {
     baseUrl = env.apiBaseUrl,
-    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
-    headers,
+    timeoutMs = READ_TIMEOUT_MS,
     signal,
     acceptStatuses = [],
+    notFoundMeansAbsent = false,
   } = options;
 
-  const url = buildUrl(baseUrl, path);
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
-
+  const combined = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await fetch(buildUrl(baseUrl, path), {
       method: "GET",
-      headers: { accept: "application/json", ...headers },
-      // Health must reflect the backend as it is now, never a cached answer.
+      headers: { accept: "application/json" },
+      // Every read reflects the backend as it is now, never a cached answer.
       cache: "no-store",
-      signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
+      signal: combined,
     });
   } catch (cause) {
-    throw new ApiError(
-      `Cannot reach ${url}: ${describeTransportFailure(cause, timeoutMs)}`,
-      {
-        url,
-        status: 0,
-        kind: cause instanceof DOMException && cause.name === "TimeoutError" ? "timeout" : "unreachable",
-        cause,
-      },
-    );
+    const timedOut = cause instanceof DOMException && cause.name === "TimeoutError";
+    return { kind: "unreachable", timedOut };
   }
 
-  if (!response.ok && !acceptStatuses.includes(response.status)) {
-    throw new ApiError(
-      `Request to ${url} failed with HTTP ${response.status} ${response.statusText}`.trim(),
-      { url, status: response.status, kind: "http" },
-    );
+  const { status } = response;
+  if (!response.ok && !acceptStatuses.includes(status)) {
+    // A failure body is read only for the two statuses whose body is a documented contract.
+    if (status === 404 && notFoundMeansAbsent) return { kind: "not_found" };
+    if (status === 409) return { kind: "conflict" };
+    if (status === 422) {
+      const parsed = await readJson(response);
+      return { kind: "rejected", issues: issuesFrom(parsed.ok ? parsed.body : undefined) };
+    }
+    if (status === 503) return { kind: "unavailable" };
+    return { kind: "server_error", status };
   }
 
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch (cause) {
-    throw new ApiError(`Response from ${url} was not valid JSON.`, {
-      url,
-      status: response.status,
-      kind: "invalid_json",
-      cause,
-    });
+  const parsed = await readJson(response);
+  if (!parsed.ok) {
+    // The body stalled or the connection dropped mid-read: that is the transport, not the contract.
+    if (combined.aborted) return { kind: "unreachable", timedOut: timeoutSignal.aborted };
+    return { kind: "contract", path: "$", expected: "a JSON document" };
   }
-
-  return payload as TResponse;
+  const outcome = decode(decoder, parsed.body);
+  return outcome.ok
+    ? { kind: "ok", data: outcome.data }
+    : { kind: "contract", path: outcome.path, expected: outcome.expected };
 }

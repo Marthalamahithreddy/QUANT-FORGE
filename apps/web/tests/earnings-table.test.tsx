@@ -1,5 +1,4 @@
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { EarningsTable } from "@/components/earnings/earnings-table";
@@ -27,98 +26,179 @@ const ELIGIBLE = makeEvent({
 });
 const NONE = makeEvent({ id: "none", company: { ...makeEvent().company, display_name: "Dark Co" } });
 
-function bodyRows() {
-  return screen.getAllByRole("row").slice(1);
-}
+const bodyRows = () => screen.getAllByRole("row").slice(1);
 
 describe("EarningsTable", () => {
-  it("renders a semantic table with column headers", () => {
+  it("is one semantic table with a caption, scoped column headers and an identity row header", () => {
     render(<EarningsTable events={[NONE]} />);
-    const table = screen.getByRole("table");
-    expect(within(table).getAllByRole("columnheader").length).toBeGreaterThanOrEqual(11);
-    expect(within(table).getByRole("columnheader", { name: /Reported EPS/ })).toBeInTheDocument();
+    const table = screen.getByRole("table", { name: "Earnings events" });
+    const headers = within(table).getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers).toEqual([
+      "Event date",
+      "Company",
+      "Ticker",
+      "Reported EPS",
+      "Est. EPS",
+      "EPS surprise",
+      "PIT status",
+      "Research",
+      "Timing",
+      "Observed at",
+      "Basis",
+      "Source",
+    ]);
+    for (const header of within(table).getAllByRole("columnheader")) {
+      expect(header).toHaveAttribute("scope", "col");
+    }
+    expect(within(bodyRows()[0]!).getByRole("rowheader")).toHaveTextContent("2024-03-15");
   });
 
-  it("shows decimal strings exactly as sent", () => {
+  it("has no sort buttons, no sort state and no row filters: order and filters are the API's", () => {
+    render(<EarningsTable events={[SEC, ELIGIBLE, NONE]} />);
+    const table = screen.getByRole("table");
+    expect(within(table).queryAllByRole("button")).toHaveLength(0);
+    for (const header of within(table).getAllByRole("columnheader")) {
+      expect(header).not.toHaveAttribute("aria-sort");
+    }
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(screen.queryByLabelText(/Filter loaded rows/)).toBeNull();
+    expect(bodyRows().map((row) => within(row).getByRole("rowheader").textContent)).toHaveLength(3);
+    // The rows keep the order they were given.
+    expect(bodyRows().map((row) => row.textContent)).toEqual([
+      expect.stringContaining("Sec Co"),
+      expect.stringContaining("Pub Co"),
+      expect.stringContaining("Dark Co"),
+    ]);
+  });
+
+  it("shows decimal strings exactly as sent, right-aligned with tabular figures", () => {
     render(<EarningsTable events={[makeEvent({ reported_eps: "0.3000", estimated_eps: "0.1000" })]} />);
-    expect(screen.getByText("0.3000")).toBeInTheDocument();
+    const reported = screen.getByText("0.3000");
+    expect(reported).toBeInTheDocument();
     expect(screen.getByText("0.1000")).toBeInTheDocument();
+    expect(reported.closest("td")).toHaveClass("text-right", "num");
+  });
+
+  it("states a null EPS as not stated, never as zero", () => {
+    render(<EarningsTable events={[makeEvent({ reported_eps: null, estimated_eps: null })]} />);
+    const row = bodyRows()[0]!;
+    expect(within(row).getAllByText(/Not stated/).length).toBeGreaterThanOrEqual(2);
+    // The two EPS cells (4th and 5th) say so in words and show no digit at all.
+    const cells = within(row).getAllByRole("cell");
+    for (const cell of [cells[2]!, cells[3]!]) expect(cell.textContent).not.toMatch(/\d/);
   });
 
   it("states missing availability explicitly", () => {
     render(<EarningsTable events={[NONE]} />);
-    expect(screen.getByText("Not disclosed")).toBeInTheDocument();
-    expect(screen.getByText("No availability evidence")).toBeInTheDocument();
-    expect(within(screen.getByRole("table")).getByText("Not PIT eligible")).toBeInTheDocument();
+    const row = bodyRows()[0]!;
+    expect(within(row).getByText(/did not supply a historical availability time/)).toBeInTheDocument();
+    expect(within(row).getByText("No availability evidence")).toBeInTheDocument();
+    expect(within(row).getByText("Not PIT eligible")).toBeInTheDocument();
   });
 
   it("labels SEC acceptance as such and never as publication or release time", () => {
     render(<EarningsTable events={[SEC]} />);
     expect(screen.getByText("SEC filing acceptance")).toBeInTheDocument();
     expect(screen.getByText("Basis not approved")).toBeInTheDocument();
-    const text = document.body.textContent ?? "";
-    expect(text).not.toMatch(/market publication|release time|first public/i);
+    expect(document.body.textContent).not.toMatch(/market publication|release time|first public/i);
   });
 
-  it("shows an eligible event as PIT eligible with its UTC observed_at", () => {
+  it("shows an eligible event as PIT eligible with its UTC observed_at, in the PIT mode style", () => {
     render(<EarningsTable events={[ELIGIBLE]} />);
-    expect(within(screen.getByRole("table")).getByText("PIT eligible")).toBeInTheDocument();
+    const badge = within(screen.getByRole("table")).getByText("PIT eligible");
+    expect(badge.closest("[data-mode]")).toHaveAttribute("data-mode", "pit");
     expect(screen.getByText("2024-03-15 11:00:00.5 UTC")).toBeInTheDocument();
     expect(screen.getByText("Source publication")).toBeInTheDocument();
   });
 
-  it("links each event to its detail page", () => {
+  it("does not paint a refused point-in-time status as an error or as a success", () => {
+    render(<EarningsTable events={[NONE]} />);
+    const badge = within(screen.getByRole("table")).getByText("Not PIT eligible").closest("[data-state]");
+    expect(badge).toHaveAttribute("data-state", "REFUSED");
+    expect(badge?.className).not.toMatch(/danger|success/);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("puts the link in the first cell only: no whole-row click target", () => {
     render(<EarningsTable events={[ELIGIBLE]} />);
-    expect(screen.getByRole("link", { name: "2024-03-15" })).toHaveAttribute(
+    const row = bodyRows()[0]!;
+    expect(row).not.toHaveAttribute("onclick");
+    expect(row).not.toHaveAttribute("tabindex");
+    expect(within(within(row).getByRole("rowheader")).getByRole("link", { name: "2024-03-15" })).toHaveAttribute(
       "href",
       "/earnings/ok",
     );
   });
 
-  it("shows Not resolved when no listing was valid on the event date", () => {
-    const event = makeEvent({
-      listings: [{ ...makeEvent().listings[0]!, valid_on_event_date: false }],
-    });
-    render(<EarningsTable events={[event]} />);
+  it("gives the Research action the event's identity in its path and in its accessible name", () => {
+    render(<EarningsTable events={[ELIGIBLE]} />);
+    const link = screen.getByRole("link", { name: /Research Pub Co, 2024-03-15/ });
+    expect(link).toHaveAttribute("href", "/research/events/ok");
+  });
+
+  it("shows the tickers the backend proved for the event date, not a current or listed one", () => {
+    const listedOnly = makeEvent({ resolved_tickers: [] });
+    render(<EarningsTable events={[listedOnly]} />);
     expect(screen.getByText("Not resolved")).toBeInTheDocument();
+    expect(screen.queryByText("ACME")).toBeNull();
   });
 
-  it("filters loaded rows by PIT status using the backend classification", async () => {
-    const user = userEvent.setup();
-    render(<EarningsTable events={[SEC, ELIGIBLE, NONE]} />);
-
-    await user.selectOptions(screen.getByLabelText("PIT status"), "eligible");
-
-    expect(bodyRows()).toHaveLength(1);
-    expect(screen.getByText("Pub Co")).toBeInTheDocument();
-    expect(screen.getByText(/Showing 1 of 3 loaded rows/)).toBeInTheDocument();
-    expect(screen.getByText(/apply to\s+this page only/)).toBeInTheDocument();
+  it("shows every proven ticker", () => {
+    render(<EarningsTable events={[makeEvent({ resolved_tickers: ["AAA", "BBB"] })]} />);
+    expect(screen.getByText("AAA, BBB")).toBeInTheDocument();
   });
 
-  it("filters by text and reports when nothing matches", async () => {
-    const user = userEvent.setup();
-    render(<EarningsTable events={[SEC, NONE]} />);
+  describe("EPS surprise", () => {
+    it("shows the signed exact figure with its ratio as a percent beneath", () => {
+      render(<EarningsTable events={[makeEvent()]} />);
+      const cell = screen.getByText("+0.1000").closest("td")!;
+      expect(cell).toHaveTextContent("+10.00%");
+    });
 
-    await user.type(screen.getByLabelText("Filter loaded rows"), "zzzz");
+    it.each([
+      ["MISSING_REPORTED_EPS", "NOT_STATED"],
+      ["MISSING_ESTIMATED_EPS", "NOT_STATED"],
+      ["NOT_POINT_IN_TIME_ELIGIBLE", "REFUSED"],
+    ] as const)("renders %s as the %s state with the backend's reason", (status, state) => {
+      const event = makeEvent({
+        reported_eps: null,
+        eps_surprise: { status, absolute: null, ratio: null, reason: "a reason from the backend" },
+      });
+      render(<EarningsTable events={[event]} />);
+      // The surprise cell is the 5th data cell (the first column is the row header).
+      const mark = within(bodyRows()[0]!).getAllByRole("cell")[4]!.querySelector(`[data-state="${state}"]`);
+      expect(mark).not.toBeNull();
+      expect(mark).toHaveAttribute("title", "a reason from the backend");
+    });
 
-    expect(screen.getByText("No loaded rows match this filter.")).toBeInTheDocument();
-    expect(screen.queryByRole("table")).toBeNull();
+    it("keeps the absolute figure and marks only the ratio undefined for ZERO_ESTIMATE", () => {
+      const event = makeEvent({
+        estimated_eps: "0.0000",
+        eps_surprise: { status: "ZERO_ESTIMATE", absolute: "1.1000", ratio: null, reason: "estimate is zero" },
+      });
+      render(<EarningsTable events={[event]} />);
+      const cell = screen.getByText("+1.1000").closest("td")!;
+      expect(cell.querySelector('[data-state="UNAVAILABLE"]')).not.toBeNull();
+      expect(cell.textContent).not.toMatch(/0\.00%|%/);
+    });
   });
 
-  it("sorts by a column via its button and exposes aria-sort", async () => {
-    const user = userEvent.setup();
-    const low = makeEvent({ id: "low", reported_eps: "-1.0000" });
-    const high = makeEvent({ id: "high", reported_eps: "2.0000" });
-    render(<EarningsTable events={[low, high]} />);
+  describe("responsive column priority", () => {
+    it("hides P3 below 1280px and P2 below 768px; P1 stays visible", () => {
+      render(<EarningsTable events={[NONE]} />);
+      const classOf = (name: string) => screen.getByRole("columnheader", { name }).className;
+      for (const p1 of ["Event date", "Company", "Ticker", "Reported EPS", "Est. EPS", "EPS surprise", "PIT status", "Research"]) {
+        expect(classOf(p1)).not.toMatch(/\bhidden\b/);
+      }
+      expect(classOf("Timing")).toMatch(/hidden md:table-cell/);
+      for (const p3 of ["Observed at", "Basis", "Source"]) expect(classOf(p3)).toMatch(/hidden xl:table-cell/);
+    });
 
-    await user.click(screen.getByRole("button", { name: /Reported EPS/ }));
-
-    const header = screen.getByRole("columnheader", { name: /Reported EPS/ });
-    expect(header).toHaveAttribute("aria-sort", "ascending");
-    expect(within(bodyRows()[0]!).getByText("-1.0000")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /Reported EPS/ }));
-    expect(header).toHaveAttribute("aria-sort", "descending");
-    expect(within(bodyRows()[0]!).getByText("2.0000")).toBeInTheDocument();
+    it("says how many columns are hidden at each width, and does not turn rows into cards", () => {
+      render(<EarningsTable events={[NONE]} />);
+      expect(screen.getByTestId("columns-note-narrow")).toHaveTextContent("4 more columns at wider widths");
+      expect(screen.getByTestId("columns-note-medium")).toHaveTextContent("3 more columns at wider widths");
+      expect(screen.getAllByRole("row")).toHaveLength(2);
+    });
   });
 });

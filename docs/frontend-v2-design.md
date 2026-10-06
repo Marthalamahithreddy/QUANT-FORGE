@@ -1436,6 +1436,33 @@ Before 11.1B starts: approve the open decisions D2, D4 and D7 (section 16.2). Be
 
 ---
 
+## Implementation notes: Step 11.1C
+
+Where the shipped 11.1C differs from, or settles, this document (the repository and the generated OpenAPI win):
+
+1. **Ticker column and filter.** The event payload carries `resolved_tickers` (tickers the backend's historical
+   resolver proves for the event date). The Earnings table and the event record use it, not
+   `listings[].valid_on_event_date`; the listings table still shows listing validity.
+2. **Breadcrumbs** are page content, not part of the header strip: the shell is rendered once by the layout and
+   cannot know a page's data. The header strip shows the current section (`Evidence / Earnings`) from the location.
+3. **Filings table column order.** The accession (the identity link) is the first, sticky column, so the link is in
+   the identity cell as section 10.7.1 requires; the filing date follows the form and CIK.
+4. **Market-reaction preview** (section 8.3.2) is deferred to 11.1D with the observation client, as the 11.1C
+   slice table already says. The event record shows no placeholder for it.
+5. **`/research/events/[eventId]`** exists as a plain placeholder so "Open research workspace" never leads to a
+   dead link. It makes no request and shows nothing computed.
+6. **`server-only`** was not added: an import-graph test proves no client component can reach the API client,
+   the decoders or the configuration.
+7. **Conflict (409)** carries no response text; the slice that needs the backend's fixed sentence allow-lists it.
+8. **Timeouts.** Only the 4 s read class is used; the 10 s class arrives with the computed endpoints.
+9. **Searchparam navigation.** A list page keys its `Suspense` by the canonical address; observed in a browser, a
+   client navigation that changes only the query string replays the skeleton and does not leave old rows under new
+   filters. (Form submission is a full navigation.)
+10. **Status chip.** It is computed once per document load; navigation keeps it mounted. Refreshing it on
+    navigation (polling) is not part of 11.1C.
+
+---
+
 ## Appendix A. Endpoint contracts (generated from the OpenAPI at the base commit)
 
 Generated mechanically from `app.openapi()`; the committed snapshot of section 12.1 will replace this appendix as the authority. `DecimalText` fields are JSON strings.

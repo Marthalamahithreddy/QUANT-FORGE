@@ -2,9 +2,10 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ApiStatus } from "@/components/layout/api-status";
 import { AppShell } from "@/components/layout/app-shell";
+import type { BackendStatus } from "@/lib/api/health";
 import { NAV_GROUPS, NAV_ITEMS } from "@/lib/navigation";
-import type { BackendStatus } from "@/types/api";
 
 const pathname = vi.hoisted(() => ({ current: "/" }));
 vi.mock("next/navigation", () => ({ usePathname: () => pathname.current }));
@@ -25,9 +26,9 @@ afterEach(() => {
   document.cookie = "qf-theme=; path=/; max-age=0";
 });
 
-function shell(status: BackendStatus | null = CONNECTED, extra: object = {}) {
+function shell(status: BackendStatus | null = CONNECTED) {
   return render(
-    <AppShell status={status ?? undefined} {...extra}>
+    <AppShell status={<ApiStatus status={status ?? undefined} />}>
       <p>content</p>
     </AppShell>,
   );
@@ -110,14 +111,22 @@ describe("navigation", () => {
 });
 
 describe("header: breadcrumbs, environment and API status", () => {
-  it("shows breadcrumbs with the last item as the current page", () => {
-    shell(CONNECTED, { breadcrumbs: [{ label: "Earnings", href: "/earnings" }, { label: "Acme · 2026-04-30" }] });
-    const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
-    expect(within(crumbs).getByRole("link", { name: "Earnings" })).toHaveAttribute("href", "/earnings");
-    expect(within(crumbs).getByText("Acme · 2026-04-30")).toHaveAttribute("aria-current", "page");
+  it("shows where the reader is as plain text, from the location alone", () => {
+    pathname.current = "/earnings/abc";
+    shell();
+    expect(screen.getByTestId("header-context")).toHaveTextContent("Evidence / Earnings");
   });
 
-  it("shows no breadcrumb landmark on a page without breadcrumbs", () => {
+  it("shows the ungrouped Overview without a group, and nothing for an unknown route", () => {
+    shell();
+    expect(screen.getByTestId("header-context")).toHaveTextContent(/^Overview$/);
+    pathname.current = "/nowhere";
+    shell();
+    expect(screen.getAllByTestId("header-context")).toHaveLength(1);
+  });
+
+  it("carries no breadcrumb landmark: a page's trail is page content", () => {
+    pathname.current = "/earnings/abc";
     shell();
     expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull();
   });
@@ -125,7 +134,10 @@ describe("header: breadcrumbs, environment and API status", () => {
   it("shows a connected state as text, with the service detail for assistive technology", () => {
     shell();
     expect(screen.getByText("Connected")).toBeInTheDocument();
-    expect(screen.getByText("quantforge-api 0.1.0 (local)")).toBeInTheDocument();
+    expect(screen.getByText(/quantforge-api 0\.1\.0 \(local\)/)).toBeInTheDocument();
+    // The chip is computed once per document load (the shell persists across navigation).
+    expect(screen.getByText("Connected").closest("[title]")).toHaveAttribute("title", "Checked when this page was loaded");
+    expect(screen.getByText(/Checked when this page was loaded\./)).toBeInTheDocument();
   });
 
   it("shows the environment chip only when connected and not production", () => {
@@ -240,7 +252,7 @@ describe("mobile navigation (below the desktop breakpoint)", () => {
     pathname.current = "/earnings";
     await act(async () => {
       rerender(
-        <AppShell status={CONNECTED}>
+        <AppShell status={<ApiStatus status={CONNECTED} />}>
           <p>content</p>
         </AppShell>,
       );

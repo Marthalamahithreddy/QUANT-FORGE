@@ -1,64 +1,30 @@
 /**
  * Read-only filings reads: the FSDS-backed filings index and one filing's descriptive EPS.
  *
- * Every function resolves to a discriminated result instead of throwing, so a page always renders
- * an explicit state. Unlike the earnings reads, an unavailable database (HTTP 503), a rejected
- * request (422) and an unsupported payload are separate states, so none of them can masquerade as
- * "no filings". Only GET is ever issued, and only against the QuantForge API.
+ * Every function resolves to an `ApiResult`. Only GET is ever issued, and only against the
+ * QuantForge API.
  */
 
-import { ApiError, apiGet, type ApiGetOptions } from "@/lib/api/client";
-import { PAGE_SIZE } from "@/lib/api/earnings";
-import { env } from "@/lib/config/env";
+import { apiRequest, type ApiRequestOptions } from "@/lib/api/client";
+import { decodeFilingEps, decodeFilingIndexPage } from "@/lib/api/decoders/filings";
+import { requireEcho } from "@/lib/api/echo";
+import type { ApiResult } from "@/lib/api/result";
 import {
-  FilingsContractError,
-  parseFilingEps,
-  parseFilingIndexPage,
+  PAGE_SIZE,
   type EpsKind,
   type EpsPeriodClass,
   type FilingEps,
   type FilingForm,
   type FilingIndexPage,
-} from "@/types/filings";
+} from "@/lib/api/schema";
+import { env } from "@/lib/config/env";
 
-export type FilingsResult<T> =
-  | { readonly state: "ok"; readonly data: T }
-  /** HTTP 503: the database is unavailable. Never "no data". */
-  | { readonly state: "unavailable" }
-  /** HTTP 422: the API rejected the request parameters. */
-  | { readonly state: "rejected"; readonly detail: string }
-  /** The payload does not match the contract this frontend supports. */
-  | { readonly state: "contract"; readonly detail: string }
-  | { readonly state: "error"; readonly detail: string };
-
+/** Query parameters the filings index supports (and only those). */
 export interface FilingsQuery {
   readonly form?: FilingForm;
   readonly cik?: string;
   readonly offset?: number;
   readonly limit?: number;
-}
-
-async function guard<T>(run: () => Promise<T>): Promise<FilingsResult<T>> {
-  try {
-    return { state: "ok", data: await run() };
-  } catch (error) {
-    if (error instanceof FilingsContractError) {
-      return { state: "contract", detail: error.message };
-    }
-    if (error instanceof ApiError) {
-      if (error.status === 503) return { state: "unavailable" };
-      if (error.status === 422)
-        return { state: "rejected", detail: error.publicMessage };
-      return { state: "error", detail: error.publicMessage };
-    }
-    return {
-      state: "error",
-      detail:
-        error instanceof Error
-          ? error.message
-          : "Unexpected error contacting the API.",
-    };
-  }
 }
 
 export function buildFilingsPath(query: FilingsQuery): string {
@@ -76,23 +42,25 @@ export function buildFilingEpsPath(
   epsKind: EpsKind,
   cik: string | null = null,
 ): string {
-  const params = new URLSearchParams({
-    period_class: periodClass,
-    eps_kind: epsKind,
-  });
+  const params = new URLSearchParams({ period_class: periodClass, eps_kind: epsKind });
   // Registrant qualification: sent verbatim (leading zeros intact) only when the caller has one.
   if (cik !== null) params.set("cik", cik);
   return `${env.apiFilingsPath}/${encodeURIComponent(accession)}/eps?${params.toString()}`;
 }
 
-export function getFilings(
+export async function getFilings(
   query: FilingsQuery = {},
-  options: ApiGetOptions = {},
-): Promise<FilingsResult<FilingIndexPage>> {
-  return guard(async () =>
-    parseFilingIndexPage(
-      await apiGet<unknown>(buildFilingsPath(query), options),
-    ),
+  options: ApiRequestOptions = {},
+): Promise<ApiResult<FilingIndexPage>> {
+  const limit = query.limit ?? PAGE_SIZE;
+  const offset = query.offset ?? 0;
+  const result = await apiRequest(buildFilingsPath(query), decodeFilingIndexPage, options);
+  return requireEcho(result, (page) =>
+    page.limit !== limit
+      ? { path: "$.limit", expected: "the requested limit" }
+      : page.offset !== offset
+        ? { path: "$.offset", expected: "the requested offset" }
+        : null,
   );
 }
 
@@ -103,35 +71,24 @@ export function getFilings(
  * fails or is refused is NEVER retried without the CIK, which would hide a joint accession's
  * ambiguity or show another registrant's filing.
  */
-export function getFilingEps(
+export async function getFilingEps(
   accession: string,
   periodClass: EpsPeriodClass,
   epsKind: EpsKind,
   cik: string | null = null,
-  options: ApiGetOptions = {},
-): Promise<FilingsResult<FilingEps>> {
-  return guard(async () => {
-    const eps = parseFilingEps(
-      await apiGet<unknown>(
-        buildFilingEpsPath(accession, periodClass, epsKind, cik),
-        options,
-      ),
-    );
-    // A response for another accession or EPS concept must never be shown under this request.
-    if (
-      eps.accession !== accession ||
-      eps.period_class !== periodClass ||
-      eps.eps_kind !== epsKind
-    ) {
-      throw new FilingsContractError(
-        "the response does not echo the requested selection.",
-      );
-    }
-    if (cik !== null && eps.company_cik !== cik) {
-      throw new FilingsContractError(
-        "the response does not name the requested registrant (CIK).",
-      );
-    }
-    return eps;
-  });
+  options: ApiRequestOptions = {},
+): Promise<ApiResult<FilingEps>> {
+  const result = await apiRequest(buildFilingEpsPath(accession, periodClass, epsKind, cik), decodeFilingEps, options);
+  // A response for another accession or EPS concept must never be shown under this request.
+  return requireEcho(result, (eps) =>
+    eps.accession !== accession
+      ? { path: "$.accession", expected: "the requested accession" }
+      : eps.period_class !== periodClass
+        ? { path: "$.period_class", expected: "the requested period class" }
+        : eps.eps_kind !== epsKind
+          ? { path: "$.eps_kind", expected: "the requested EPS kind" }
+          : cik !== null && eps.company_cik !== cik
+            ? { path: "$.company_cik", expected: "the requested registrant (CIK)" }
+            : null,
+  );
 }

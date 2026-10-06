@@ -6,11 +6,12 @@
  * good/bad, bullish/bearish or signal language, and no colour carries meaning on its own.
  */
 
-import type { Tone } from "@/lib/availability";
+import type { FilingsQuery } from "@/lib/api/filings";
 import {
   ACCESSION_PATTERN,
   CIK_PATTERN,
   EPS_KINDS,
+  FILING_FORMS,
   PERIOD_CLASSES,
   type ChangeStatus,
   type ComparativeStatus,
@@ -21,8 +22,16 @@ import {
   type FilingIndexItem,
   type PercentageReason,
   type Transition,
-  FILING_FORMS,
-} from "@/types/filings";
+} from "@/lib/api/schema";
+import {
+  canonicalHref,
+  isCanonical,
+  offsetOfPage,
+  parsePage,
+  readParam,
+  type ListError,
+  type RawSearchParams,
+} from "@/lib/list-query";
 
 export const BOUNDARY_LINES = [
   "Descriptive accounting data from SEC FSDS.",
@@ -91,11 +100,6 @@ export const PERCENTAGE_REASON_DETAIL: Record<PercentageReason, string> = {
   NEGATIVE_COMPARATIVE: "The comparative EPS is negative.",
 };
 
-/** Caution marks a refusal; it is never a verdict on the figures. */
-export function statusTone(status: string): Tone {
-  return status === "AVAILABLE" ? "neutral" : "caution";
-}
-
 export function isFilingForm(value: string): value is FilingForm {
   return (FILING_FORMS as readonly string[]).includes(value);
 }
@@ -110,9 +114,8 @@ export function isEpsKind(value: string): value is EpsKind {
 
 export const isAccession = (value: string): boolean =>
   ACCESSION_PATTERN.test(value);
-export const isCik = (value: string): boolean => CIK_PATTERN.test(value);
-/** `isCik` as a selector guard, for the optional `cik` URL parameter. */
-export function isCikValue(value: string): value is string {
+/** A ten-digit CIK, as a type guard so it can drive `readSelector` for the optional `cik` parameter. */
+export function isCik(value: string): value is string {
   return CIK_PATTERN.test(value);
 }
 
@@ -146,6 +149,18 @@ export function filingDetailHref(
   return `/filings/${encodeURIComponent(item.accession)}?${params.toString()}`;
 }
 
+/** The address of the filing view for a validated selection (used for "Try again"). */
+export function filingViewHref(
+  accession: string,
+  selection: { cik: string | null; period: EpsPeriodClass; kind: EpsKind },
+): string {
+  const params = new URLSearchParams();
+  if (selection.cik !== null) params.set("cik", selection.cik);
+  params.set("period_class", selection.period);
+  params.set("eps_kind", selection.kind);
+  return `/filings/${encodeURIComponent(accession)}?${params.toString()}`;
+}
+
 export type Selector<T> =
   | { readonly state: "missing" }
   | { readonly state: "invalid"; readonly raw: string }
@@ -162,4 +177,64 @@ export function readSelector<T extends string>(
   if (raw === undefined || raw === "") return { state: "missing" };
   if (typeof raw !== "string") return { state: "invalid", raw: raw.join(", ") };
   return accepts(raw) ? { state: "ok", value: raw } : { state: "invalid", raw };
+}
+
+// ── filings list URL state ───────────────────────────────────────────────────────────────
+
+export const FILINGS_PATH = "/filings";
+
+/** `10-K/A`, `10-Q/A`, `8-K/A`: formatting derived from the stored form, never from facts. */
+export const isAmendment = (form: FilingForm): boolean => form.endsWith("/A");
+
+export interface FilingsListState {
+  /** What the reader typed (for the form), valid or not. */
+  readonly shown: { readonly form: string; readonly cik: string };
+  readonly query: FilingsQuery;
+  readonly page: number;
+  readonly errors: readonly ListError[];
+  readonly filtered: boolean;
+  readonly canonical: string | null;
+  readonly redirect: boolean;
+}
+
+/** The URL of one page of a filtered filings list. */
+export function filingsPageHref(query: FilingsQuery, page: number): string {
+  return canonicalHref(FILINGS_PATH, [["form", query.form], ["cik", query.cik]], page);
+}
+
+export function parseFilingsList(raw: RawSearchParams): FilingsListState {
+  const form = readParam(raw, "form");
+  const cik = readParam(raw, "cik");
+  const { page, error: pageError } = parsePage(raw);
+  const errors: ListError[] = [];
+
+  if (form.repeated || (form.text !== "" && !isFilingForm(form.text))) {
+    errors.push({
+      param: "form",
+      message: `Form must be one of ${FILING_FORMS.join(", ")} (an exact match, as a single value).`,
+    });
+  }
+  if (cik.repeated || (cik.text !== "" && !isCik(cik.text))) {
+    errors.push({
+      param: "cik",
+      message: "CIK must be exactly ten digits, including leading zeros, as a single value.",
+    });
+  }
+  if (pageError) errors.push(pageError);
+
+  const query: FilingsQuery = {
+    form: !errors.some((e) => e.param === "form") && form.text !== "" && isFilingForm(form.text) ? form.text : undefined,
+    cik: !errors.some((e) => e.param === "cik") && cik.text !== "" ? cik.text : undefined,
+    offset: offsetOfPage(page),
+  };
+  const canonical = errors.length === 0 ? filingsPageHref(query, page) : null;
+  return {
+    shown: { form: form.text, cik: cik.text },
+    query,
+    page,
+    errors,
+    filtered: Boolean(query.form || query.cik),
+    canonical,
+    redirect: canonical !== null && !isCanonical(raw, canonical),
+  };
 }

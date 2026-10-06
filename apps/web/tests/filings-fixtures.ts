@@ -1,4 +1,4 @@
-import type { FilingIndexItem } from "@/types/filings";
+import type { FilingIndexItem } from "@/lib/api/schema";
 
 /** Test-only builders. Production code never contains sample data. */
 export function makeFiling(

@@ -1,8 +1,12 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
+import { Suspense } from "react";
 
 import "./globals.css";
 
+import { ApiStatus } from "@/components/layout/api-status";
+import { AppShell } from "@/components/layout/app-shell";
+import { LiveApiStatus } from "@/components/layout/live-api-status";
 import { THEME_COOKIE, TINT_COOKIE, parseTheme, parseTint } from "@/lib/preferences";
 
 export const metadata: Metadata = {
@@ -26,7 +30,15 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
         >
           Skip to content
         </a>
-        {children}
+        <AppShell
+          status={
+            <Suspense fallback={<ApiStatus />}>
+              <LiveApiStatus />
+            </Suspense>
+          }
+        >
+          {children}
+        </AppShell>
       </body>
     </html>
   );

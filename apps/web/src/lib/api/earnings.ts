@@ -1,54 +1,27 @@
 /**
- * Earnings and readiness reads.
- *
- * Every function resolves to a discriminated result instead of throwing, so a
- * page always renders an explicit loading-complete / error / not-found state.
+ * Earnings and readiness reads. Every function resolves to an `ApiResult` (see result.ts): a
+ * page always renders an explicit state, and transport failures are never confused with domain
+ * statuses carried inside a successful response.
  */
 
-import { ApiError, apiGet, type ApiGetOptions } from "@/lib/api/client";
+import { cache } from "react";
+
+import { apiRequest, type ApiRequestOptions } from "@/lib/api/client";
+import { decode, uuid } from "@/lib/api/decode";
+import { decodeEarningsEvent, decodeEarningsPage } from "@/lib/api/decoders/earnings";
+import { decodeReadiness } from "@/lib/api/decoders/health";
+import { requireEcho } from "@/lib/api/echo";
+import type { ApiResult } from "@/lib/api/result";
+import { PAGE_SIZE, type EarningsEvent, type EarningsPage, type ReadinessResponse } from "@/lib/api/schema";
 import { env } from "@/lib/config/env";
-import {
-  parseEarningsEvent,
-  parseEarningsPage,
-  parseReadiness,
-  type EarningsEvent,
-  type EarningsPage,
-  type ReadinessResponse,
-} from "@/types/earnings";
 
-export type Result<T> =
-  | { readonly state: "ok"; readonly data: T }
-  | { readonly state: "not_found" }
-  | { readonly state: "error"; readonly detail: string };
-
-export const PAGE_SIZE = 50;
-
+/** Query parameters the earnings list endpoint supports (and only those). */
 export interface EarningsQuery {
   readonly ticker?: string;
   readonly dateFrom?: string;
   readonly dateTo?: string;
   readonly offset?: number;
   readonly limit?: number;
-}
-
-function describe(error: unknown): string {
-  // Never the raw message of a failed request: it names the service address.
-  if (error instanceof ApiError) return error.publicMessage;
-  return error instanceof Error ? error.message : "Unexpected error contacting the API.";
-}
-
-async function guard<T>(
-  run: () => Promise<T>,
-  notFoundStatuses: readonly number[] = [404],
-): Promise<Result<T>> {
-  try {
-    return { state: "ok", data: await run() };
-  } catch (error) {
-    if (error instanceof ApiError && notFoundStatuses.includes(error.status)) {
-      return { state: "not_found" };
-    }
-    return { state: "error", detail: describe(error) };
-  }
 }
 
 export function buildEarningsPath(query: EarningsQuery): string {
@@ -61,36 +34,41 @@ export function buildEarningsPath(query: EarningsQuery): string {
   return `${env.apiEarningsPath}?${params.toString()}`;
 }
 
-export function getEarningsPage(
+export async function getEarningsPage(
   query: EarningsQuery = {},
-  options: ApiGetOptions = {},
-): Promise<Result<EarningsPage>> {
-  return guard(async () =>
-    parseEarningsPage(await apiGet<unknown>(buildEarningsPath(query), options)),
+  options: ApiRequestOptions = {},
+): Promise<ApiResult<EarningsPage>> {
+  const limit = query.limit ?? PAGE_SIZE;
+  const offset = query.offset ?? 0;
+  const result = await apiRequest(buildEarningsPath(query), decodeEarningsPage, options);
+  return requireEcho(result, (page) =>
+    page.limit !== limit
+      ? { path: "$.limit", expected: "the requested limit" }
+      : page.offset !== offset
+        ? { path: "$.offset", expected: "the requested offset" }
+        : null,
   );
 }
 
-export function getEarningsEvent(
+/** A path that is not a UUID names nothing stored, so no request is made for it. */
+export async function getEarningsEvent(
   id: string,
-  options: ApiGetOptions = {},
-): Promise<Result<EarningsEvent>> {
-  // 422 on a path id means it is not a valid identifier: nothing to find.
-  return guard(
-    async () =>
-      parseEarningsEvent(
-        await apiGet<unknown>(`${env.apiEarningsPath}/${encodeURIComponent(id)}`, options),
-      ),
-    [404, 422],
+  options: ApiRequestOptions = {},
+): Promise<ApiResult<EarningsEvent>> {
+  if (!decode(uuid, id).ok) return { kind: "not_found" };
+  const result = await apiRequest(`${env.apiEarningsPath}/${encodeURIComponent(id)}`, decodeEarningsEvent, { ...options, notFoundMeansAbsent: true });
+  return requireEcho(result, (event) =>
+    event.id.toLowerCase() !== id.toLowerCase() ? { path: "$.id", expected: "the requested event id" } : null,
   );
 }
 
-/** Readiness answers 503 with a structured body when a dependency is down. */
-export function getReadiness(
-  options: ApiGetOptions = {},
-): Promise<Result<ReadinessResponse>> {
-  return guard(async () =>
-    parseReadiness(
-      await apiGet<unknown>(env.apiReadinessPath, { ...options, acceptStatuses: [503] }),
-    ),
-  );
+/** Readiness answers 503 with a structured body when a dependency is down: still a decoded success. */
+export function getReadiness(options: ApiRequestOptions = {}): Promise<ApiResult<ReadinessResponse>> {
+  return apiRequest(env.apiReadinessPath, decodeReadiness, { ...options, acceptStatuses: [503] });
 }
+
+/**
+ * One event read shared by everything rendered for a request (the page and its metadata both
+ * ask), so a detail view costs ONE API call.
+ */
+export const getEarningsEventOnce = cache((id: string) => getEarningsEvent(id));

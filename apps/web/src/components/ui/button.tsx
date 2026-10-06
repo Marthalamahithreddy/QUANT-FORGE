@@ -15,13 +15,15 @@ export function Button({ variant = "secondary", className = "", type = "button",
 export interface LinkButtonProps {
   readonly href: string;
   readonly variant?: ButtonVariant;
+  /** An accessible name that carries context a bare label lacks ("Research Acme, 2024-03-15"). */
+  readonly label?: string;
   readonly children: ReactNode;
 }
 
 /** A link that looks like a button (navigation, not an action). */
-export function LinkButton({ href, variant = "secondary", children }: LinkButtonProps) {
+export function LinkButton({ href, variant = "secondary", label, children }: LinkButtonProps) {
   return (
-    <Link href={href} className={`${BUTTON_BASE} ${BUTTON_VARIANT[variant]}`}>
+    <Link href={href} aria-label={label} className={`${BUTTON_BASE} ${BUTTON_VARIANT[variant]}`}>
       {children}
     </Link>
   );

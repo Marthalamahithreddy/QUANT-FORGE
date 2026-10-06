@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   MISSING,
-  compareDecimalStrings,
   formatDate,
   formatDecimal,
   formatRatioAsPercent,
@@ -36,21 +35,6 @@ describe("formatSignedDecimal", () => {
     expect(formatSignedDecimal("-0.2000")).toBe("-0.2000");
     expect(formatSignedDecimal("0.0000")).toBe("0.0000");
     expect(formatSignedDecimal(null)).toBe(MISSING);
-  });
-});
-
-describe("compareDecimalStrings", () => {
-  it("compares exactly across differing scales", () => {
-    expect(compareDecimalStrings("0.3", "0.30")).toBe(0);
-    expect(compareDecimalStrings("0.30000000000000004", "0.3")).toBe(1);
-    expect(compareDecimalStrings("-1.5", "-1.25")).toBe(-1);
-    expect(compareDecimalStrings("10", "9.9999")).toBe(1);
-  });
-
-  it("sorts missing values last", () => {
-    expect(compareDecimalStrings(null, "1")).toBe(1);
-    expect(compareDecimalStrings("1", null)).toBe(-1);
-    expect(compareDecimalStrings(null, null)).toBe(0);
   });
 });
 
