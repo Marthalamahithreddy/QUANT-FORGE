@@ -648,3 +648,32 @@ and for the same accession over time (AAPL drifted between 2026-10-04 and 2026-1
 agent. The 10.7A rule was empirical and correct when observed. Recommendation: identity from JSON, `accepted_at`
 only from the header, nullable (migration required), no JSON promotion. No production change was made.
 Accounting golden remains blocked until a repair phase is approved.
+
+## 25. 11.2H result: SEC identity repair and accounting golden (uncommitted)
+
+Base `72a1a6d`. Backend 3412 passed (2401 unit, 1011 integration), coverage 95.54%; ruff, format, mypy clean; head
+`0014`; frontend 1400 tests, lint, typecheck, build and contract pass with no `apps/web` diff.
+
+**Accounting golden: PASS (before and after header enrichment).** Requests: SEC 2 of 2 (submissions 1, header 1).
+Bulk identity stored with `accepted_at` NULL; FSDS binding, both selectors, the descriptive change, the filing EPS
+API and the filings index all work without it and are identical after enrichment. Values: 0.3500 / 0.5400 /
+-0.1900 / ratio -0.35185185... (-0.3518) / POSITIVE_DECREASED, qtrs 1, `us-gaap/2025`, USD, empty segments and coreg.
+
+**Real frontend (production build, isolated validation backend, no fixture API):** Overview, Earnings, Earnings event,
+Research stock-only and SPY (+1 0.00265..., +2 0.02184...; abnormal -0.00408... / +0.00956...; +5 shown missing with its
+calendar date 2026-10-09; PIT `INELIGIBLE_NO_AVAILABILITY_EVIDENCE` with the descriptive result still visible),
+Filings, Filing detail (exact strings), Saved research (COMPLETE) and explicit Verify (**Match**, fingerprints
+unchanged). API requests per page equal the frozen 11.1F budgets exactly (5/2/3/2/4/2/3) and navigation never called
+verify. axe-core (WCAG 2 A/AA, 21 A/AA): 0 violations on ten populated pages at 1440 and 390 px; no horizontal
+overflow. Harness: `scripts/validation/serve.py`, `real_smoke.mjs`.
+
+**Observed, not defects of this step:** the only console error was a missing `favicon.ico` (404); "Too few stored
+sessions" labels a proven-but-unstored target (+5, +20) (the deferred dedicated status); the listing's `valid_from`
+is first-observed (2026-10-07) while sourced history proves the event date.
+
+**Timings:** bulk NKE ingestion 1.08 s, FSDS ingestion 1.67 s, EPS selector 0.031 s, filing EPS API 0.058 s (cold)
+and 0.005 s, filings index 0.007 s, header enrichment 0.66 s, saved-record verify 0.25 s.
+
+**Still pending (not blockers):** real +5 (target 2026-10-09, see section 23.1) and +20; per-record partial bar
+storage; reference and earnings raw retention on client-parse failure; partial-run reasons; a dedicated missing-target
+status; the calendar singleton's benign first-build race.

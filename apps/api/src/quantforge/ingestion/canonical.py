@@ -586,10 +586,12 @@ class CanonicalSecFiling:
       (``0000320193-24-000123``). It is *not* the registrant's CIK -- its
       leading filer id can be a filing agent -- so ``cik`` is carried
       separately as the registrant the metadata was fetched for.
-    * ``accepted_at`` is the acceptance instant the source states, UTC (the
-      submissions JSON is read under an empirically validated rule, see
-      ``providers.sec.mapper``). It is acceptance metadata: not first public
-      disclosure, not public availability, not a known-as-of time.
+    * ``accepted_at`` is the filing-acceptance instant established from the official EDGAR
+      filing header (UTC), or ``None`` when it has not been established. The bulk submissions
+      JSON never supplies it (its ``acceptanceDateTime`` has no documented timezone, see
+      ``providers.sec.mapper``). ``None`` says nothing about the filing's identity, validity or
+      public availability. It is acceptance metadata: not first public disclosure, not public
+      availability, not a known-as-of time.
     * ``filing_date`` (the date the SEC deems the filing made) and
       ``report_date`` (the source's report date) are dates, never instants, and
       neither is ever promoted to an ``accepted_at``.
@@ -599,7 +601,7 @@ class CanonicalSecFiling:
     accession_number: str
     form: SecFormType
     filing_date: date
-    accepted_at: datetime
+    accepted_at: datetime | None = None
     report_date: date | None = None
     primary_document: str | None = None
     #: The source's 8-K item codes verbatim, e.g. ``"2.02,9.01"``; ``None`` if absent.
@@ -619,7 +621,9 @@ class CanonicalSecFiling:
         if self.report_date is not None and type(self.report_date) is not date:
             message = f"report_date must be a plain date, got {type(self.report_date).__name__}"
             raise ValueError(message)
-        if self.accepted_at.tzinfo is None or self.accepted_at.utcoffset() != timedelta(0):
+        if self.accepted_at is not None and (
+            self.accepted_at.tzinfo is None or self.accepted_at.utcoffset() != timedelta(0)
+        ):
             message = f"accepted_at must be a timezone-aware UTC datetime, got {self.accepted_at!r}"
             raise ValueError(message)
         if self.filing_date < EDGAR_ERA_START:

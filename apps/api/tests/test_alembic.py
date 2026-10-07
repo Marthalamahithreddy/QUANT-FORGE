@@ -114,6 +114,7 @@ def test_baseline_revision_exists_and_is_empty() -> None:
         "0011_financial_fact.py",
         "0012_fsds_accepted_text.py",
         "0013_research_records.py",
+        "0014_sec_filing_accepted_at_nullable.py",
     ]
 
     source = revisions[0].read_text(encoding="utf-8")

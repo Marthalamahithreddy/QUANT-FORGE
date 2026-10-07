@@ -210,9 +210,7 @@ def test_a_history_file_is_a_flat_set_of_arrays_mapped_with_the_same_contract() 
         SecFormType.FORM_8K,
     }
     eight_k = next(f for f in filings if f.form is SecFormType.FORM_8K)
-    assert eight_k.accepted_at == datetime(2021, 1, 27, 21, 31, 18, tzinfo=UTC), (
-        "the corrected submissions-JSON parser is reused, not a second interpretation"
-    )
+    assert all(f.accepted_at is None for f in filings), "bulk history never supplies an instant"
     assert eight_k.items == "2.02,9.01" and eight_k.cik == CIK
 
 
@@ -238,16 +236,17 @@ def test_a_malformed_history_file_is_a_payload_error(document: object) -> None:
 
 
 @pytest.mark.parametrize("row", [H2_PLACEHOLDER, H2_PLACEHOLDER_EDT], ids=["EST", "EDT"])
-def test_a_midnight_eastern_acceptance_is_a_date_placeholder_not_an_instant(
+def test_a_midnight_eastern_acceptance_does_not_block_storing_the_identity(
     row: Row,
 ) -> None:
     filings, rejected, _rows = map_history_filings(history([H2_10K, row]), cik=CIK)
 
-    assert [f.accession_number for f in filings] == [H2_10K[0]]
-    assert len(rejected) == 1 and "placeholder" in rejected[0] and row[0] in rejected[0]
+    assert rejected == []
+    assert {f.accession_number for f in filings} == {H2_10K[0], row[0]}
+    assert all(f.accepted_at is None for f in filings)
 
 
-def test_the_placeholder_rule_applies_to_recent_too_and_does_not_reject_a_real_early_time() -> None:
+def test_a_placeholder_in_recent_stores_the_identity_like_any_other_row() -> None:
     placeholder = (
         "0000320193-96-000023",
         "10-K",
@@ -262,8 +261,11 @@ def test_the_placeholder_rule_applies_to_recent_too_and_does_not_reject_a_real_e
 
     filings, rejected = map_recent_filings(document, cik=CIK)
 
-    assert [f.accession_number for f in filings] == ["0000320193-96-000024"]
-    assert len(rejected) == 1 and "placeholder" in rejected[0]
+    assert [f.accession_number for f in filings] == [
+        "0000320193-96-000023",
+        "0000320193-96-000024",
+    ]
+    assert rejected == []
 
 
 def test_recent_rows_are_counted_across_all_forms() -> None:
@@ -293,13 +295,13 @@ def test_the_same_accession_with_identical_metadata_is_one_filing() -> None:
 
 
 def test_overlapping_metadata_that_differs_fails_loudly_and_names_both_sources() -> None:
-    other = _filing(accepted_at=datetime(2022, 10, 29, 0, 42, 27, tzinfo=UTC))
+    other = _filing(primary_document="other.htm")
 
     with pytest.raises(ProviderPayloadError) as caught:
         merge_filings([("recent", [_filing()]), (HISTORY_1, [other])])
 
     assert "recent" in str(caught.value) and HISTORY_1 in str(caught.value)
-    assert "accepted_at" in str(caught.value) and "silently preferred" in str(caught.value)
+    assert "primary_document" in str(caught.value) and "silently preferred" in str(caught.value)
 
 
 def test_an_amendment_never_merges_with_its_original() -> None:
@@ -342,13 +344,15 @@ async def test_the_counts_distinguish_what_was_seen_parsed_overlapped_and_reject
 
     assert result.recent_rows_seen == 4 and result.recent_filings_parsed == 3  # Form 4 skipped
     assert result.history_rows_seen == 8
-    assert result.history_filings_parsed == 5  # 10-K(overlap), 10-Q/A, 8-K | 10-K, 10-Q
+    # 10-K(overlap), 10-Q/A, 8-K | 10-K, 10-Q and the two date-placeholder rows (identity is stored)
+    assert result.history_filings_parsed == 7
     assert result.overlap_identical == 1
-    assert len(result.rejected) == 2 and all("placeholder" in r for r in result.rejected)
-    assert all(HISTORY_2 in r for r in result.rejected)
+    assert result.rejected == ()
     accessions = [f.accession_number for f in result.filings]
-    assert len(accessions) == len(set(accessions)) == 7
-    assert [f.accepted_at for f in result.filings] == sorted(f.accepted_at for f in result.filings)
+    assert len(accessions) == len(set(accessions)) == 9
+    assert all(f.accepted_at is None for f in result.filings)
+    keys = [(f.filing_date, f.accession_number) for f in result.filings]
+    assert keys == sorted(keys), "deterministic filing-date order, not acceptance order"
 
 
 @pytest.mark.anyio
@@ -517,7 +521,7 @@ async def test_a_row_count_that_disagrees_with_the_stated_filing_count_is_not_co
 
 @pytest.mark.anyio
 async def test_conflicting_overlap_between_recent_and_history_fails_the_fetch() -> None:
-    altered = (*R_OVERLAP[:4], "2022-10-28T21:42:27.000Z", *R_OVERLAP[5:])
+    altered = (*R_OVERLAP[:5], "other.htm", *R_OVERLAP[6:])
     doc = parent([altered], [file_entry(HISTORY_1, [H1_10K])])
     recorder = Recorder(
         {
@@ -637,7 +641,7 @@ def test_history_identity_modules_name_no_availability_or_fsds_concept(relative:
 
 
 @pytest.mark.anyio
-async def test_a_target_present_but_unsupported_or_rejected_is_located_not_unresolved() -> None:
+async def test_a_target_present_but_unsupported_is_located_not_unresolved() -> None:
     recorder, _ = _two_file_routes()
     async with _client(recorder) as client:
         result = await client.get_filing_history(
@@ -645,9 +649,8 @@ async def test_a_target_present_but_unsupported_or_rejected_is_located_not_unres
         )
 
     assert result.unresolved_accessions == ()
-    assert set(result.located_not_stored) == {R_FORM4[0], H2_PLACEHOLDER[0]}
-    assert H2_PLACEHOLDER[0] not in {f.accession_number for f in result.filings}
-    assert any(H2_PLACEHOLDER[0] in reason for reason in result.rejected), "the cause is reported"
+    assert set(result.located_not_stored) == {R_FORM4[0]}, "Form 4 is unsupported"
+    assert H2_PLACEHOLDER[0] in {f.accession_number for f in result.filings}, "identity is stored"
     assert recorder.paths[-1] == f"/submissions/{HISTORY_2}", "found, so no further file is read"
 
 
@@ -673,17 +676,15 @@ async def test_a_missing_history_file_is_named_as_a_history_file_not_a_missing_r
     assert HISTORY_1 in str(caught.value)
 
 
-def test_a_recent_block_with_placeholders_changes_only_the_placeholder_rows() -> None:
-    """The recent path is unchanged for real times; only midnight-Eastern rows differ.
-
-    A registrant whose filings begin in the 1990s carries such rows in ``filings.recent``
-    itself (observed live), so the rule is part of the shared core, not history-only.
-    """
+def test_a_recent_block_with_placeholders_adds_only_the_placeholder_identities() -> None:
+    """Midnight-Eastern placeholder rows are ordinary identities now (no instant is read)."""
     modern = [R_10Q, R_10K_A, R_OVERLAP]
     document = parent([*modern, H2_PLACEHOLDER, H2_PLACEHOLDER_EDT])
 
     with_placeholders, rejected = map_recent_filings(document, cik=CIK)
     without, no_rejected = map_recent_filings(parent(modern), cik=CIK)
 
-    assert with_placeholders == without and no_rejected == []
-    assert len(rejected) == 2 and all("placeholder" in reason for reason in rejected)
+    assert no_rejected == [] and rejected == []
+    assert {f.accession_number for f in with_placeholders} == {
+        f.accession_number for f in without
+    } | {H2_PLACEHOLDER[0], H2_PLACEHOLDER_EDT[0]}

@@ -32,9 +32,11 @@ manifest's path/digest/size and the request parameters (CIK and scope). Identica
 re-fetched are deduplicated; a changed body under the same URL is a *new* artifact beside
 the old one -- the SEC documents no immutability for these files, so nothing is
 overwritten and no revision is declared "correct". Stored filings are never rewritten:
-identical metadata is a skip, differing metadata (including a different ``accepted_at``,
-for instance a row written before the 10.7A.1 timestamp correction) is a loud
-:class:`~quantforge.ingestion.filings.SecFilingConflictError` for an operator to decide.
+identical metadata is a skip, differing identity metadata is a loud
+:class:`~quantforge.ingestion.filings.SecFilingConflictError` for an operator to decide. The
+acceptance instant takes no part in that comparison: bulk ingestion never supplies it (the
+submissions JSON ``acceptanceDateTime`` is untrusted), and an instant established from the EDGAR
+header (``sec-filing-acceptance``) is never erased or restated by a re-ingestion.
 """
 
 from __future__ import annotations

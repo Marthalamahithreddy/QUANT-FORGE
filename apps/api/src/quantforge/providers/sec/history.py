@@ -237,7 +237,6 @@ def merge_filings(
                         "form",
                         "filing_date",
                         "report_date",
-                        "accepted_at",
                         "primary_document",
                         "items",
                     )
@@ -252,6 +251,6 @@ def merge_filings(
             overlap += 1
     ordered = sorted(
         (filing for _, filing in merged.values()),
-        key=lambda f: (f.accepted_at, f.accession_number),
+        key=lambda f: (f.filing_date, f.accession_number),
     )
     return ordered, overlap

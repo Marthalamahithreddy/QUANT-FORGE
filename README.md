@@ -170,22 +170,23 @@ Which bases count is decided in one place
 (`research/availability.py: APPROVED_AVAILABILITY_BASES`). Finnhub and Massive
 leave both fields NULL, so no current earnings row is point-in-time eligible.
 
-`quantforge ingestion sec-filings <CIK>` stores SEC filing **metadata only**
-(accession, form, filing/report dates, EDGAR acceptance time, primary document,
-8-K item codes) in `sec_filing` (10-K, 10-Q, 8-K and their amendments, each
-amendment its own row), for the stored company carrying that `company.cik`. It
-needs `QF_SEC_USER_AGENT` (an application name plus a contact, per the SEC's
-fair-access policy; never defaulted or stored). The submissions-JSON
-`acceptanceDateTime` (explicit `Z` required) is read as a UTC instant under an
-*empirically validated* rule (11 of 11 accessions in the 10.7A live check equal
-EDGAR's own index/header acceptance clock, read as America/New_York, to the
-second; seven representative pairs are pinned in the tests); SEC does
-not officially define that field, and the earlier reading of its digits as
-Eastern wall clock was wrong (4–5 hours late) and is gone. The value is
-acceptance **metadata** only, not public availability, and `SEC_FILING_ACCEPTANCE`
-stays unapproved. It is cross-checked against EDGAR's 06:00–22:00 hours and
-5:30 p.m. filing-date rule as warnings; a malformed record is rejected, never
-guessed. No EPS, signal or document download exists yet.
+`quantforge ingestion sec-filings <CIK>` stores SEC filing **identity metadata only**
+(accession, form, filing/report dates, primary document, 8-K item codes) in `sec_filing`
+(10-K, 10-Q, 8-K and their amendments, each amendment its own row), for the stored company
+carrying that `company.cik`. It needs `QF_SEC_USER_AGENT` (an application name plus a contact,
+per the SEC's fair-access policy; never defaulted or stored). **The bulk submissions JSON never
+supplies `accepted_at`**: its `acceptanceDateTime` has no documented timezone, and the 11.2G
+investigation found it equal to the official EDGAR header for some registrants and exactly one
+Eastern UTC offset later for others, changing over time for the same accession. `accepted_at` is
+NULL ("exact acceptance instant not established") until
+`quantforge ingestion sec-filing-acceptance <ACCESSION> [--cik CIK] [--verify]` sets it from that one
+accession's official EDGAR header (one request, Eastern wall clock converted with the IANA zone,
+identity-checked against the stored filing, raw header retained). There is no bulk or
+"enrich all" mode; NULL does not mean the filing is invalid or unavailable, and accounting,
+the filing API and research never read it. It is acceptance **metadata** only, not public
+availability, and `SEC_FILING_ACCEPTANCE` stays unapproved. Results are in deterministic
+filing-date order (accession as tie-breaker), not acceptance order. No EPS, signal or document
+download exists here.
 
 `quantforge ingestion sec-filings-history <CIK> [--accession ACC]... [--max-history-files N]`
 stores the **identity** metadata of older filings that fell out of `filings.recent`, by
@@ -198,11 +199,11 @@ only the files that could hold a still-unresolved target are fetched. There is n
 length, request path and QuantForge's own retrieval time (never an SEC publication time);
 identical bytes are deduplicated and a changed body under the same URL is a new artifact,
 never an overwrite (the SEC documents no immutability for history files). A stored filing
-is never rewritten: identical metadata is a skip, differing metadata (including a
-different `accepted_at`) is a loud conflict. A history file that cannot be fetched or
+is never rewritten: identical metadata is a skip, differing identity metadata is a loud
+conflict (the acceptance instant is not compared, and a header-established one is never erased). A history file that cannot be fetched or
 reconciled with its stated `filingCount` fails the whole run; a record that cannot be
-mapped (for example the date-only midnight placeholders the SEC shows for roughly
-1994 to April 2002) is rejected and makes the run `partial`. The report counts what was
+mapped (a malformed identity field) is rejected and makes the run `partial`; a date-only or
+odd acceptance text no longer blocks a valid identity. The report counts what was
 looked at and never claims the registrant's history is complete. This is identity and
 provenance only: no availability, PIT or disclosure meaning, and it does not ingest facts.
 
@@ -273,7 +274,7 @@ SHA-256 identity; the ZIP itself lives in the raw store, streamed, never in a ro
 * **Existing filings only.** The accession must already be a `SecFiling` (ingested by `sec-filings`), its company's CIK
   must equal the package's registrant CIK, and the form and filing date must agree; otherwise the run fails and no
   fact is written. An amendment is its own accession and its own facts.
-* **No availability.** `SecFiling.accepted_at` is when EDGAR accepted the filing; a bulk package is published
+* **No availability.** `SecFiling.accepted_at` (when set from the EDGAR header; NULL otherwise) is when EDGAR accepted the filing; a bulk package is published
   later and the SEC does not time-stamp it per package, so nothing here is point-in-time available and no table
   carries an availability column. `SEC_FILING_ACCEPTANCE` stays unapproved.
 * **Bounded and safe.** At least one `--accession`/`--cik` is required; NUM is streamed and batched; any rejected

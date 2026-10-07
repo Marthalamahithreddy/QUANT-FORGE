@@ -68,7 +68,7 @@ class FactTrace:
     accession_number: str
     company_cik: str | None
     form: str
-    filing_accepted_at: datetime
+    filing_accepted_at: datetime | None
     source_kind: FinancialFactSourceKind
     artifact_name: str
     artifact_sha256: str

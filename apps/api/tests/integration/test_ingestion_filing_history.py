@@ -167,7 +167,7 @@ def _files(root: Path, dataset: str) -> list[Path]:
 
 
 @pytest.mark.anyio
-async def test_recent_and_history_filings_are_stored_as_identity_with_a_partial_status(
+async def test_recent_and_history_filings_are_stored_as_identity_with_no_acceptance_instant(
     company: Company, db_session: Session, tmp_path: Path
 ) -> None:
     report = await _run(db_session, _routes(), tmp_path)
@@ -176,29 +176,29 @@ async def test_recent_and_history_filings_are_stored_as_identity_with_a_partial_
     assert set(rows) == {
         R_10Q[0], R_10K_A[0], R_OVERLAP[0],  # recent (Form 4 is not a supported form)
         H1_10Q_A[0], H1_8K[0],  # history 1 (the 10-K is also in recent)
-        H2_10K[0], H2_10Q[0],  # history 2 (two midnight placeholders are NOT stored)
+        H2_10K[0], H2_10Q[0],  # history 2
+        H2_PLACEHOLDER[0], H2_PLACEHOLDER_EDT[0],  # date-only acceptance text: identity still stored
     }  # fmt: skip
     assert all(r.company_id == company.id for r in rows.values())
     assert rows[H1_10Q_A[0]].form is SecFormType.FORM_10Q_A  # an amendment stays its own row
     assert rows[R_10K_A[0]].form is SecFormType.FORM_10K_A
-    assert rows[H1_8K[0]].accepted_at == datetime(2021, 1, 27, 21, 31, 18, tzinfo=UTC)
+    assert all(r.accepted_at is None for r in rows.values()), "bulk ingestion never sets it"
     assert rows[H1_8K[0]].items == "2.02,9.01"
     assert rows[H2_10K[0]].filing_date.year == 2014
 
     result = report.result
     assert (report.inserted, report.matched_existing) == (
-        7,
+        9,
         0,
     )  # the identical overlap is merged before storage
     assert (result.recent_rows_seen, result.recent_filings_parsed) == (4, 3)
     assert (result.history_files_discovered, result.history_files_fetched) == (2, 2)
-    assert (result.history_rows_seen, result.history_filings_parsed) == (8, 5)
-    assert result.overlap_identical == 1 and len(result.rejected) == 2
-    assert report.outcome.status is IngestionStatus.PARTIAL
-    assert not report.complete_for_requested_scope
+    assert (result.history_rows_seen, result.history_filings_parsed) == (8, 7)
+    assert result.overlap_identical == 1 and len(result.rejected) == 0
+    assert report.outcome.status is IngestionStatus.SUCCEEDED
     run = db_session.query(IngestionRun).one()
     assert (run.provider, run.dataset) == ("sec-edgar", "sec-filing-history")
-    assert (run.records_written, run.records_skipped, run.records_failed) == (7, 0, 2)
+    assert (run.records_written, run.records_skipped, run.records_failed) == (9, 0, 0)
     assert run.request_parameters["cik"] == CIK
     assert run.request_parameters["scope"] == "all-referenced-history-files"
     assert all(r.ingestion_run_id == run.id for r in rows.values())
@@ -282,7 +282,7 @@ async def test_refetching_identical_bytes_is_idempotent_and_creates_no_duplicate
     later = NOW + timedelta(days=1)
     report = await _run(db_session, _routes(), tmp_path, now=later)
 
-    assert (report.inserted, report.matched_existing) == (0, 7)
+    assert (report.inserted, report.matched_existing) == (0, 9)
     assert _snapshot(db_session) == before, "no metadata drift, no changed acceptance instant"
     assert {d: _files(tmp_path, d) for d in blobs} == blobs, "identical bytes are deduplicated"
     assert db_session.query(IngestionRun).count() == 2
@@ -316,46 +316,44 @@ async def test_changed_bytes_under_the_same_url_are_kept_beside_the_old_artifact
 
 
 @pytest.mark.anyio
-async def test_a_changed_acceptance_for_a_stored_accession_conflicts_and_is_never_repaired(
+async def test_a_changed_json_acceptance_value_for_a_stored_accession_changes_nothing(
     company: Company, db_session: Session, tmp_path: Path
 ) -> None:
+    """The SEC returned a different value for the same accession three days apart (11.2G)."""
     await _run(db_session, _routes(), tmp_path)
     before = _snapshot(db_session)
     changed = (*H1_8K[:4], "2021-01-27T22:31:18.000Z", *H1_8K[5:])
     routes = _routes(h1=[H1_10K, H1_10Q_A, changed, H1_FORM4])
 
-    error = await _failed(db_session, routes, tmp_path, now=NOW + timedelta(days=1))
+    report = await _run(db_session, routes, tmp_path, now=NOW + timedelta(days=1))
 
-    assert isinstance(error, SecFilingConflictError)
-    assert error.accession_number == H1_8K[0] and set(error.differences) == {"accepted_at"}
+    assert (report.inserted, report.matched_existing) == (0, 9)
     assert _snapshot(db_session) == before
-    failed = db_session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).one()
-    assert failed.error_type == "SecFilingConflictError" and failed.raw_artifact_path
 
 
 @pytest.mark.anyio
-async def test_a_row_written_with_the_old_eastern_reading_conflicts_rather_than_being_repaired(
+async def test_a_header_established_acceptance_survives_bulk_reingestion(
     company: Company, db_session: Session, tmp_path: Path
 ) -> None:
     await _run(db_session, _routes(), tmp_path)
-    stale = db_session.scalar(sa.select(SecFiling).where(SecFiling.accession_number == H1_8K[0]))
-    assert stale is not None
-    correct = stale.accepted_at
-    stale.accepted_at = correct + timedelta(hours=5)  # what the pre-10.7A.1 parser stored in winter
+    row = db_session.scalar(sa.select(SecFiling).where(SecFiling.accession_number == H1_8K[0]))
+    assert row is not None and row.accepted_at is None
+    established = datetime(2021, 1, 27, 21, 31, 18, tzinfo=UTC)
+    row.accepted_at = established  # as the EDGAR-header enrichment would have set it
     db_session.commit()
 
-    error = await _failed(db_session, _routes(), tmp_path, now=NOW + timedelta(days=1))
+    report = await _run(db_session, _routes(), tmp_path, now=NOW + timedelta(days=1))
 
-    assert isinstance(error, SecFilingConflictError) and set(error.differences) == {"accepted_at"}
-    db_session.refresh(stale)
-    assert stale.accepted_at == correct + timedelta(hours=5), "no silent repair"
+    assert (report.inserted, report.matched_existing) == (0, 9)
+    db_session.refresh(row)
+    assert row.accepted_at == established, "bulk identity never erases stronger evidence"
 
 
 @pytest.mark.anyio
 async def test_recent_and_history_disagreeing_about_one_accession_fails_and_stores_nothing(
     company: Company, db_session: Session, tmp_path: Path
 ) -> None:
-    disagreeing = (*R_OVERLAP[:4], "2022-10-28T21:42:27.000Z", *R_OVERLAP[5:])
+    disagreeing = (*R_OVERLAP[:5], "other.htm", *R_OVERLAP[6:])
     routes = _routes(recent=[R_10Q, disagreeing])
 
     error = await _failed(db_session, routes, tmp_path)
@@ -385,7 +383,7 @@ async def test_a_history_file_that_cannot_be_fetched_fails_closed_with_no_partia
 async def test_every_record_rejected_is_a_failed_run_not_a_success(
     company: Company, db_session: Session, tmp_path: Path
 ) -> None:
-    only = [H2_PLACEHOLDER, H2_PLACEHOLDER_EDT]
+    only = [("not-an-accession-1", *H2_10K[1:]), ("not-an-accession-2", *H2_10Q[1:])]
     routes = {
         f"/submissions/CIK{CIK}.json": encode(parent([], [file_entry(HISTORY_2, only)])),
         f"/submissions/{HISTORY_2}": encode(history(only)),
@@ -584,7 +582,7 @@ async def test_an_older_fsds_accession_binds_only_after_bounded_history_ingestio
     assert submission.source_accepted == "2014-10-27 16:15:00.0", (
         "FSDS text stays verbatim FSDS text"
     )
-    assert filing.accepted_at == datetime(2014, 10, 27, 20, 15, 51, tzinfo=UTC)
+    assert filing.accepted_at is None, "bulk identity never sets the acceptance instant"
     assert db_session.query(FinancialFact).count() == 1
 
     # Read path: the existing endpoints serve the bound older accession with unchanged shape.
@@ -640,12 +638,12 @@ def test_one_accession_twice_in_a_batch_with_different_metadata_is_a_conflict(
     company: Company, db_session: Session
 ) -> None:
     ingestor, source = _ingestor(db_session, company)
-    other = _canonical(accepted_at=datetime(2022, 10, 28, 21, 42, 27, tzinfo=UTC))
+    other = _canonical(primary_document="other.htm")
 
     with pytest.raises(SecFilingConflictError) as caught:
         ingestor.ingest([_canonical(), other], company_id=company.id, source_id=source.id)
 
-    assert set(caught.value.differences) == {"accepted_at"}
+    assert set(caught.value.differences) == {"primary_document"}
     assert db_session.query(SecFiling).count() == 0, "a conflicting batch inserts nothing"
 
 
@@ -659,7 +657,7 @@ def test_a_stored_conflict_in_a_later_row_prevents_earlier_rows_of_the_batch_bei
         accepted_at=datetime(2022, 10, 1, 15, 0, tzinfo=UTC),
         filing_date=date(2022, 10, 1),
     )
-    changed = _canonical(accepted_at=datetime(2022, 10, 28, 21, 42, 27, tzinfo=UTC))
+    changed = _canonical(primary_document="other.htm")
 
     with pytest.raises(SecFilingConflictError):
         ingestor.ingest([fresh, changed], company_id=company.id, source_id=source.id)
@@ -693,15 +691,14 @@ async def test_malformed_or_excessive_target_accessions_are_refused(
 
 
 @pytest.mark.anyio
-async def test_a_located_but_unstorable_target_makes_the_run_partial_with_the_cause_visible(
+async def test_a_located_but_unsupported_target_makes_the_run_partial(
     company: Company, db_session: Session, tmp_path: Path
 ) -> None:
-    report = await _run(db_session, _routes(), tmp_path, accessions=(H2_PLACEHOLDER[0],))
+    report = await _run(db_session, _routes(), tmp_path, accessions=(R_FORM4[0],))
 
     assert report.result.unresolved_accessions == ()
-    assert report.result.located_not_stored == (H2_PLACEHOLDER[0],)
+    assert report.result.located_not_stored == (R_FORM4[0],)
     assert report.outcome.status is IngestionStatus.PARTIAL
     assert not report.complete_for_requested_scope
-    assert any("placeholder" in reason for reason in report.result.rejected)
     stored = {r.accession_number for r in db_session.scalars(sa.select(SecFiling))}
-    assert H2_PLACEHOLDER[0] not in stored
+    assert R_FORM4[0] not in stored

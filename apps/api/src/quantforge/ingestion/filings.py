@@ -64,7 +64,6 @@ _COMPARED_FIELDS = (
     "form",
     "filing_date",
     "report_date",
-    "accepted_at",
     "primary_document",
     "items",
 )
@@ -74,7 +73,7 @@ class AllFilingRecordsRejectedError(RuntimeError):
     """Every supported-form record in a response was rejected: a systematic problem, not noise.
 
     A run where *nothing* could be stored is a failure, not a partial success --
-    otherwise a wrong timestamp reading or a changed SEC format would look like a
+    otherwise a changed SEC format or a systematic identity corruption would look like a
     successful run that stored no filings.
     """
 
@@ -161,7 +160,7 @@ class SecFilingIngestor:
         """
         written = skipped = 0
         unique: dict[str, CanonicalSecFiling] = {}
-        for filing in sorted(filings, key=lambda f: (f.accepted_at, f.accession_number)):
+        for filing in sorted(filings, key=lambda f: (f.filing_date, f.accession_number)):
             first = unique.setdefault(filing.accession_number, filing)
             if first is filing:
                 continue

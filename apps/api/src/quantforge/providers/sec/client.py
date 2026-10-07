@@ -41,7 +41,7 @@ from quantforge.providers.errors import (
     ProviderServerError,
     ProviderTransportError,
 )
-from quantforge.providers.filings import FilingHistoryResult, FilingsResult
+from quantforge.providers.filings import FilingHeaderResult, FilingHistoryResult, FilingsResult
 from quantforge.providers.json_decimal import decode_json_document
 from quantforge.providers.pacing import (
     BackoffPolicy,
@@ -50,6 +50,7 @@ from quantforge.providers.pacing import (
     parse_retry_after,
     retryable_statuses,
 )
+from quantforge.providers.sec.header import header_path, parse_filing_header
 from quantforge.providers.sec.history import (
     MAX_HISTORY_FILES_CEILING,
     HistoryFileRef,
@@ -75,6 +76,10 @@ logger = logging.getLogger(__name__)
 #: raw-store top-level directory. Must never change.
 PROVIDER_NAME: Final[str] = "sec-edgar"
 _SUBMISSIONS_PATH: Final[str] = "/submissions/CIK{cik}.json"
+DEFAULT_ARCHIVES_BASE_URL: Final[str] = "https://www.sec.gov"
+_HEADER_ENDPOINT: Final[str] = (
+    "/Archives/edgar/data/{cik}/{accession_without_dashes}/{accession}.hdr.sgml"
+)
 _MAX_HONOURED_RETRY_AFTER: Final[float] = 60.0
 _TRANSIENT_TRANSPORT_ERRORS: Final[tuple[type[Exception], ...]] = (
     httpx.ConnectError,
@@ -101,6 +106,7 @@ class SecConfig:
     """Everything the client needs. The identity is required, never defaulted."""
 
     __slots__ = (
+        "archives_base_url",
         "base_url",
         "max_retries",
         "min_request_interval",
@@ -118,10 +124,13 @@ class SecConfig:
         max_retries: int = 2,
         retry_base_delay: float = 1.0,
         min_request_interval: float = 0.25,
+        archives_base_url: str = DEFAULT_ARCHIVES_BASE_URL,
     ) -> None:
         raw = user_agent.get_secret_value() if isinstance(user_agent, SecretStr) else user_agent
         self.user_agent = raw.strip() if raw and raw.strip() else None
         self.base_url = base_url.rstrip("/")
+        #: Host of the EDGAR Archives (filing headers); the submissions API lives on ``base_url``.
+        self.archives_base_url = archives_base_url.rstrip("/")
         self.request_timeout = request_timeout
         self.max_retries = max_retries
         self.retry_base_delay = retry_base_delay
@@ -232,6 +241,38 @@ class SecClient:
             exc.captures = (capture,)  # a malformed response is evidence worth keeping
             raise
         return FilingsResult(filings=filings, rejected=tuple(rejected), captures=(capture,))
+
+    async def get_filing_header(self, cik: str, accession_number: str) -> FilingHeaderResult:
+        """Fetch and parse ONE accession's official EDGAR header (exactly one request).
+
+        The only approved source of a filing's acceptance instant. The header is NOT checked
+        against the stored filing here (that is the caller's identity check); it is only parsed
+        structurally. A response that cannot be parsed fails with its raw bytes attached as
+        evidence.
+        """
+        padded = normalise_cik(cik)
+        path = header_path(padded, accession_number)
+        try:
+            body = await self._get_bytes(
+                f"{self._config.archives_base_url}{path}", accept="text/plain, */*;q=0.1"
+            )
+        except ProviderNotFoundError as exc:
+            message = f"the SEC has no filing header at the Archives path for {accession_number}"
+            raise ProviderNotFoundError(f"accession {accession_number}", message) from exc
+        capture = RawCapture(
+            provider=PROVIDER_NAME,
+            dataset="filing-header",
+            endpoint=_HEADER_ENDPOINT,
+            request_parameters={"cik": padded, "accession": accession_number},
+            body=body,
+            retrieved_at=self._now(),
+        )
+        try:
+            header = parse_filing_header(body)
+        except ProviderPayloadError as exc:
+            exc.captures = (capture,)
+            raise
+        return FilingHeaderResult(header=header, capture=capture)
 
     async def get_filing_history(
         self, cik: str, *, accessions: Sequence[str] = (), max_history_files: int
@@ -377,9 +418,11 @@ class SecClient:
             raw_accessions(document),
         )
 
-    async def _get_bytes(self, path: str) -> bytes:
+    async def _get_bytes(self, path: str, *, accept: str | None = None) -> bytes:
         # Resolved per call and sent as a header; never part of a URL or a capture.
         headers = {"User-Agent": self._config.require_user_agent()}
+        if accept is not None:
+            headers["Accept"] = accept
         attempt = 0
         while True:
             attempt += 1

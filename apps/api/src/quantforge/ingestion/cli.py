@@ -44,6 +44,13 @@ from quantforge.db.session import get_session_factory
 from quantforge.identity.resolver import HistoricalListingResolver
 from quantforge.ingestion.benchmark import BenchmarkBarConflictError, BenchmarkIdentityConflict
 from quantforge.ingestion.daily import ProviderDataConflict
+from quantforge.ingestion.filing_acceptance import (
+    AcceptanceHeaderMismatchError,
+    FilingAcceptanceService,
+    FilingNotStoredError,
+    InvalidAcceptanceRequestError,
+    SecAcceptanceConflictError,
+)
 from quantforge.ingestion.filing_history import (
     DEFAULT_MAX_HISTORY_FILES,
     FilingHistoryIngestionService,
@@ -364,6 +371,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     history.set_defaults(handler=_cmd_sec_filings_history)
 
+    _add_filing_acceptance_command(commands)
+
     splits = commands.add_parser(
         "stock-splits",
         help="fetch a ticker's historical stock splits and record split coverage",
@@ -646,6 +655,62 @@ def _cmd_sec_filings_history(args: argparse.Namespace, settings: Settings) -> in
         "registrant's history is complete and carries no availability meaning"
     )
     return _print_outcome(outcome)
+
+
+def _add_filing_acceptance_command(commands: Any) -> None:
+    """Register ``sec-filing-acceptance`` (one accession; no bulk mode)."""
+    acceptance = commands.add_parser(
+        "sec-filing-acceptance",
+        help="establish ONE stored filing's acceptance instant from its EDGAR header",
+        description=(
+            "Fetch the official EDGAR filing header of exactly ONE stored accession and set "
+            "its accepted_at (NULL -> the header's Eastern acceptance time, converted to UTC). "
+            "One request; no company-wide, missing, recent or all mode. The bulk submissions "
+            "JSON never supplies accepted_at (its acceptanceDateTime has no documented "
+            "timezone). If the instant is already established no request is made, unless "
+            "--verify, which re-fetches and fails on any disagreement without overwriting. "
+            "Filing-acceptance provenance only: not first public disclosure, not "
+            "point-in-time availability. Requires QF_SEC_USER_AGENT."
+        ),
+    )
+    acceptance.add_argument("accession", help="a dashed accession (0000320193-24-000123)")
+    acceptance.add_argument(
+        "--cik",
+        help="the registrant's CIK; needed only if the accession is stored under several",
+    )
+    acceptance.add_argument(
+        "--verify",
+        action="store_true",
+        help="re-fetch the header of an already established filing and compare (one request)",
+    )
+    acceptance.set_defaults(handler=_cmd_sec_filing_acceptance)
+
+
+def _cmd_sec_filing_acceptance(args: argparse.Namespace, settings: Settings) -> int:
+    async def run() -> Any:
+        async with _sec_client(settings) as client:
+            factory = get_session_factory(settings)
+            with factory() as session:
+                service = FilingAcceptanceService(
+                    session=session, provider=client, store=_store(settings), now=datetime.now(UTC)
+                )
+                try:
+                    report = await service.enrich(args.accession, cik=args.cik, verify=args.verify)
+                except BaseException:
+                    _commit_failed_run(session)
+                    raise
+                session.commit()
+                return report
+
+    report = asyncio.run(run())
+    print(f"\n{report.accession_number}: {report.status.value}")
+    print(f"  accepted_at (UTC): {report.accepted_at.isoformat()}  source: {report.source}")
+    if report.outcome is not None:
+        outcome = report.outcome
+        print(f"  run: received={outcome.records_received} written={outcome.records_written}")
+        return _print_outcome(outcome)
+    print("  no request was made (the instant was already established)")
+    return EXIT_OK
 
 
 def _cmd_sec_fsds(args: argparse.Namespace, settings: Settings) -> int:
@@ -1124,6 +1189,8 @@ def _classify(exc: Exception) -> int:  # noqa: PLR0911, PLR0912 - one return per
         UnknownListingError
         | UnknownRegistrantError
         | InvalidHistoryRequestError
+        | InvalidAcceptanceRequestError
+        | FilingNotStoredError
         | HistoryScopeError
         | InvalidFactRequestError
         | UnsupportedFormError
@@ -1163,6 +1230,10 @@ def _classify(exc: Exception) -> int:  # noqa: PLR0911, PLR0912 - one return per
             "package cannot be ingested",
             file=sys.stderr,
         )
+        return EXIT_RUN_FAILED
+    if isinstance(exc, AcceptanceHeaderMismatchError | SecAcceptanceConflictError):
+        print(f"error: {exc}", file=sys.stderr)
+        print("accepted_at was not changed", file=sys.stderr)
         return EXIT_RUN_FAILED
     if isinstance(exc, AllFilingRecordsRejectedError):
         print(f"error: {exc}", file=sys.stderr)

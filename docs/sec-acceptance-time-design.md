@@ -212,3 +212,38 @@ Estimated size: small-medium; one migration; no frontend change (no API field ex
 
 The design is ready for review. Open item for the reviewer: whether header corroboration should also
 be offered as an opt-in for every ingested accession (cost 1 request each) or stay on-demand only.
+
+## 13. Implementation status (step 11.2H, uncommitted)
+
+Implemented as designed (option D = B + C), no frontend or API-schema change:
+
+- Migration `0014`: `sec_filing.accepted_at` nullable. Upgrade preserves values; downgrade refuses while any
+  row is NULL (no instant invented, no filing deleted).
+- Bulk mapper: `accepted_at=None` always; the JSON `acceptanceDateTime` is optional, must be text or null,
+  and is never parsed or judged (placeholders, odd hours and missing `Z` no longer block identity). The
+  timezone-sensitive tripwire is removed; whole-response refusal remains for structural drift. Order is
+  `(filing_date, accession)` (accession is only a tie-breaker, not acceptance order). Re-ingestion compares
+  identity fields only, so a header-established instant is never erased.
+- `providers/sec/header.py`: parses the EDGAR header (`YYYYMMDDHHMMSS`, `America/New_York` via the IANA zone,
+  no fixed offsets; ambiguous or non-existent wall times at daylight-saving transitions are refused).
+- `ingestion/filing_acceptance.py` + CLI `ingestion sec-filing-acceptance ACCESSION [--cik] [--verify]`: one
+  accession, one request; identity-checked (accession, form, filing date, registrant CIK); raw header stored
+  through the normal raw store (dataset `filing-header`, verbatim bytes; the `.json` file extension is the
+  store's nominal one); guarded `UPDATE ... WHERE accepted_at IS NULL`; already-established makes no request
+  (`source: STORED_VALUE`); `--verify` re-fetches and hard-conflicts on disagreement; a lost race to an equal
+  value reports `VERIFIED`, to a different value a conflict. No bulk, missing, recent or all mode.
+- Structural firewall tests: `accepted_at` is used as code only by the six allowed modules (+ CLI + mapper
+  `None`); never by research, signals, reproducibility, observation, API or schemas; `SEC_FILING_ACCEPTANCE`
+  stays unapproved; the header parser is apart from FSDS.
+
+Known and accepted: a database written before 0014 may hold JSON-derived `accepted_at` values (none exist in
+the dev or validation databases). They are reported as `STORED_VALUE` without a provenance claim and can be
+compared with `--verify`.
+
+## 14. Real-data results (validation database, 2 SEC requests)
+
+NKE bulk identity: 1 request, 164 identity rows, all `accepted_at` NULL, the target stored, 2 history files
+skipped (accession found in recent). FSDS `2026q2` (sha verified) bound to `0000320187-26-000037` (823 facts).
+Current 0.3500, comparative 0.5400 (2025-02-28, 12 month-ends), change -0.1900, ratio -0.3518..., transition
+POSITIVE_DECREASED, identical before and after enrichment. Header enrichment (1 request): `accepted_at`
+2026-04-01T20:16:39Z, raw header retained; a second call made no request; offline replay of the bulk path kept it.

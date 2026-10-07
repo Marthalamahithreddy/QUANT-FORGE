@@ -178,7 +178,7 @@ async def test_non_json_is_a_response_error() -> None:
 @pytest.mark.anyio
 async def test_rejected_records_are_reported_not_dropped_silently() -> None:
     bad = json.loads(_BODY)
-    bad["filings"]["recent"]["acceptanceDateTime"] = [""]
+    bad["filings"]["recent"]["filingDate"] = ["not-a-date"]
 
     result = await _client(
         lambda _r: httpx.Response(200, content=json.dumps(bad).encode())

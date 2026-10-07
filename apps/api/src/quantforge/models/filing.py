@@ -23,10 +23,13 @@ answerable.
 
 Timestamps
 ----------
-``accepted_at`` is the acceptance instant the SEC submissions JSON states, as a UTC
-``TIMESTAMPTZ``, read under an empirically validated rule (see
-``quantforge.providers.sec.mapper``; the field's official definition is unresolved).
-It is acceptance metadata: it proves the filing was accepted by EDGAR then. It does **not** prove first public disclosure (a press release can
+``accepted_at`` is the filing-acceptance instant established from the official EDGAR filing
+header (``<ACCEPTANCE-DATETIME>``, Eastern wall clock converted to UTC), as a UTC ``TIMESTAMPTZ``,
+or ``NULL`` when it has not been established. Bulk ingestion never sets it: the submissions JSON
+``acceptanceDateTime`` has no documented timezone and was observed to disagree with the header
+(``docs/sec-acceptance-time-design.md``). NULL does not mean the filing is invalid, unavailable or
+uncertain in identity; it means only that the exact instant is not established. When set, it is
+acceptance metadata: it proves the filing was accepted by EDGAR then. It does **not** prove first public disclosure (a press release can
 precede an ``8-K`` by up to four business days) or when any market participant
 learned of the content, and it is deliberately not named ``first_public_at``.
 ``filing_date`` is the date the SEC deems the filing made (a filing accepted
@@ -108,12 +111,12 @@ class SecFiling(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         nullable=True,
         doc="The source's report date (period end, or event date for an 8-K), if stated.",
     )
-    accepted_at: Mapped[datetime] = mapped_column(
+    accepted_at: Mapped[datetime | None] = mapped_column(
         timestamptz(),
-        nullable=False,
+        nullable=True,
         doc=(
-            "When EDGAR accepted the submission (UTC). Proves acceptance by EDGAR, "
-            "not first public disclosure."
+            "When EDGAR accepted the submission (UTC), from the EDGAR filing header only; NULL "
+            "when not established. Proves acceptance by EDGAR, not first public disclosure."
         ),
     )
     primary_document: Mapped[str | None] = mapped_column(

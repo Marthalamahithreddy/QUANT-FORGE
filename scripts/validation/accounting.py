@@ -89,6 +89,88 @@ async def stage_sec_filing() -> None:
         print(" ", row, mark)
 
 
+async def stage_enrich() -> None:
+    """ONE header request for the target accession, through the production service."""
+    from quantforge.core.config import get_settings
+    from quantforge.ingestion.cli import _commit_failed_run
+    from quantforge.ingestion.filing_acceptance import FilingAcceptanceService
+    from quantforge.providers.sec.client import SecClient, SecConfig
+
+    base = get_settings()
+    config = SecConfig(
+        user_agent=base.sec_user_agent,
+        base_url=base.sec_base_url,
+        request_timeout=base.sec_request_timeout_seconds,
+        max_retries=base.sec_max_retries,
+        min_request_interval=base.sec_min_request_interval_seconds,
+    )
+    session, _ = _session()
+    t0 = time.monotonic()
+    async with SecClient(config, transport=common.CountingTransport("sec")) as client:
+        service = FilingAcceptanceService(
+            session=session, provider=client, store=common.raw_store(), now=datetime.now(UTC)
+        )
+        try:
+            report = await service.enrich(ACCESSION, cik=CIK)
+        except BaseException:
+            _commit_failed_run(session)
+            raise
+        session.commit()
+    print(f"status {report.status.value} accepted_at {report.accepted_at.isoformat()} source {report.source}")
+    print(f"duration {time.monotonic() - t0:.3f}s", "| ledger:", {k: v for k, v in common.ledger().items() if k != "requests"})
+    print("run:", _sql(session, "select dataset, status, records_received, records_written, request_parameters::text, raw_artifact_path is not null from ingestion_run order by started_at desc limit 1"))
+    print("accepted_at in DB:", _sql(session, "select accepted_at from sec_filing where accession_number=:a", a=ACCESSION))
+    print("other filings still NULL:", _sql(session, "select count(*) from sec_filing where accepted_at is null"))
+
+
+async def stage_enrich_again() -> None:
+    """A second call must make NO request (default mode)."""
+    from quantforge.ingestion.filing_acceptance import FilingAcceptanceService
+
+    class _Forbidden:
+        name = "sec-edgar"
+
+        async def get_filing_header(self, cik, accession):  # noqa: ANN001, ANN202
+            raise AssertionError("a request was attempted")
+
+    session, _ = _session()
+    report = await FilingAcceptanceService(
+        session=session, provider=_Forbidden(), store=common.raw_store(), now=datetime.now(UTC)
+    ).enrich(ACCESSION, cik=CIK)
+    print("second call:", report.status.value, report.accepted_at.isoformat(), "source", report.source, "| requests made: 0")
+
+
+async def stage_replay() -> None:
+    """Offline: re-run the bulk identity path from the retained raw submissions bytes."""
+    import glob
+
+    from quantforge.ingestion.filings import FilingIngestionService
+    from quantforge.providers.base import RawCapture
+    from quantforge.providers.filings import FilingsResult
+    from quantforge.providers.sec.mapper import map_recent_filings
+
+    # The earlier (11.2F) refused response was kept as rejected evidence; replay it: the same
+    # bytes now map to identity, offline.
+    path = [p for p in glob.glob(str(common.RAW_ROOT / "sec-edgar" / "*" / "*" / "*.json")) if not p.endswith(".meta.json") and "submissions-rejected" in p][0]
+    body = open(path, "rb").read()
+    document = json.loads(body)
+    filings, rejected = map_recent_filings(document, cik=CIK)
+
+    class _Replay:
+        name = "sec-edgar"
+
+        async def get_filings(self, cik: str) -> FilingsResult:
+            capture = RawCapture(provider="sec-edgar", dataset="submissions", endpoint="/submissions/CIK{cik}.json", request_parameters={"cik": cik}, body=body, retrieved_at=datetime.now(UTC))
+            return FilingsResult(filings=filings, rejected=tuple(rejected), captures=(capture,))
+
+    session, _ = _session()
+    outcome = await FilingIngestionService(session=session, provider=_Replay(), store=common.raw_store(), now=datetime.now(UTC)).ingest_filings(CIK)
+    session.commit()
+    print(f"replay outcome received={outcome.records_received} written={outcome.records_written} skipped={outcome.records_skipped} failed={outcome.records_failed}")
+    print("accepted_at after replay:", _sql(session, "select accepted_at from sec_filing where accession_number=:a", a=ACCESSION))
+    print("sec_filing rows:", _sql(session, "select count(*), count(accepted_at) from sec_filing"))
+
+
 def stage_fsds_ingest() -> None:
     from quantforge.ingestion.financial_facts import FinancialFactIngestionService
 
@@ -111,14 +193,18 @@ def stage_provenance() -> None:
     for row in _sql(session, "select dataset, status, records_received, records_written, records_skipped, records_failed, raw_artifact_path is not null, raw_content_sha256 is not null from ingestion_run order by started_at"):
         print(" ", row)
     print("financial_fact_submission:")
-    for row in _sql(session, "select * from financial_fact_submission"):
+    for row in _sql(session, "select s.accession_number, fs.period_end, fs.fiscal_year, fs.fiscal_period, fs.source_accepted, fs.coregistrant_count from financial_fact_submission fs join sec_filing s on s.id=fs.sec_filing_id"):
         print(" ", row)
+    print("artifact:")
+    for row in _sql(session, "select artifact_name, source_kind, byte_length, raw_artifact_path is not null, member_digests::text, ingestion_run_id is not null from financial_fact_artifact"):
+        print(" ", row[:4], "members:", row[4][:140], "run:", row[5])
+    print("filing accepted_at for target:", _sql(session, "select accepted_at from sec_filing where accession_number=:a", a=ACCESSION))
     print("fact count:", _sql(session, "select count(*) from financial_fact"))
     print("fact columns:", [r[0] for r in _sql(session, "select column_name from information_schema.columns where table_name='financial_fact' order by ordinal_position")])
     print("EPS facts for accession:")
     for row in _sql(
         session,
-        "select f.tag, f.taxonomy_version, f.unit, f.period_end, f.duration_quarters, f.segments, f.coreg, f.value, f.ingestion_run_id is not null "
+        "select f.tag, f.version, f.unit, f.period_end, f.duration_quarters, f.segments, f.coreg, f.value, f.ingestion_run_id is not null "
         "from financial_fact f join sec_filing s on s.id=f.sec_filing_id where s.accession_number=:a and f.tag like 'EarningsPerShare%' order by f.tag, f.period_end",
         a=ACCESSION,
     ):
@@ -177,6 +263,12 @@ def main() -> None:
         verify_package()
     elif stage == "sec-filing":
         asyncio.run(stage_sec_filing())
+    elif stage == "enrich":
+        asyncio.run(stage_enrich())
+    elif stage == "enrich-again":
+        asyncio.run(stage_enrich_again())
+    elif stage == "replay":
+        asyncio.run(stage_replay())
     elif stage == "fsds-ingest":
         stage_fsds_ingest()
     elif stage == "provenance":

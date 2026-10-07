@@ -199,7 +199,7 @@ async def test_changed_source_facts_for_the_same_accession_conflict_and_nothing_
         await _service(db_session, StubProvider([changed]), tmp_path).ingest_filings(CIK)
     db_session.commit()
 
-    assert set(caught.value.differences) == {"filing_date", "accepted_at"}
+    assert set(caught.value.differences) == {"filing_date"}
     row = db_session.query(SecFiling).one()
     assert row.filing_date == date(2024, 5, 3), "the stored fact is never silently restated"
     failed = db_session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).one()

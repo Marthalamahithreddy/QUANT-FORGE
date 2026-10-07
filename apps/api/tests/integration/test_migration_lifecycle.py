@@ -34,7 +34,7 @@ pytestmark = pytest.mark.integration
 API_ROOT = Path(__file__).resolve().parents[2]
 
 SCRATCH_DB_NAME = "quantforge_migrations_test"
-HEAD = "0013"
+HEAD = "0014"
 PRIOR = "0005"
 #: Revision before 0005 -- the 0005 tests below downgrade past 0006 to reach it.
 PRE_0005 = "0004"
@@ -125,6 +125,7 @@ def test_upgrade_to_head_produces_the_expected_chain(
     chain = [script.revision for script in scripts.walk_revisions()]
     assert chain == [
         HEAD,
+        "0013",
         "0012",
         "0011",
         "0010",
@@ -1189,4 +1190,93 @@ def test_0013_downgrade_refuses_while_baselines_or_run_provenance_exist(
             connection.execute(
                 sa.text("DELETE FROM ingestion_run WHERE id = :run"), {"run": ids["benchmark"]}
             )
+        _purge_seed(scratch_database, ids)
+
+
+def _insert_sec_filing(
+    engine: Engine, ids: dict[str, uuid.UUID], accession: str, accepted_at: str | None
+) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                "INSERT INTO sec_filing (id, created_at, company_id, accession_number, form, "
+                "filing_date, accepted_at, source_id, ingested_at) VALUES (gen_random_uuid(), "
+                "now(), :company, :accession, '10-Q', '2024-05-03', CAST(:accepted AS timestamptz), "
+                ":source, now())"
+            ),
+            {**ids, "accession": accession, "accepted": accepted_at},
+        )
+
+
+def _accepted_at_nullable(engine: Engine) -> bool:
+    columns = {c["name"]: c for c in sa.inspect(engine).get_columns("sec_filing")}
+    return bool(columns["accepted_at"]["nullable"])
+
+
+def test_0014_makes_accepted_at_nullable_and_preserves_existing_values(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, HEAD)
+    command.downgrade(config, "0013")
+    ids = _seed_entities(scratch_database)
+    try:
+        assert not _accepted_at_nullable(scratch_database)
+        _insert_sec_filing(scratch_database, ids, "0000320193-24-000010", "2024-05-03T20:30:22Z")
+
+        command.upgrade(config, "0014")
+
+        assert _accepted_at_nullable(scratch_database)
+        with scratch_database.connect() as connection:
+            stored: datetime = connection.execute(
+                sa.text("SELECT accepted_at FROM sec_filing")
+            ).scalar_one()
+        assert stored == datetime(2024, 5, 3, 20, 30, 22, tzinfo=UTC), "no rewrite, no backfill"
+    finally:
+        command.upgrade(config, HEAD)
+        with scratch_database.begin() as connection:
+            connection.execute(sa.text("DELETE FROM sec_filing"))
+        _purge_seed(scratch_database, ids)
+
+
+def test_0014_downgrade_restores_not_null_when_every_instant_is_established(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, "0014")
+    ids = _seed_entities(scratch_database)
+    try:
+        _insert_sec_filing(scratch_database, ids, "0000320193-24-000010", "2024-05-03T20:30:22Z")
+
+        command.downgrade(config, "0013")
+
+        assert not _accepted_at_nullable(scratch_database)
+    finally:
+        command.upgrade(config, HEAD)
+        with scratch_database.begin() as connection:
+            connection.execute(sa.text("DELETE FROM sec_filing"))
+        _purge_seed(scratch_database, ids)
+
+
+def test_0014_downgrade_refuses_while_any_instant_is_not_established(
+    postgres_admin_url: str, scratch_database: Engine
+) -> None:
+    config = _alembic_config(_scratch_url(postgres_admin_url))
+    command.upgrade(config, "0014")
+    ids = _seed_entities(scratch_database)
+    try:
+        _insert_sec_filing(scratch_database, ids, "0000320193-24-000010", "2024-05-03T20:30:22Z")
+        _insert_sec_filing(scratch_database, ids, "0000320193-24-000011", None)
+
+        with pytest.raises(Exception, match="no established accepted_at"):
+            command.downgrade(config, "0013")
+
+        assert _current_version(scratch_database) == "0014"
+        assert _accepted_at_nullable(scratch_database), "nothing was changed"
+        with scratch_database.connect() as connection:
+            count: int = connection.execute(sa.text("SELECT count(*) FROM sec_filing")).scalar_one()
+        assert count == 2, "no filing was deleted and no instant was invented"
+    finally:
+        with scratch_database.begin() as connection:
+            connection.execute(sa.text("DELETE FROM sec_filing"))
         _purge_seed(scratch_database, ids)

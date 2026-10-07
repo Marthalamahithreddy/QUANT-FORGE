@@ -15,18 +15,25 @@ from typing import Protocol, runtime_checkable
 
 from quantforge.ingestion.canonical import CanonicalSecFiling
 from quantforge.providers.base import RawCapture
+from quantforge.providers.sec.header import FilingHeader
 
-__all__ = ["FilingHistoryProvider", "FilingHistoryResult", "FilingProvider", "FilingsResult"]
+__all__ = [
+    "FilingHeaderProvider",
+    "FilingHeaderResult",
+    "FilingHistoryProvider",
+    "FilingHistoryResult",
+    "FilingProvider",
+    "FilingsResult",
+]
 
 
 @dataclass(frozen=True, slots=True)
 class FilingsResult:
     """Outcome of one filing-metadata fetch for one registrant.
 
-    ``filings`` are canonical filings of the supported forms, in ascending
-    ``accepted_at`` order. ``rejected`` holds one human-readable reason per
-    supported-form record that could not be mapped (a malformed or inconsistent
-    timestamp, say): such records are counted as failed, never guessed at.
+    ``filings`` are canonical filings of the supported forms, in deterministic filing-date
+    order (ties by accession; not acceptance order). ``rejected`` holds one human-readable reason per
+    supported-form record that could not be mapped (a malformed identity field, say): such records are counted as failed, never guessed at.
     ``captures`` is every raw response fetched, so the result is reproducible
     from disk.
     """
@@ -54,7 +61,7 @@ class FilingHistoryResult:
 
     Identity and provenance only. ``filings`` is the merged, de-duplicated set of
     supported-form filings from ``filings.recent`` plus the fetched history files, in
-    ascending ``accepted_at`` order; the counts say exactly what was and was not looked
+    deterministic filing-date order; the counts say exactly what was and was not looked
     at, and **none of them implies complete coverage of the SEC's filings**:
 
     * ``history_files_skipped`` files were not fetched because an explicit accession
@@ -99,3 +106,27 @@ class FilingHistoryProvider(Protocol):
         self, cik: str, *, accessions: Sequence[str] = (), max_history_files: int
     ) -> FilingHistoryResult:
         """Fetch ``filings.recent`` plus the referenced history files for one CIK."""
+
+
+@dataclass(frozen=True, slots=True)
+class FilingHeaderResult:
+    """One accession's official EDGAR header, parsed, with the exact response bytes.
+
+    The only approved source of a filing's acceptance instant. The capture's retrieval time is
+    QuantForge's, never the SEC's publication time.
+    """
+
+    header: FilingHeader
+    capture: RawCapture
+
+
+@runtime_checkable
+class FilingHeaderProvider(Protocol):
+    """A source that can return ONE accession's official header (one request, no fan-out)."""
+
+    @property
+    def name(self) -> str:
+        """Stable provider identity, persisted as ``DataSource.name``."""
+
+    async def get_filing_header(self, cik: str, accession_number: str) -> FilingHeaderResult:
+        """Fetch and parse the header of one accession of the registrant with this CIK."""
