@@ -19,7 +19,9 @@ it carried. Unrelated rows never enter the manifest.
 
 Residual assumptions (not pinned, listed in :data:`RESIDUAL_ASSUMPTIONS`, never in the fingerprint):
 stored price bars and filings are immutable by convention, and the listing/identity reference rows
-that resolution reads are not snapshotted (only the resolved identity is pinned).
+that resolution reads are not snapshotted (only the resolved identity is pinned), and the session
+sequence is the ``exchange_calendars`` release named by the methodology label (pinned by a test, not
+recorded per manifest).
 """
 
 from __future__ import annotations
@@ -96,6 +98,7 @@ class EvidenceChangedDuringAssemblyError(RuntimeError):
 RESIDUAL_ASSUMPTIONS: Final[tuple[str, ...]] = (
     "STORED_PRICE_BARS_AND_FILINGS_ARE_IMMUTABLE_BY_CONVENTION",
     "LISTING_REFERENCE_ROWS_ARE_NOT_SNAPSHOTTED_ONLY_THE_RESOLVED_IDENTITY_IS_PINNED",
+    "SESSION_SEQUENCE_IS_THE_EXCHANGE_CALENDAR_RELEASE_PINNED_BY_THE_METHODOLOGY_LABEL_ONLY",
 )
 
 

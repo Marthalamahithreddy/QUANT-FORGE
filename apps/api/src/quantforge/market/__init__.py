@@ -28,7 +28,11 @@ from quantforge.market.sessions import (
 )
 
 if TYPE_CHECKING:
-    from quantforge.market.calendar import SUPPORTED_MICS, ExchangeCalendarsSessionCalendar
+    from quantforge.market.calendar import (
+        SUPPORTED_MICS,
+        ExchangeCalendarsSessionCalendar,
+        default_session_calendar,
+    )
 
 __all__ = [
     "SUPPORTED_MICS",
@@ -41,10 +45,15 @@ __all__ = [
     "SessionLookup",
     "SessionLookupStatus",
     "SplitFact",
+    "default_session_calendar",
     "evaluate_split_guard",
 ]
 
-_ADAPTER_EXPORTS = ("SUPPORTED_MICS", "ExchangeCalendarsSessionCalendar")
+_ADAPTER_EXPORTS = (
+    "SUPPORTED_MICS",
+    "ExchangeCalendarsSessionCalendar",
+    "default_session_calendar",
+)
 
 
 def __getattr__(name: str) -> Any:

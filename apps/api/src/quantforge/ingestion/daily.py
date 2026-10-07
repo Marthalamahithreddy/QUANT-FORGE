@@ -40,13 +40,17 @@ The ingestor never commits. The caller owns the transaction so the bars and the
 would otherwise leave either a "succeeded" run with no rows, or rows that no run
 accounts for.
 
-Partial failure
----------------
-A malformed record is counted and skipped; the valid ones still commit, and the
-run finishes ``partial``. A whole-range failure from one bad row would make the
-pipeline unusable for large ranges, where a single glitch is expected. What is
-*not* done is swallowing the error silently -- every rejected record is counted,
-the count lands on the run, and the offending record is named in the log.
+Invalid bars fail the whole requested range
+-------------------------------------------
+There is no per-record partial storage for bars. A bar that fails validation
+(in the adapter's DTO or the canonical invariants) fails the WHOLE requested
+range before this writer sees anything: no bar from that range is stored, the
+run is ``failed`` with the first reason, and the raw response is retained as
+``daily-bars-rejected`` evidence the failed run points at. A conflict found here
+(``present and different``) likewise fails the run and rolls back every bar of
+the batch. Storing the valid rows of a range around a rejected one is unsafe
+while research counts stored bars as sessions: a silently missing interior bar
+would shift a horizon (docs/market-data-repair-design.md sections 1 and 5).
 """
 
 from __future__ import annotations

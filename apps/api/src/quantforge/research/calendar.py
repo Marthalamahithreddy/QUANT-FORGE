@@ -1,27 +1,29 @@
 """Deterministic earnings-event-to-trading-session alignment.
 
 This module answers one narrow question: given an earnings event's declared
-``event_date``/``timing`` and the trading sessions QuantForge actually holds
-price data for, which session does the event belong to, and which is the
-first session the market could have reacted in?
+``event_date``/``timing``, which exchange trading session does the event belong
+to, and which is the first session the market could have reacted in?
 
-Everything here is a pure function over plain values -- no database session,
-no ORM, no I/O. ``available_sessions`` is the caller's responsibility to
-supply, and it must already be the real, ordered set of sessions QuantForge
-has price observations for (see
-:mod:`quantforge.research.listing_resolution` and
-:mod:`quantforge.research.alignment` for where that comes from). This module
-never assumes ``next session = event_date + 1 calendar day``: weekends,
-holidays and gaps in the stored price history are handled by searching the
-supplied session list, never by date arithmetic.
+The session sequence comes from an authoritative exchange calendar
+(:class:`~quantforge.market.sessions.SessionCalendar`, backed by
+``exchange_calendars`` in production), NOT from whichever price bars happen to
+be stored. That distinction is the whole point of Step 11.2E: a stored bar
+being absent is a MISSING PRICE, never a non-trading day, and must never move
+an anchor or a horizon target. A weekend or exchange holiday is a real
+non-session because the calendar says so; this module never counts weekdays,
+never hard-codes holidays and never adds days.
+
+Everything here is a pure function over plain values and a calendar object --
+no database session, no ORM, no I/O.
 
 Conservatism over precision
 ----------------------------
 A ``DURING_MARKET`` or ``UNKNOWN`` timing never produces a session. Daily
 bars cannot establish an exact intraday execution point, and an undeclared
-timing cannot be guessed at as before- or after-market -- both would assert
-knowledge the source never gave. See :class:`AlignmentStatus` for the full
-set of ways alignment can honestly fail.
+timing cannot be guessed at as before- or after-market. A venue the calendar
+does not support, or a date beyond the calendar's range, is
+``NO_SESSION_DATA``: the session sequence is unproven, so nothing is guessed.
+See :class:`AlignmentStatus` for the full set of ways alignment can honestly fail.
 """
 
 from __future__ import annotations
@@ -29,11 +31,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
-from typing import Final
 
+from quantforge.market.sessions import SessionCalendar, SessionLookupStatus
 from quantforge.models.enums import EarningsTiming
 
-__all__ = ["AlignmentStatus", "SessionAlignment", "align_event_to_sessions"]
+__all__ = [
+    "AlignmentStatus",
+    "ProvenSessions",
+    "SessionAlignment",
+    "align_event_to_sessions",
+    "proven_sessions_after",
+]
 
 
 class AlignmentStatus(StrEnum):
@@ -59,9 +67,12 @@ class AlignmentStatus(StrEnum):
     #: exact intraday execution point, so no session is produced.
     INTRADAY_PRECISION_UNSUPPORTED = "INTRADAY_PRECISION_UNSUPPORTED"
 
-    #: Timing was BEFORE_MARKET or AFTER_MARKET, but no qualifying session
-    #: exists in the supplied ``available_sessions`` -- e.g. the listing has
-    #: no price history yet, or the event is more recent than any stored bar.
+    #: Timing was BEFORE_MARKET or AFTER_MARKET, but the exchange calendar
+    #: cannot PROVE a qualifying session: the venue is not one the calendar
+    #: supports, or the date lies outside the calendar's range. (Before
+    #: Step 11.2E this meant "no stored bar nearby"; a missing stored bar is
+    #: now a missing price, reported by the returns, never an alignment
+    #: failure and never a shifted anchor.)
     NO_SESSION_DATA = "NO_SESSION_DATA"
 
     #: Session mapping would otherwise have succeeded, but the research mode
@@ -79,11 +90,12 @@ class AlignmentStatus(StrEnum):
 class SessionAlignment:
     """The result of mapping one earnings event onto QuantForge's own sessions.
 
-    ``event_session`` is purely descriptive -- "was ``event_date`` itself a
-    session we have data for" -- and is ``None`` whenever it was not,
+    ``event_session`` is purely descriptive -- "was ``event_date`` itself an
+    exchange trading session" -- and is ``None`` whenever it was not,
     regardless of whether ``first_post_event_session`` could still be
     determined (an after-market event dated to a non-trading day is a real
-    case this is meant to represent honestly, not paper over).
+    case this is meant to represent honestly, not paper over). It says nothing
+    about whether a price bar is stored for that date.
 
     ``first_post_event_session`` is the field a later return calculation is
     meant to anchor to. It is ``None`` whenever ``status`` is not ``ALIGNED``.
@@ -95,27 +107,18 @@ class SessionAlignment:
     reason: str
 
 
-#: Sessions searched for in this module are always compared against this
-#: invariant: a genuinely ordered, de-duplicated sequence. Re-sorting
-#: defensively here costs nothing and means a caller's ordering bug cannot
-#: silently corrupt the result, matching "ordered sessions, not calendar-day
-#: arithmetic" even if a caller passes sessions out of order.
-def _ordered_unique(sessions: list[date]) -> list[date]:
-    return sorted(set(sessions))
-
-
-_NO_SESSION_REASON: Final[str] = (
-    "no available trading session satisfies this event's timing within the supplied session window"
-)
+def _lookup_reason(status: SessionLookupStatus, detail: str) -> str:
+    return f"the exchange calendar cannot prove a session ({status.value}): {detail}"
 
 
 def align_event_to_sessions(
     *,
     event_date: date,
     timing: EarningsTiming,
-    available_sessions: list[date],
+    calendar: SessionCalendar,
+    mic: str,
 ) -> SessionAlignment:
-    """Map one earnings event onto the trading sessions QuantForge actually holds.
+    """Map one earnings event onto the venue's trading sessions, per the exchange calendar.
 
     Deliberately takes no ``event_timestamp``. Even when a source states one,
     it does not raise this function's precision beyond before/after-market
@@ -124,27 +127,22 @@ def align_event_to_sessions(
     genuine intraday execution point is exactly the case ``DURING_MARKET``
     already refuses to resolve. The timestamp is preserved for provenance one
     layer up, on
-    :class:`~quantforge.research.alignment.EventStudyAlignment`, rather than
-    threaded through here unused.
+    :class:`~quantforge.research.alignment.EventStudyAlignment`.
 
     Args:
         event_date: The event's provider-stated calendar date.
         timing: The event's declared session phase. Never re-derived from
-            an exact timestamp's clock hour -- that is a model-level
-            invariant this function also respects by simply not accepting one.
-        available_sessions: The real trading sessions QuantForge holds price
-            data for, for the relevant listing. Must come from stored price
-            observations (see :mod:`quantforge.research.alignment`), never
-            from a generated calendar -- this function does not know what a
-            "normal" trading day is and will not guess one.
+            an exact timestamp's clock hour.
+        calendar: The session calendar. The anchor is chosen from IT, never
+            from stored price bars: a missing bar cannot choose an anchor.
+        mic: The venue whose session sequence is used (see
+            :func:`quantforge.research.alignment.align_earnings_event` for how
+            it is chosen). An unsupported venue is ``NO_SESSION_DATA``.
 
     Returns:
         A :class:`SessionAlignment` describing what could, and could not, be
         determined.
     """
-    sessions = _ordered_unique(available_sessions)
-    event_session = event_date if event_date in sessions else None
-
     if timing is EarningsTiming.UNKNOWN:
         return SessionAlignment(
             event_session=None,
@@ -164,38 +162,87 @@ def align_event_to_sessions(
             ),
         )
 
-    # Only BEFORE_MARKET and AFTER_MARKET reach here: UNKNOWN and
-    # DURING_MARKET both returned above, and those four members are all of
-    # EarningsTiming -- mypy's exhaustiveness check over the StrEnum confirms
-    # there is no remaining case, so no `else` branch is reachable to guard.
-    if timing is EarningsTiming.BEFORE_MARKET:
-        # Information released before the open is tradable from the first
-        # session at or after event_date: if event_date itself is a session,
-        # that is the answer; if event_date falls on a gap (weekend/holiday/
-        # provider misdate), the first real session after the gap is still
-        # the first point the market could react, and guessing otherwise
-        # would be the calendar-arithmetic mistake this module exists to
-        # avoid.
-        candidates = [s for s in sessions if s >= event_date]
+    # Only BEFORE_MARKET and AFTER_MARKET reach here.
+    on_event_date = calendar.session_for(mic, event_date)
+    if on_event_date.status is SessionLookupStatus.AVAILABLE:
+        event_session: date | None = event_date
+    elif on_event_date.status is SessionLookupStatus.NOT_A_SESSION:
+        event_session = None
     else:
-        # EarningsTiming.AFTER_MARKET. Information released after the close
-        # is never tradable using that same session's own close -- using it
-        # would let a backtest "trade" on a price that was set before the
-        # news existed -- so the search is strictly after event_date even
-        # when event_date is itself a session.
-        candidates = [s for s in sessions if s > event_date]
+        return SessionAlignment(
+            event_session=None,
+            first_post_event_session=None,
+            status=AlignmentStatus.NO_SESSION_DATA,
+            reason=_lookup_reason(on_event_date.status, on_event_date.reason),
+        )
 
-    if not candidates:
+    if timing is EarningsTiming.BEFORE_MARKET and event_session is not None:
+        # Information released before the open is tradable from the first
+        # session at or after event_date: event_date itself, when it is a session.
+        return SessionAlignment(
+            event_session=event_session,
+            first_post_event_session=event_session,
+            status=AlignmentStatus.ALIGNED,
+            reason="event date is an exchange session; before-market information is tradable in it",
+        )
+
+    # BEFORE_MARKET on a non-session date, or AFTER_MARKET (always strictly
+    # after event_date, even when event_date is itself a session: using that
+    # session's own close would trade on a price set before the news existed).
+    following = calendar.next_session(mic, event_date)
+    if following.status is not SessionLookupStatus.AVAILABLE or following.session is None:
         return SessionAlignment(
             event_session=event_session,
             first_post_event_session=None,
             status=AlignmentStatus.NO_SESSION_DATA,
-            reason=_NO_SESSION_REASON,
+            reason=_lookup_reason(following.status, following.reason),
         )
-
     return SessionAlignment(
         event_session=event_session,
-        first_post_event_session=candidates[0],
+        first_post_event_session=following.session.trading_date,
         status=AlignmentStatus.ALIGNED,
-        reason="resolved from the ordered list of available trading sessions",
+        reason="first exchange session strictly after the event date, from the exchange calendar",
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ProvenSessions:
+    """The exchange sessions proven to follow an anchor, in order.
+
+    ``sessions[N-1]`` is the N-th proven session strictly after the anchor.
+    ``sessions`` may be shorter than requested when the calendar cannot prove
+    more (``complete`` is then False and ``reason`` says why); it is never
+    padded, never filled from stored bars.
+    """
+
+    sessions: tuple[date, ...]
+    complete: bool
+    reason: str
+
+
+def proven_sessions_after(
+    *, calendar: SessionCalendar, mic: str, anchor_session: date, count: int
+) -> ProvenSessions:
+    """The next ``count`` exchange sessions strictly after ``anchor_session``, from the calendar.
+
+    One calendar lookup per session (no database access). Stops early, honestly,
+    at the first lookup the calendar cannot answer.
+    """
+    if count < 1:
+        message = f"count must be a positive number of sessions, got {count!r}"
+        raise ValueError(message)
+    found: list[date] = []
+    cursor = anchor_session
+    for _ in range(count):
+        lookup = calendar.next_session(mic, cursor)
+        if lookup.status is not SessionLookupStatus.AVAILABLE or lookup.session is None:
+            return ProvenSessions(
+                sessions=tuple(found),
+                complete=False,
+                reason=_lookup_reason(lookup.status, lookup.reason),
+            )
+        cursor = lookup.session.trading_date
+        found.append(cursor)
+    return ProvenSessions(
+        sessions=tuple(found), complete=True, reason="every session is from the exchange calendar"
     )

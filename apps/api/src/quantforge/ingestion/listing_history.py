@@ -15,11 +15,14 @@ record fails the whole run -- the run row stays durable, no fact survives -- so 
 never partially rewrite history.
 
 Snapshot semantics: a dated snapshot stores ``TICKER_OBSERVED`` for THAT date only (and
-``LAST_TRADED`` when the provider states a last-traded date). Ticker events store
-``TICKER_STARTED`` (inclusive start of the new symbol). The experimental events endpoint carries no
-identifier, so identity is anchored by a dated snapshot fetched in the same run: the share-class
-FIGI of that snapshot decides which security the events belong to, and the provider's own latest
-event must agree with the ticker asked about. No exchange continuity is implied by anything here.
+``LAST_TRADED`` when the provider states a last-traded date). The date is the REQUEST's ``date``
+parameter, which Massive documents as the point in time the ticker was available; the snapshot's
+primary exchange is not documented as of that date, so the fact's ``mic`` is left NULL. Ticker
+events store ``TICKER_STARTED`` (inclusive start of the new symbol). The experimental events
+endpoint carries no identifier, so identity is anchored by a dated snapshot fetched in the same
+run: the share-class FIGI of that snapshot decides which security the events belong to, and the
+provider's own latest event must agree with the ticker asked about. No exchange continuity is
+implied by anything here.
 """
 
 from __future__ import annotations
@@ -76,7 +79,12 @@ ANCHOR_MAX_AGE_DAYS = 7
 
 
 class ListingFactConflictError(RuntimeError):
-    """A stored fact has the same identity as an incoming one but states a different venue."""
+    """A stored fact contradicts an incoming fact with the same identity.
+
+    No path raises it today: a fact's whole content is its identity (source, security, kind,
+    ticker, date) now that a snapshot's venue is no longer stored, so an identical incoming fact is
+    simply skipped. Kept as the CLI-mapped failure type for any future stated attribute.
+    """
 
 
 class _FactWriter:
@@ -90,7 +98,7 @@ class _FactWriter:
         self._now = now
         self._run_id = run.id
 
-    def write(  # noqa: PLR0913 - one keyword per stored column; a wrapper object would add nothing
+    def write(
         self,
         *,
         security_id: uuid.UUID,
@@ -98,9 +106,13 @@ class _FactWriter:
         kind: ListingFactKind,
         ticker: str,
         effective_date: date,
-        mic: str | None = None,
     ) -> bool:
-        """Insert the fact, or skip an identical one; return whether a row was written."""
+        """Insert the fact, or skip an identical one; return whether a row was written.
+
+        ``mic`` is never written (it stays NULL): a snapshot's primary exchange is not documented
+        as of the requested date (``SNAPSHOT_ATTRIBUTES_ARE_AS_OF_DATE`` in the Massive mapper), so
+        storing it would turn an undated attribute into a dated claim.
+        """
         inserted = self._session.execute(
             postgresql.insert(ListingHistoryFact)
             .values(
@@ -110,7 +122,6 @@ class _FactWriter:
                 kind=kind.value,
                 ticker=ticker,
                 effective_date=effective_date,
-                mic=mic,
                 ingestion_run_id=self._run_id,
                 ingested_at=self._now,
                 created_at=self._now,
@@ -120,24 +131,7 @@ class _FactWriter:
             )
             .returning(ListingHistoryFact.id)
         ).scalar_one_or_none()
-        if inserted is not None:
-            return True
-        stored_mic = self._session.scalar(
-            sa.select(ListingHistoryFact.mic).where(
-                ListingHistoryFact.source_id == source_id,
-                ListingHistoryFact.security_id == security_id,
-                ListingHistoryFact.kind == kind,
-                ListingHistoryFact.ticker == ticker,
-                ListingHistoryFact.effective_date == effective_date,
-            )
-        )
-        if stored_mic != mic:
-            message = (
-                f"{kind.value} {ticker} {effective_date}: stored venue {stored_mic!r} differs from "
-                f"the incoming {mic!r}; the stored fact is left untouched"
-            )
-            raise ListingFactConflictError(message)
-        return False
+        return inserted is not None
 
 
 class ListingHistoryIngestionService:
@@ -241,7 +235,6 @@ class ListingHistoryIngestionService:
                 kind=ListingFactKind.TICKER_OBSERVED,
                 ticker=snapshot.ticker,
                 effective_date=snapshot.as_of_date,
-                mic=snapshot.primary_mic,
             )
         if snapshot.delisted_date is not None:
             written += writer.write(

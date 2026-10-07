@@ -281,6 +281,21 @@ class CanonicalEquityReference:
         raise ValueError(message)
 
 
+def _require_finite_positive_vwap(vwap: Decimal) -> None:
+    """The only checks a provider-reported vwap gets; see ``CanonicalDailyBar.__post_init__``."""
+    if not vwap.is_finite():
+        message = f"vwap must be finite, got {vwap}"
+        raise ValueError(message)
+    if vwap <= 0:
+        message = f"vwap must be positive, got {vwap}"
+        raise ValueError(message)
+    # The same plausibility backstop the OHLC prices get (provider-independent): it catches a
+    # wrong-field vwap (turnover instead of volume) without asserting any containment in [low, high].
+    if vwap > _MAX_PLAUSIBLE_PRICE:
+        message = f"vwap {vwap} is implausibly large (> {_MAX_PLAUSIBLE_PRICE})"
+        raise ValueError(message)
+
+
 @dataclass(frozen=True, slots=True)
 class CanonicalDailyBar:
     """One daily OHLCV aggregate, ready to persist.
@@ -308,9 +323,11 @@ class CanonicalDailyBar:
     #: persisted row's uniqueness key and conflict comparison both include it.
     price_basis: PriceBasis
     observed_at: datetime | None = None
-    #: Provider-computed volume-weighted average price, when supplied. Carried
-    #: through rather than recomputed, so a stored value always matches what the
-    #: provider published on the day.
+    #: Provider-reported volume-weighted average price for the aggregate window,
+    #: when supplied. Carried through rather than recomputed, so a stored value
+    #: always matches what the provider published. Its trade population is
+    #: provider-defined: it is not a regular-session VWAP and is not asserted to
+    #: lie within ``[low, high]`` (see ``__post_init__``).
     vwap: Decimal | None = None
     #: Trade count, when supplied. Useful later as a liquidity proxy.
     trades: int | None = None
@@ -349,14 +366,17 @@ class CanonicalDailyBar:
             if not self.low <= price <= self.high:
                 message = f"{field}={price} is outside the session range [{self.low}, {self.high}]"
                 raise ValueError(message)
-        # A volume-weighted average of the session's own trades cannot fall
-        # outside the range those trades spanned. Checked because vwap is the
-        # price field most often carried through unvalidated, and because a vwap
-        # computed over the wrong field -- turnover instead of volume, say -- is
-        # wrong by an order of magnitude and still looks like a number.
-        if self.vwap is not None and not self.low <= self.vwap <= self.high:
-            message = f"vwap={self.vwap} is outside the session range [{self.low}, {self.high}]"
-            raise ValueError(message)
+        # vwap is the PROVIDER-REPORTED volume-weighted average price for the
+        # aggregate window. The trade population it is computed over is defined
+        # by the provider, not here, so it is deliberately NOT asserted to lie
+        # within [low, high] and is NOT labelled a regular-session VWAP: Massive
+        # documents that a trade may update a bar's volume without updating its
+        # high/low, and the observed NKE 2026-10-01 bar has vw below its low
+        # (docs/market-data-repair-design.md section 3). Only what holds for any
+        # price is enforced -- finite and positive, mirroring the DB's
+        # ``vwap_positive`` CHECK so a bad value fails here, not at the write.
+        if self.vwap is not None:
+            _require_finite_positive_vwap(self.vwap)
         if self.volume is not None and self.volume < 0:
             message = f"volume must not be negative, got {self.volume}"
             raise ValueError(message)
@@ -726,11 +746,17 @@ class CanonicalTickerSnapshot:
     """One provider record from a DATED ticker listing: "as of ``as_of_date``, this ticker ...".
 
     It proves what the provider says for that one date and nothing around it: two snapshots do
-    not make a continuous interval, and ``primary_mic`` is venue evidence for that date only.
-    ``share_class_figi`` is the security-level anchor; ``composite_figi`` is exchange-composite
-    level (a different thing, never substituted); ``cik`` is registrant (company) identity, never
-    security identity. ``delisted_date`` is the provider's "last date the asset was traded"
-    (inclusive), present only for delisted tickers.
+    not make a continuous interval. ``as_of_date`` is the request's date parameter, which the
+    provider documents as the point in time the ticker was available; the response states no
+    date of its own. ``primary_mic`` is the provider's primary exchange as returned and is NOT
+    documented as of ``as_of_date``: it is kept on this record (the raw response keeps it too)
+    but is never persisted as a listing fact and never used as venue evidence by the resolver
+    (see ``quantforge.providers.massive.mapper.SNAPSHOT_ATTRIBUTES_ARE_AS_OF_DATE``).
+    The identifiers establish WHICH instrument was returned, not that they were in effect on
+    ``as_of_date``. ``share_class_figi`` is the security-level anchor; ``composite_figi`` is
+    exchange-composite level (a different thing, never substituted); ``cik`` is registrant
+    (company) identity, never security identity. ``delisted_date`` is the provider's "last date
+    the asset was traded" (inclusive), present only for delisted tickers.
     """
 
     as_of_date: date

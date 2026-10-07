@@ -56,7 +56,7 @@ def company(db_session: Session) -> Company:
 
 @pytest.fixture
 def exchange(db_session: Session) -> Exchange:
-    row = Exchange(mic="XRTN", name="Event Returns Test Exchange", timezone="America/New_York")
+    row = Exchange(mic="XNYS", name="Event Returns Test Exchange", timezone="America/New_York")
     db_session.add(row)
     db_session.commit()
     return row

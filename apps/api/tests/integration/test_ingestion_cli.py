@@ -10,8 +10,9 @@ between them was broken, which is exactly the wiring an operator depends on.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -1138,6 +1139,375 @@ def test_a_raw_store_failure_while_keeping_evidence_never_masks_the_mismatch(
     with Session(integration_engine) as session:
         failed = session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).one()
         assert "refusing to ingest" in (failed.error_message or "")
+        assert session.query(DailyPriceBar).count() == 0
+
+
+# ── provider vwap and failed-bar evidence (11.2E; Option C: the range fails whole) ──
+
+#: The observed NKE aggregate (adjusted=true): the 2026-10-01 ``vw`` 34.8298 is BELOW that day's
+#: low 35.02. Exact values; see docs/production-validation-design.md section 20.
+NKE_BARS_PAYLOAD: dict[str, Any] = {
+    "ticker": "NKE",
+    "queryCount": 4,
+    "resultsCount": 4,
+    "adjusted": True,
+    "status": "OK",
+    "results": [
+        {
+            "v": 112413524.118262,
+            "vw": 34.8298,
+            "o": 35.45,
+            "c": 35.15,
+            "h": 36.235,
+            "l": 35.02,
+            "t": 1790827200000,
+            "n": 560588,
+        },
+        {
+            "v": 142717008.024328,
+            "vw": 33.1565,
+            "o": 32.553,
+            "c": 33.87,
+            "h": 33.97,
+            "l": 31.97,
+            "t": 1790913600000,
+            "n": 693009,
+        },
+        {
+            "v": 69574914.414271,
+            "vw": 33.4753,
+            "o": 33.82,
+            "c": 33.96,
+            "h": 34.12,
+            "l": 32.76,
+            "t": 1791172800000,
+            "n": 348365,
+        },
+        {
+            "v": 50148121.392537,
+            "vw": 34.2191,
+            "o": 33.7,
+            "c": 34.61,
+            "h": 34.62,
+            "l": 33.5,
+            "t": 1791259200000,
+            "n": 256686,
+        },
+    ],
+    "request_id": "nke-fixture",
+}
+
+#: Reference for the NKE fixture. The CIK is NKE's; the share-class FIGI is a synthetic fixture
+#: value (the test needs a well-formed one, not the real one).
+NKE_TICKER_PAYLOAD: dict[str, Any] = {
+    "ticker": "NKE",
+    "name": "Nike, Inc.",
+    "cik": "0000320187",
+    "share_class_figi": "BBG000NKE001",
+    "composite_figi": "BBG000NKE002",
+    "market": "stocks",
+    "locale": "us",
+    "primary_exchange": "XNYS",
+    "type": "CS",
+    "active": True,
+    "currency_name": "usd",
+}
+
+_NKE_DAILY_ARGV = ["ingestion", "daily", "NKE", "--start", "2026-10-01", "--end", "2026-10-06"]
+_SPY_ARGV = [
+    "ingestion",
+    "benchmark",
+    "SPY",
+    "--start",
+    "2026-10-01",
+    "--end",
+    "2026-10-06",
+    "--name",
+    "SPY (ETF proxy for the S&P 500)",
+]
+
+
+def _nke_handler(bars: Any) -> Callable[[httpx.Request], httpx.Response]:
+    """Serve NKE reference data, and ``bars`` (a dict payload or raw bytes) for any aggregate."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/v2/aggs/"):
+            if isinstance(bars, bytes):
+                return httpx.Response(200, content=bars)
+            return httpx.Response(200, json=bars)
+        if request.url.params.get("ticker", "") == "NKE" or request.url.path.endswith("/NKE"):
+            return httpx.Response(200, json={"status": "OK", "results": NKE_TICKER_PAYLOAD})
+        return httpx.Response(404, json={"status": "ERROR", "error": "unknown ticker"})
+
+    return handler
+
+
+def _with_invalid_rows(indices: Sequence[int]) -> dict[str, Any]:
+    """The NKE payload with the open of each named row pushed above its own high."""
+    rows = [dict(row) for row in NKE_BARS_PAYLOAD["results"]]
+    for index in indices:
+        rows[index]["o"] = rows[index]["h"] + 1
+    return dict(NKE_BARS_PAYLOAD, results=rows)
+
+
+def _assert_rejected_evidence(raw_root: Path, run: IngestionRun, bodies: Sequence[bytes]) -> None:
+    """The failed run points at a manifest listing exactly ``bodies``, all stored as rejected."""
+    assert run.raw_artifact_path, "the failed run must point at its evidence"
+    manifest_path = raw_root / run.raw_artifact_path
+    assert manifest_path.is_file(), "the manifest survives the savepoint rollback"
+    manifest_bytes = manifest_path.read_bytes()
+    assert hashlib.sha256(manifest_bytes).hexdigest() == run.raw_content_sha256
+    assert len(manifest_bytes) == run.raw_artifact_bytes
+    manifest = json.loads(manifest_bytes)
+    assert manifest["run_id"] == str(run.id)
+    stored: list[bytes] = []
+    for entry in manifest["artifacts"]:
+        assert "/daily-bars-rejected/" in f"/{entry['path']}", "never an accepted artifact path"
+        payload = (raw_root / entry["path"]).read_bytes()
+        assert hashlib.sha256(payload).hexdigest() == entry["sha256"]
+        assert len(payload) == entry["byte_length"]
+        stored.append(payload)
+    assert stored == list(bodies), "the exact bytes received, in order"
+    accepted = [
+        path
+        for path in raw_root.rglob("*.json")
+        if "/daily-bars/" in path.as_posix() and "rejected" not in path.as_posix()
+    ]
+    assert accepted == [], "a refused response is never filed as accepted"
+
+
+def _assert_no_credential_on_disk(raw_root: Path) -> None:
+    for path in raw_root.rglob("*"):
+        if path.is_file():
+            text = path.read_bytes().decode("utf-8", errors="replace")
+            assert "test-key-not-real" not in text, path
+            assert "Bearer" not in text, path
+            assert "Authorization" not in text, path
+
+
+def test_the_observed_nke_aggregate_with_vwap_below_the_low_is_ingested_whole(
+    configured: Path, empty_database: None, serve: Any, integration_engine: Engine
+) -> None:
+    """Through the real CLI and IngestionService: 4 received, 4 written, 0 failed, SUCCEEDED."""
+    serve(_nke_handler(NKE_BARS_PAYLOAD))
+    assert cli.main(["ingestion", "reference", "NKE"]) == cli.EXIT_OK
+
+    assert cli.main(_NKE_DAILY_ARGV) == cli.EXIT_OK
+
+    with Session(integration_engine) as session:
+        run = session.query(IngestionRun).filter_by(dataset="daily-bars").one()
+        assert run.status is IngestionStatus.SUCCEEDED
+        assert (run.records_received, run.records_written, run.records_failed) == (4, 4, 0)
+        bars = session.query(DailyPriceBar).order_by(DailyPriceBar.trading_date).all()
+        assert [bar.trading_date for bar in bars] == [
+            date(2026, 10, 1),
+            date(2026, 10, 2),
+            date(2026, 10, 5),
+            date(2026, 10, 6),
+        ]
+        assert {bar.ingestion_run_id for bar in bars} == {run.id}
+        assert bars[0].vwap == Decimal("34.829800")
+        assert bars[0].vwap < bars[0].low
+        assert [bar.close for bar in bars] == [
+            Decimal("35.150000"),
+            Decimal("33.870000"),
+            Decimal("33.960000"),
+            Decimal("34.610000"),
+        ]
+        assert {bar.price_basis for bar in bars} == {PriceBasis.SPLIT_ADJUSTED}
+
+
+def test_an_nke_rerun_is_skipped_and_reuses_the_same_raw_artifact(
+    configured: Path, empty_database: None, serve: Any, integration_engine: Engine
+) -> None:
+    serve(_nke_handler(NKE_BARS_PAYLOAD))
+    assert cli.main(["ingestion", "reference", "NKE"]) == cli.EXIT_OK
+    assert cli.main(_NKE_DAILY_ARGV) == cli.EXIT_OK
+    assert cli.main(_NKE_DAILY_ARGV) == cli.EXIT_OK
+
+    with Session(integration_engine) as session:
+        first, second = (
+            session.query(IngestionRun)
+            .filter_by(dataset="daily-bars")
+            .order_by(IngestionRun.started_at)
+            .all()
+        )
+        assert (second.records_written, second.records_skipped) == (0, 4)
+        assert session.query(DailyPriceBar).count() == 4
+        assert {bar.ingestion_run_id for bar in session.query(DailyPriceBar)} == {first.id}
+    shas = [
+        json.loads((configured / run.raw_artifact_path).read_text())["artifacts"][0]["sha256"]
+        for run in (first, second)
+        if run.raw_artifact_path
+    ]
+    assert len(shas) == 2 and shas[0] == shas[1], "identical bytes, one content-addressed file"
+
+
+def test_the_benchmark_path_accepts_a_vwap_outside_the_range(
+    configured: Path, empty_database: None, serve: Any, integration_engine: Engine
+) -> None:
+    """SPY's ``vw`` is never stored, so a provider ``vw`` outside [l, h] must not block it."""
+    row = dict(SPY_BARS_PAYLOAD["results"][0], vw=700.0, n=10)  # high is 690
+    serve(_nke_handler(dict(SPY_BARS_PAYLOAD, results=[row])))
+
+    assert cli.main(_SPY_ARGV) == cli.EXIT_OK
+
+    with Session(integration_engine) as session:
+        run = session.query(IngestionRun).filter_by(dataset="benchmark-daily-bars").one()
+        assert run.status is IngestionStatus.SUCCEEDED
+        assert (run.records_received, run.records_written, run.records_failed) == (1, 1, 0)
+        level = session.query(BenchmarkPriceBar).one()
+        assert level.close == Decimal("685.000000")
+        assert level.ingestion_run_id == run.id
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [(0,), (1,), (3,), (0, 1, 2, 3)],
+    ids=["first-row", "middle-row", "last-row", "all-rows"],
+)
+def test_an_invalid_bar_fails_the_whole_range_and_keeps_the_response_as_rejected_evidence(
+    configured: Path,
+    empty_database: None,
+    serve: Any,
+    integration_engine: Engine,
+    invalid: tuple[int, ...],
+) -> None:
+    """Option C: no bar from the range is stored, the run is FAILED, the bytes are kept."""
+    payload = _with_invalid_rows(invalid)
+    body = json.dumps(payload).encode()
+    serve(_nke_handler(NKE_BARS_PAYLOAD))
+    assert cli.main(["ingestion", "reference", "NKE"]) == cli.EXIT_OK
+    serve(_nke_handler(body))
+
+    assert cli.main(_NKE_DAILY_ARGV) == cli.EXIT_RUN_FAILED
+
+    with Session(integration_engine) as session:
+        assert session.query(DailyPriceBar).count() == 0, "no bar from a failed range survives"
+        failed = session.query(IngestionRun).filter_by(dataset="daily-bars").one()
+        assert failed.status is IngestionStatus.FAILED
+        assert failed.error_type == "ProviderPayloadError"
+        assert "is outside the session range" in (failed.error_message or "")
+        assert failed.records_written == 0
+        assert failed.completed_at is not None
+    _assert_rejected_evidence(configured, failed, [body])
+    _assert_no_credential_on_disk(configured)
+
+
+def test_a_missing_results_response_is_kept_as_rejected_evidence(
+    configured: Path, empty_database: None, serve: Any, integration_engine: Engine
+) -> None:
+    body = json.dumps({"status": "ERROR", "error": "universe not loaded"}).encode()
+    serve(_nke_handler(NKE_BARS_PAYLOAD))
+    assert cli.main(["ingestion", "reference", "NKE"]) == cli.EXIT_OK
+    serve(_nke_handler(body))
+
+    assert cli.main(_NKE_DAILY_ARGV) == cli.EXIT_RUN_FAILED
+
+    with Session(integration_engine) as session:
+        failed = session.query(IngestionRun).filter_by(dataset="daily-bars").one()
+        assert failed.error_type == "ProviderResponseError"
+        assert session.query(DailyPriceBar).count() == 0
+    _assert_rejected_evidence(configured, failed, [body])
+
+
+def test_an_undecodable_200_is_kept_as_rejected_evidence(
+    configured: Path, empty_database: None, serve: Any, integration_engine: Engine
+) -> None:
+    body = b"<html>upstream proxy error</html>"
+    serve(_nke_handler(NKE_BARS_PAYLOAD))
+    assert cli.main(["ingestion", "reference", "NKE"]) == cli.EXIT_OK
+    serve(_nke_handler(body))
+
+    assert cli.main(_NKE_DAILY_ARGV) == cli.EXIT_RUN_FAILED
+
+    with Session(integration_engine) as session:
+        failed = session.query(IngestionRun).filter_by(dataset="daily-bars").one()
+        assert failed.error_type == "ProviderResponseError"
+        assert session.query(DailyPriceBar).count() == 0
+    _assert_rejected_evidence(configured, failed, [body])
+    _assert_no_credential_on_disk(configured)
+
+
+def test_a_non_200_bar_response_leaves_a_failed_run_with_no_artifact(
+    configured: Path, empty_database: None, serve: Any, integration_engine: Engine
+) -> None:
+    """A non-200 body is never captured, so there is no evidence to point at."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/v2/aggs/"):
+            return httpx.Response(404, json={"status": "ERROR", "echo": "anything"})
+        return _nke_handler(NKE_BARS_PAYLOAD)(request)
+
+    serve(handler)
+    assert cli.main(["ingestion", "reference", "NKE"]) == cli.EXIT_OK
+
+    assert cli.main(_NKE_DAILY_ARGV) == cli.EXIT_RUN_FAILED
+
+    with Session(integration_engine) as session:
+        failed = session.query(IngestionRun).filter_by(dataset="daily-bars").one()
+        assert failed.raw_artifact_path is None
+    assert not [p for p in configured.rglob("*.json") if "daily-bars-rejected" in p.as_posix()]
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [(0,), (1,), (3,), (0, 1, 2, 3)],
+    ids=["first-row", "middle-row", "last-row", "all-rows"],
+)
+def test_an_invalid_benchmark_bar_fails_the_whole_range_and_keeps_rejected_evidence(
+    configured: Path,
+    empty_database: None,
+    serve: Any,
+    integration_engine: Engine,
+    invalid: tuple[int, ...],
+) -> None:
+    """The benchmark path follows the same policy, and creates no identity from a failed run."""
+    body = json.dumps(dict(_with_invalid_rows(invalid), ticker="SPY")).encode()
+    serve(_nke_handler(body))
+
+    assert cli.main(_SPY_ARGV) == cli.EXIT_RUN_FAILED
+
+    with Session(integration_engine) as session:
+        assert session.query(BenchmarkPriceBar).count() == 0
+        assert session.query(Benchmark).count() == 0, "created inside the failed block"
+        failed = session.query(IngestionRun).filter_by(dataset="benchmark-daily-bars").one()
+        assert failed.status is IngestionStatus.FAILED
+        assert failed.error_type == "ProviderPayloadError"
+        assert failed.records_written == 0
+    _assert_rejected_evidence(configured, failed, [body])
+    _assert_no_credential_on_disk(configured)
+
+
+def test_a_raw_store_failure_while_keeping_evidence_never_masks_an_invalid_bar(
+    configured: Path,
+    empty_database: None,
+    serve: Any,
+    integration_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    serve(_nke_handler(NKE_BARS_PAYLOAD))
+    assert cli.main(["ingestion", "reference", "NKE"]) == cli.EXIT_OK
+    serve(_nke_handler(_with_invalid_rows([1])))
+    real = RawResponseStore.store_all
+
+    def broken(self: RawResponseStore, captures: Any) -> Any:
+        if captures and captures[0].dataset.endswith("-rejected"):
+            raise OSError("disk full")
+        return real(self, captures)
+
+    monkeypatch.setattr(RawResponseStore, "store_all", broken)
+
+    code = cli.main(_NKE_DAILY_ARGV)
+
+    assert code == cli.EXIT_RUN_FAILED, "still the clean provider failure, not a traceback"
+    assert "is outside the session range" in capsys.readouterr().err
+    with Session(integration_engine) as session:
+        failed = session.query(IngestionRun).filter_by(status=IngestionStatus.FAILED).one()
+        assert failed.error_type == "ProviderPayloadError"
+        assert "is outside the session range" in (failed.error_message or "")
+        assert failed.raw_artifact_path is None, "nothing was stored, so nothing is claimed"
         assert session.query(DailyPriceBar).count() == 0
 
 

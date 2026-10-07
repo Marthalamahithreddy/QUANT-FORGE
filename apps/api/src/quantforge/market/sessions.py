@@ -14,7 +14,19 @@ from datetime import date, datetime, timedelta
 from enum import StrEnum
 from typing import Protocol
 
-__all__ = ["MarketSession", "SessionCalendar", "SessionLookup", "SessionLookupStatus"]
+__all__ = [
+    "SESSION_CALENDAR_RELEASE",
+    "MarketSession",
+    "SessionCalendar",
+    "SessionLookup",
+    "SessionLookupStatus",
+]
+
+#: The ``exchange_calendars`` release whose session content the research methodology label
+#: (``session_alignment``) vouches for. The adapter's shared factory refuses to run on a different
+#: release, because a changed holiday table would change anchors and targets under an unchanged
+#: methodology label. Bump it, and the label, together and deliberately.
+SESSION_CALENDAR_RELEASE = "4.13.2"
 
 
 class SessionLookupStatus(StrEnum):

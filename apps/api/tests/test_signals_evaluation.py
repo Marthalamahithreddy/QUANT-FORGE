@@ -130,6 +130,8 @@ def _outcomes(
         anchor_session=_ANCHOR,
         price_series=list(stock_prices.items()),
         horizons=list(horizons),
+        # the test chooses which dates are sessions: the dates after the anchor in its own prices
+        forward_sessions=sorted(day for day in stock_prices if day > _ANCHOR),
     )
     stock_returns = EventForwardReturns(
         event_id=event_id,

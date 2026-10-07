@@ -17,9 +17,12 @@ deterministic function of the facts and the provisional listings, so a re-run ca
 and nothing is rewritten. Facts attach to a **security** (resolved through the share-class FIGI),
 never to a bare ticker or to the company (CIK is registrant identity, not security identity).
 
-``mic`` is venue EVIDENCE carried by a dated snapshot (the provider's primary exchange on that
-date) and is stored only for ``TICKER_OBSERVED``: ticker-change events say nothing about venues, so
-no exchange continuity is ever implied, and complete exchange-transfer history is NOT established.
+``mic`` is a nullable venue column allowed only on ``TICKER_OBSERVED`` (CHECK
+``mic_only_on_observation``). No current writer fills it: a dated snapshot's primary exchange is
+NOT documented by the provider as of the requested date, so it is not persisted (it stays in the raw
+response only) and is never used as venue evidence by the resolver. Ticker-change events say nothing
+about venues either, so no exchange continuity is ever implied, and complete exchange-transfer
+history is NOT established.
 
 Like the other fact tables there is no ``updated_at``: a fact is stated once, never edited.
 """
@@ -110,7 +113,10 @@ class ListingHistoryFact(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     mic: Mapped[str | None] = mapped_column(
         sa.String(FACT_MIC_LENGTH),
         nullable=True,
-        doc="Provider's primary-exchange MIC on that date (observations only); venue evidence, not history.",
+        doc=(
+            "Reserved venue MIC (observations only). Always NULL from snapshots: the provider's "
+            "primary exchange is not documented as of the requested date, so it is not stored."
+        ),
     )
     ingestion_run_id: Mapped[uuid.UUID | None] = mapped_column(
         sa.Uuid(as_uuid=True),

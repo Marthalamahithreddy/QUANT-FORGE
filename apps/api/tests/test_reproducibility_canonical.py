@@ -121,9 +121,9 @@ def test_methodology_table_is_pinned_so_a_semantic_edit_is_deliberate() -> None:
     assert COMPONENT_VERSIONS == {
         "observation_contract": "research-observation/1",
         "event_study": "event-study/1",
-        "session_alignment": "stored-bar-sessions/1",
+        "session_alignment": "exchange-calendar-sessions/1",
         "price_series": "coherent-single-source-series/1",
-        "forward_returns": "close-to-close-session-returns/1",
+        "forward_returns": "close-to-close-proven-session-returns/1",
         "benchmark_returns": "matched-endpoint-benchmark/1",
         "abnormal_returns": "market-adjusted-simple/1",
         "listing_resolution": "listing-resolution/1",
@@ -218,8 +218,9 @@ def test_methodology_overrides_reject_unknown_components_and_windows_follow_the_
     with pytest.raises(ValueError, match="unknown methodology"):
         current_methodology({"not_a_component": "x/1"})
     # the pinned windows must be the ones the engines actually use
-    default = inspect.signature(align_earnings_event).parameters["window_days"].default
-    assert default == ALIGNMENT_WINDOW_DAYS == CURRENT_METHODOLOGY.alignment_window_days
+    assert CURRENT_METHODOLOGY.alignment_window_days == ALIGNMENT_WINDOW_DAYS
+    # alignment no longer reads stored bars (Step 11.2E): it has no window parameter to pin
+    assert "window_days" not in inspect.signature(align_earnings_event).parameters
     anchor = date(2026, 3, 2)
     assert forward_price_window_end(anchor, [1]) == anchor + timedelta(days=14)
     assert forward_price_window_end(anchor, [20]) == anchor + timedelta(days=60)

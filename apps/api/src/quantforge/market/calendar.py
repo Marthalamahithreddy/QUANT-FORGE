@@ -35,6 +35,8 @@ raises.
 
 from __future__ import annotations
 
+import functools
+import importlib.metadata
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -42,12 +44,18 @@ import exchange_calendars as xcals
 from exchange_calendars.errors import DateOutOfBounds, RequestedSessionOutOfBounds
 
 from quantforge.market.sessions import (
+    SESSION_CALENDAR_RELEASE,
     MarketSession,
     SessionLookup,
     SessionLookupStatus,
 )
 
-__all__ = ["SUPPORTED_MICS", "ExchangeCalendarsSessionCalendar"]
+__all__ = [
+    "SUPPORTED_MICS",
+    "ExchangeCalendarsSessionCalendar",
+    "SessionCalendarReleaseError",
+    "default_session_calendar",
+]
 
 #: The reviewed US-equity MICs QuantForge answers for. Each is also the
 #: ``exchange_calendars`` calendar name used for it. Extending this is a
@@ -207,3 +215,31 @@ class ExchangeCalendarsSessionCalendar:
                 mic, trading_date, f"the {direction} session relative to {trading_date}"
             )
         return self._available(calendar, mic, trading_date, found.date())
+
+
+class SessionCalendarReleaseError(RuntimeError):
+    """The installed ``exchange_calendars`` is not the release the methodology label vouches for."""
+
+
+@functools.lru_cache(maxsize=1)
+def _shared_for(day: date) -> ExchangeCalendarsSessionCalendar:
+    installed = importlib.metadata.version("exchange_calendars")
+    if installed != SESSION_CALENDAR_RELEASE:
+        message = (
+            f"exchange_calendars {installed} is installed but the research session methodology "
+            f"is pinned to {SESSION_CALENDAR_RELEASE}; bump the release constant and the "
+            "'session_alignment' methodology label together before using a different release"
+        )
+        raise SessionCalendarReleaseError(message)
+    return ExchangeCalendarsSessionCalendar()
+
+
+def default_session_calendar() -> ExchangeCalendarsSessionCalendar:
+    """The process-wide calendar for research, rebuilt once per UTC day.
+
+    A calendar's upper bound is fixed when it is first built (about a year past that day), so
+    one instance is shared within a UTC day (building each MIC's calendar costs real time) and a
+    fresh one is made the next day. Research code receives a ``SessionCalendar`` and never
+    imports this module, so the calendar libraries load only when this is first called.
+    """
+    return _shared_for(datetime.now(UTC).date())

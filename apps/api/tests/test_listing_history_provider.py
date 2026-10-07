@@ -10,6 +10,7 @@ from typing import Any
 import httpx2 as httpx
 import pytest
 
+import quantforge
 from quantforge.ingestion.canonical import (
     CanonicalTickerChange,
     CanonicalTickerEvents,
@@ -17,10 +18,16 @@ from quantforge.ingestion.canonical import (
 )
 from quantforge.ingestion.raw_store import RawResponseStore
 from quantforge.providers.errors import ProviderResponseError
+from quantforge.providers.massive import mapper
 from quantforge.providers.massive.client import MassiveClient, MassiveConfig
-from quantforge.providers.massive.dto import MassiveTickerChangeEventDTO, MassiveTickerSnapshotDTO
+from quantforge.providers.massive.dto import (
+    MassiveTickerChangeEventDTO,
+    MassiveTickerDetailsDTO,
+    MassiveTickerSnapshotDTO,
+)
 from quantforge.providers.massive.mapper import to_canonical_ticker_snapshot
 
+SRC = Path(quantforge.__file__).resolve().parent
 SHARE_CLASS = "BBG001SCTQY4"
 COMPOSITE = "BBG000BWQYZ5"
 DAY = date(2020, 1, 2)
@@ -147,6 +154,45 @@ def test_a_bad_delisted_utc_is_rejected() -> None:
         to_canonical_ticker_snapshot(dto, as_of_date=DAY)
 
 
+def test_the_mapper_keeps_the_primary_mic_on_an_active_canonical_snapshot() -> None:
+    """The canonical record keeps the provider's venue; only the stored FACT drops it."""
+    dto = MassiveTickerSnapshotDTO.from_provider(_record())
+    assert to_canonical_ticker_snapshot(dto, as_of_date=DAY).primary_mic == "XNYS"
+
+
+# ── snapshot date contract (docs/production-validation-design.md section 20) ──
+
+
+def test_the_snapshot_date_contract_is_pinned_in_the_adapter() -> None:
+    """The request ``date`` is the documented point in time; nothing else is claimed as dated."""
+    assert mapper.SNAPSHOT_DATE_SEMANTICS == "REQUEST_PARAMETER_IS_AS_OF_DATE"
+    assert mapper.SNAPSHOT_DATE_STATED_IN_RESPONSE is False
+    assert mapper.SNAPSHOT_ATTRIBUTES_ARE_AS_OF_DATE is False
+
+
+def test_the_snapshot_contract_wording_is_retained_next_to_the_constants() -> None:
+    source = (SRC / "providers" / "massive" / "mapper.py").read_text(encoding="utf-8")
+    assert "Specify a point in time to retrieve tickers available on that date" in source
+    assert "actively traded on the queried date" in source
+    assert "production-validation-design.md section 20" in source
+
+
+def test_list_date_stays_unused_in_production_code() -> None:
+    """Its semantics across ticker changes, relistings and share classes are undocumented."""
+    users = [
+        path.relative_to(SRC).as_posix()
+        for path in SRC.rglob("*.py")
+        if "list_date" in path.read_text(encoding="utf-8")
+    ]
+    assert users == []
+
+
+def test_the_ticker_details_dto_ignores_a_list_date() -> None:
+    dto = MassiveTickerDetailsDTO.model_validate({"ticker": "A", "list_date": "1999-11-18"})
+    assert "list_date" not in dto.model_dump()
+    assert not hasattr(dto, "list_date")
+
+
 # ── snapshot client ──────────────────────────────────────────────────────────
 
 
@@ -172,6 +218,26 @@ async def test_the_snapshot_request_uses_the_documented_parameters_and_a_header_
     }
     assert "test-key" not in str(request.url)
     assert [s.ticker for s in result.snapshots] == ["A"] and result.rejected == ()
+
+
+@pytest.mark.anyio
+async def test_the_request_date_becomes_the_snapshot_date() -> None:
+    """The response states no as-of date; the documented request parameter is the date."""
+    async with _client(lambda _r: _page(_record())) as client:
+        result = await client.get_ticker_snapshots("A", date(2026, 10, 1))
+
+    assert [s.as_of_date for s in result.snapshots] == [date(2026, 10, 1)]
+    assert result.captures[0].request_parameters["date"] == "2026-10-01"
+
+
+@pytest.mark.anyio
+async def test_a_stray_date_key_in_the_payload_is_ignored() -> None:
+    """Only the request parameter dates the record; a payload ``date`` is not read."""
+    page = _page(_record(date="1999-01-01", last_updated_utc="2026-10-02T06:11:31Z"))
+    async with _client(lambda _r: page) as client:
+        result = await client.get_ticker_snapshots("A", DAY)
+
+    assert [s.as_of_date for s in result.snapshots] == [DAY] and result.rejected == ()
 
 
 @pytest.mark.anyio

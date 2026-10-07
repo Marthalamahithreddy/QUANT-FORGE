@@ -107,7 +107,7 @@ def market(db_session: Session) -> dict[str, object]:
         name="obs-bench-vendor", provider_type=ProviderType.MARKET_DATA_VENDOR
     )
     company = Company(legal_name="Observation Co", display_name="Observation Co", cik=CIK_MAIN)
-    exchange = Exchange(mic="XOBS", name="Observation Exchange", timezone="America/New_York")
+    exchange = Exchange(mic="XNYS", name="Observation Exchange", timezone="America/New_York")
     db_session.add_all([stock_source, bench_source, company, exchange])
     db_session.commit()
     security = Security(

@@ -339,7 +339,10 @@ class MassiveTickerSnapshotDTO(_MassiveModel):
     Only what listing history needs. ``primary_exchange`` is the provider's venue code,
     ``delisted_utc`` the last date the asset traded (an ISO timestamp or date; only its date is
     used), ``active`` whether it traded on the queried date. A missing FIGI/CIK is ``None``, never
-    an empty string.
+    an empty string. The record carries no as-of date: the request's ``date`` parameter dates it,
+    and only the ticker's availability is documented as of that date -- not ``primary_exchange``,
+    the CIK or the FIGIs. See
+    :data:`quantforge.providers.massive.mapper.SNAPSHOT_DATE_SEMANTICS`.
     """
 
     ticker: str

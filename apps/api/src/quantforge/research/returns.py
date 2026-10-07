@@ -18,16 +18,17 @@ is a closing price, not an executable entry price, and a later backtesting
 layer that needs real execution-price semantics (open prices, slippage, fill
 timing) is free to define its own anchor without disturbing this convention.
 
-Sessions here mean exactly what they mean in
-:mod:`quantforge.research.calendar`: "the N-th available trading session this
-function was handed", derived from whatever price series the caller supplied
-(see :mod:`quantforge.research.price_series` for where that series comes
-from, under the current data architecture that is ``DailyPriceBar`` rows
-QuantForge has actually ingested). A gap in that series is never assumed to be
-a weekend or a holiday and is never assumed to be anything else either -- it
-is just absent, and a horizon landing past the end of the supplied series is
-reported as ``INSUFFICIENT_FORWARD_SESSIONS``, not silently shortened or
-forward-filled.
+Sessions here are EXCHANGE trading sessions from the exchange calendar (Step
+11.2E), supplied by the caller as ``forward_sessions`` -- never the dates of
+whichever price bars happen to be stored. ``S_N`` is the N-th PROVEN session
+after ``S0``; its close is then looked up by exact date. A stored bar that is
+absent is a missing PRICE: the horizon is reported unavailable and the target
+is never shifted to a later stored bar. A weekend or exchange holiday is a
+non-session only because the calendar says so, so it never consumes a horizon
+slot, while a missing bar on a real session does make that horizon unavailable.
+A close-to-close return needs only the anchor and target closes, so an absent
+bar on an INTERIOR session does not change or invalidate a return whose two
+endpoint bars exist.
 
 These are **split-adjusted price returns, dividends excluded**
 -----------------------------------------------------------------
@@ -91,11 +92,12 @@ class ForwardReturnStatus(StrEnum):
     #: no ``P0`` to divide by.
     MISSING_ANCHOR_PRICE = "MISSING_ANCHOR_PRICE"
 
-    #: Fewer than ``horizon`` trading sessions exist after the anchor in the
-    #: supplied series. This means "not enough *stored* sessions were found",
-    #: not "the market was closed" -- see the module and
-    #: :mod:`quantforge.research.price_series` docstrings on what "available
-    #: session" means under the current architecture.
+    #: The horizon's target cannot be priced: either the exchange calendar
+    #: proves fewer than ``horizon`` sessions after the anchor (calendar range
+    #: or venue limit), or the PROVEN target session has no stored price
+    #: observation (not ingested yet, or genuinely absent). The target is
+    #: never moved to a later stored bar. When the target session is proven
+    #: its date is still reported, with no close; the ``reason`` says which.
     INSUFFICIENT_FORWARD_SESSIONS = "INSUFFICIENT_FORWARD_SESSIONS"
 
     #: The anchor close, or the resolved target close, is not a positive
@@ -210,23 +212,29 @@ def compute_forward_returns(
     anchor_session: date,
     price_series: list[tuple[date, Decimal]],
     horizons: list[int],
+    forward_sessions: Sequence[date],
+    forward_sessions_reason: str = "",
 ) -> list[ForwardReturn]:
-    """Compute close-to-close forward returns from an anchor over an ordered price series.
+    """Compute close-to-close forward returns from an anchor to PROVEN session targets.
 
     Args:
         anchor_session: ``S0`` -- the session a return is measured from. Must
-            be a real Step 8.2 ``first_post_event_session``, not re-derived
+            be a real alignment ``first_post_event_session``, not re-derived
             here.
+        forward_sessions: The exchange sessions strictly after ``anchor_session``,
+            in order (``forward_sessions[N-1]`` is the N-th). Supplied by the
+            caller from the exchange calendar; this function never derives
+            sessions from ``price_series``. May be shorter than the largest
+            horizon when the calendar could not prove more.
+        forward_sessions_reason: Why ``forward_sessions`` is short, if it is.
         price_series: ``(trading_date, close)`` pairs from a single, coherent
             price source (see :mod:`quantforge.research.price_series`) for
-            the relevant listing. Sorted defensively by this function, like
-            :func:`quantforge.research.calendar.align_event_to_sessions`
-            sorts its own session list, but duplicate dates are *not*
-            deduplicated here -- a coherent single-source series cannot
-            contain one date twice, by the database's own
-            ``(listing_id, trading_date, source_id, price_basis)`` uniqueness constraint,
-            so a caller handing in a duplicate has a bug elsewhere, not
-            something this function should paper over.
+            the relevant listing. Used only to look closes up by exact date;
+            it never defines which dates are sessions. A coherent single-source
+            series cannot contain one date twice (the database's own
+            ``(listing_id, trading_date, source_id, price_basis)`` uniqueness
+            constraint), so a duplicate is a caller bug this function does not
+            paper over.
         horizons: The number of sessions after ``anchor_session`` to measure
             to; validated by :func:`validate_horizons` before anything else.
             Every element of this list, no matter the outcome, produces
@@ -236,8 +244,7 @@ def compute_forward_returns(
         One :class:`ForwardReturn` per element of ``horizons``, in order.
     """
     validate_horizons(horizons)
-    ordered = sorted(price_series, key=lambda row: row[0])
-    price_by_date: dict[date, Decimal] = dict(ordered)
+    price_by_date: dict[date, Decimal] = dict(price_series)
 
     anchor_close = price_by_date.get(anchor_session)
     if anchor_close is None:
@@ -271,18 +278,18 @@ def compute_forward_returns(
         ]
 
     # Only sessions strictly after the anchor count toward a horizon: N=1 is
-    # the *next* session, never S0 itself (S0 is the entry point the return is
-    # measured from, not the first step of it). Taken from `ordered`, not from
-    # iterating the dict, so the result's order does not rely on dict
-    # insertion-order semantics -- forward_sessions[h - 1] is the N-th such
-    # session directly.
-    forward_sessions = [
-        session_date for session_date, _ in ordered if session_date > anchor_session
-    ]
+    # the *next* session, never S0 itself. The caller supplies them from the
+    # exchange calendar; a malformed sequence is a programming error.
+    proven = list(forward_sessions)
+    if any(
+        later <= earlier for earlier, later in zip([anchor_session, *proven], proven, strict=False)
+    ):
+        message = "forward_sessions must be strictly increasing and strictly after the anchor"
+        raise ValueError(message)
 
     results: list[ForwardReturn] = []
     for horizon in horizons:
-        if len(forward_sessions) < horizon:
+        if len(proven) < horizon:
             results.append(
                 ForwardReturn(
                     horizon=horizon,
@@ -293,15 +300,34 @@ def compute_forward_returns(
                     return_value=None,
                     status=ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS,
                     reason=(
-                        f"fewer than {horizon} available trading sessions exist "
+                        f"the exchange calendar proves fewer than {horizon} trading sessions "
                         f"after the anchor session {anchor_session}"
+                        + (f" ({forward_sessions_reason})" if forward_sessions_reason else "")
                     ),
                 )
             )
             continue
 
-        target_session = forward_sessions[horizon - 1]
-        target_close = price_by_date[target_session]
+        target_session = proven[horizon - 1]
+        target_close = price_by_date.get(target_session)
+        if target_close is None:
+            results.append(
+                ForwardReturn(
+                    horizon=horizon,
+                    anchor_session=anchor_session,
+                    anchor_close=anchor_close,
+                    target_session=target_session,
+                    target_close=None,
+                    return_value=None,
+                    status=ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS,
+                    reason=(
+                        f"{target_session} is the {horizon}-th exchange session after the anchor "
+                        f"{anchor_session}, but no price observation is stored for it; the "
+                        "target is not moved to another date"
+                    ),
+                )
+            )
+            continue
 
         if target_close <= 0:
             results.append(
@@ -327,7 +353,7 @@ def compute_forward_returns(
                 target_close=target_close,
                 return_value=target_close / anchor_close - 1,
                 status=ForwardReturnStatus.AVAILABLE,
-                reason="computed from the ordered available trading-session series",
+                reason="computed from the closes on the anchor and the proven target exchange session",
             )
         )
 

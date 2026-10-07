@@ -57,7 +57,7 @@ def company(db_session: Session) -> Company:
 
 @pytest.fixture
 def exchange(db_session: Session) -> Exchange:
-    row = Exchange(mic="XSIG", name="Signal Test Exchange", timezone="America/New_York")
+    row = Exchange(mic="XNYS", name="Signal Test Exchange", timezone="America/New_York")
     db_session.add(row)
     db_session.commit()
     return row
@@ -464,16 +464,21 @@ def test_no_listing_for_the_event_date_yields_no_effective_session(
     assert signal.effective_session is None
 
 
-def test_insufficient_price_history_yields_no_effective_session(
+def test_signal_generation_does_not_depend_on_stored_price_bars(
     company: Company, source: DataSource, listing: Listing, db_session: Session
 ) -> None:
-    """A resolved listing with no price bars at all still fails honestly."""
+    """Step 11.2E: the effective session comes from the exchange calendar, never from price bars.
+
+    A listing with no stored bars still has its calendar session; before the repair a missing bar
+    made the signal NO_EFFECTIVE_SESSION, i.e. signal generation read price-bar data.
+    """
     event = _event(company, source, db_session, timing=EarningsTiming.BEFORE_MARKET)
 
     signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.DESCRIPTIVE)
 
-    assert signal.status is EpsSurpriseSignalStatus.NO_EFFECTIVE_SESSION
+    assert signal.status is EpsSurpriseSignalStatus.AVAILABLE
     assert signal.listing_id == listing.id
+    assert signal.effective_session == event.event_date
 
 
 # ── look-ahead tripwire ──────────────────────────────────────────────────────
@@ -692,7 +697,7 @@ def test_signal_exchange_mic_is_the_resolved_listings_venue(
 
     signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)
 
-    assert signal.exchange_mic == "XSIG"
+    assert signal.exchange_mic == "XNYS"
 
 
 def test_signal_with_no_resolved_listing_carries_no_mic(
@@ -810,8 +815,21 @@ def test_end_to_end_null_observed_at_is_never_a_candidate(
 
 
 def test_end_to_end_unsupported_venue_is_refused(
-    company: Company, source: DataSource, listing: Listing, db_session: Session
+    company: Company, source: DataSource, security: Security, db_session: Session
 ) -> None:
+    """A venue outside the supported set has no proven session sequence: no signal, no eligibility."""
+    unsupported = Exchange(mic="XSIG", name="Unsupported Venue", timezone="America/New_York")
+    db_session.add(unsupported)
+    db_session.commit()
+    listing = Listing(
+        security_id=security.id,
+        exchange_id=unsupported.id,
+        ticker="UNSP",
+        valid_from=date(2018, 1, 2),
+        is_primary=True,
+    )
+    db_session.add(listing)
+    db_session.commit()
     _put_bars(listing, source, db_session, _WEEK)
     event = _event(
         company,
@@ -825,7 +843,10 @@ def test_end_to_end_unsupported_venue_is_refused(
     signal = generate_eps_surprise_signal(db_session, event, mode=ResearchMode.POINT_IN_TIME)
     result = assess_execution_eligibility(signal, ExchangeCalendarsSessionCalendar())
 
-    assert result.status is ExecutionEligibilityStatus.UNSUPPORTED_MIC
+    assert (
+        signal.status is EpsSurpriseSignalStatus.NO_EFFECTIVE_SESSION
+    )  # stored bars never stand in
+    assert result.status is not ExecutionEligibilityStatus.CANDIDATE_EXECUTION_ELIGIBLE
 
 
 def test_a_naive_observed_at_is_rejected_not_reinterpreted_as_local_time(

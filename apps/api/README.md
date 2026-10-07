@@ -177,6 +177,18 @@ session date on the right calendar. Ingestion is idempotent per
 provider that *revises* a stored bar is a conflict — `ProviderDataConflict` —
 and fails the run rather than being swallowed.
 
+There is no partial bar ingestion. A bar that fails validation (malformed row,
+non-finite or non-positive price, `low > high`, open/close outside
+`[low, high]`), a 200 with no `results`, or an undecodable 200 fails the
+**whole requested range**: no bar from it is stored, the run is `failed` with
+the first reason, and the raw response is retained as rejected evidence under
+`daily-bars-rejected`, referenced by the failed run's manifest. The same policy
+applies to `ingestion benchmark`. A non-200 response stores no body. Re-run the
+range once the cause is understood. `vwap` is the provider-reported
+volume-weighted average for the aggregate window (trade population defined by
+the provider, not a regular-session VWAP); it must be positive but is **not**
+required to lie within the bar's high/low.
+
 **Provenance.** Every fetch records an `ingestion_run` row (status, counts,
 timing, the exact request parameters, and the SHA-256 of the raw response).
 Raw provider bytes are stored verbatim under `QF_INGESTION_RAW_ROOT`:

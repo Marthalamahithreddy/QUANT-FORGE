@@ -159,14 +159,57 @@ def test_aware_observed_at_is_accepted() -> None:
     assert _bar(observed_at=stamp).observed_at == stamp
 
 
-def test_vwap_must_sit_inside_the_session_range_too() -> None:
-    """A vwap outside the high/low range is impossible for a real session.
+@pytest.mark.parametrize(
+    "vwap",
+    [Decimal("98.99"), Decimal("105.01"), Decimal("500")],
+    ids=["below-low", "above-high", "far-above-high"],
+)
+def test_a_vwap_outside_the_bar_range_is_accepted(vwap: Decimal) -> None:
+    """``vwap`` is the provider-reported figure, not asserted to sit inside [low, high].
 
-    Checked explicitly because it is the one price field a naive implementation
-    forgets, and because a vwap is often carried through unvalidated.
+    Massive does not document that containment, and its aggregate rules let a trade update
+    volume without updating the bar's high/low (the observed NKE 2026-10-01 bar has ``vw`` below
+    its low). Rejecting it would enforce a provider assumption as if it were a universal law.
     """
-    with pytest.raises(ValueError):
-        _bar(vwap=Decimal("500"))
+    assert _bar(vwap=vwap).vwap == vwap
+
+
+@pytest.mark.parametrize("vwap", [Decimal("0"), Decimal("-0.0001"), Decimal("-34.8298")])
+def test_a_non_positive_vwap_is_refused(vwap: Decimal) -> None:
+    """Mirrors the database ``vwap_positive`` CHECK, so a bad value fails before the write."""
+    with pytest.raises(ValueError, match="vwap must be positive"):
+        _bar(vwap=vwap)
+
+
+@pytest.mark.parametrize("vwap", [Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")])
+def test_a_non_finite_vwap_is_refused(vwap: Decimal) -> None:
+    with pytest.raises(ValueError, match="vwap must be finite"):
+        _bar(vwap=vwap)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "reason"),
+    [
+        ({"high": Decimal("98"), "low": Decimal("99")}, "exceeds high"),
+        ({"open": Decimal("98.5")}, "open=98.5 is outside"),
+        ({"open": Decimal("105.5")}, "open=105.5 is outside"),
+        ({"close": Decimal("98.5")}, "close=98.5 is outside"),
+        ({"close": Decimal("105.5")}, "close=105.5 is outside"),
+    ],
+    ids=[
+        "high-below-low",
+        "open-below-low",
+        "open-above-high",
+        "close-below-low",
+        "close-above-high",
+    ],
+)
+def test_ohlc_violations_are_still_refused_with_an_in_range_vwap(
+    overrides: dict[str, Decimal], reason: str
+) -> None:
+    """Removing the vwap rule relaxed nothing else: the OHLC range invariants still hold."""
+    with pytest.raises(ValueError, match=reason):
+        _bar(vwap=Decimal("100"), **overrides)
 
 
 # ── reference identity ──────────────────────────────────────────────────────
@@ -431,3 +474,9 @@ def test_no_provider_specific_fields_leak_into_the_canonical_event() -> None:
     provider_vocabulary = {"o", "h", "l", "c", "v", "vw", "n", "T", "t", "figi", "primary_exchange"}
     field_names = {f.name for f in CanonicalEarningsEvent.__dataclass_fields__.values()}
     assert not (field_names & provider_vocabulary)
+
+
+def test_an_implausibly_large_vwap_is_refused_without_asserting_containment() -> None:
+    """A wrong-field vwap (turnover for volume) is caught by the same plausibility backstop prices get."""
+    with pytest.raises(ValueError, match="implausibly large"):
+        _bar(vwap=Decimal("1000000000"))

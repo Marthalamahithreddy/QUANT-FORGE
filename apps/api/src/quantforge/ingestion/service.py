@@ -64,7 +64,7 @@ from quantforge.models.enums import PriceBasis
 from quantforge.models.security import Exchange, Listing
 from quantforge.providers.base import MarketDataProvider, RawCapture
 from quantforge.providers.earnings import EarningsProvider
-from quantforge.providers.errors import ProviderBasisMismatchError
+from quantforge.providers.errors import ProviderError
 from quantforge.providers.massive.dto import MassiveTickerDetailsDTO
 from quantforge.providers.massive.mapper import to_canonical_reference
 
@@ -271,9 +271,14 @@ class IngestionService:
                 result = await self._provider.get_daily_bars(
                     ticker, start, end, venue=venue, price_basis=price_basis
                 )
-            except ProviderBasisMismatchError as mismatch:
-                # Still a failure -- but keep the offending bytes as evidence.
-                self._record_rejected(run, mismatch.captures)
+            except ProviderError as exc:
+                # Still a failure, and the WHOLE requested range fails: no bar from
+                # it is stored. But a response the client received and refused (a
+                # contradicted basis, an invalid bar, a missing ``results``, an
+                # undecodable 200) carries its bytes, kept as ``daily-bars-rejected``
+                # evidence before re-raising. Best effort: a storage error here never
+                # masks the primary failure.
+                self._record_rejected(run, exc.captures)
                 raise
             self._record(run, result.captures)
 
@@ -294,6 +299,9 @@ class IngestionService:
                 logger.warning("bar conflict during %s ingestion: %s", ticker, exc)
                 raise
 
+            # Unreachable today: the writer raises on its first failed bar, so
+            # ``counts.failed`` is 0 here. Kept as a guard so a future writer that
+            # counts without raising can never report a short range as succeeded.
             outcome = run.partial(self._now) if counts.failed else run.succeed(self._now)
             logger.info("daily bars for %s: %s", ticker.upper(), outcome)
             return outcome
@@ -366,8 +374,10 @@ class IngestionService:
                 result = await self._provider.get_daily_bars(
                     symbol, start, end, venue=BENCHMARK_VENUE, price_basis=price_basis
                 )
-            except ProviderBasisMismatchError as mismatch:
-                self._record_rejected(run, mismatch.captures)
+            except ProviderError as exc:
+                # Same policy as stock bars: the range fails whole, the refused
+                # response's bytes are kept as rejected evidence.
+                self._record_rejected(run, exc.captures)
                 raise
             self._record(run, result.captures)
 
@@ -384,6 +394,7 @@ class IngestionService:
                 logger.warning("benchmark level conflict during %s ingestion: %s", symbol, exc)
                 raise
 
+            # Unreachable today (the writer raises on a conflict); a guard, as above.
             outcome = run.partial(self._now) if counts.failed else run.succeed(self._now)
             logger.info("benchmark levels for %s: %s", symbol, outcome)
             return outcome

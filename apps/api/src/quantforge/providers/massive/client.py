@@ -382,6 +382,30 @@ class MassiveClient:
         }
 
         captures: list[RawCapture] = []
+        try:
+            return await self._fetch_daily_bars(
+                symbol, path, params, captures, venue=venue, price_basis=price_basis
+            )
+        except (ProviderPayloadError, ProviderResponseError) as exc:
+            # One invalid bar fails the whole requested range (nothing partial is
+            # returned), but every page received so far -- including the offending
+            # one -- travels with the error as evidence for the caller to keep.
+            # Transport, 5xx, rate-limit and auth failures carry nothing: a non-200
+            # body is never captured.
+            if not exc.captures:
+                exc.captures = tuple(captures)
+            raise
+
+    async def _fetch_daily_bars(  # noqa: PLR0913 - the request, its evidence sink and its basis
+        self,
+        symbol: str,
+        path: str,
+        params: dict[str, str],
+        captures: list[RawCapture],
+        *,
+        venue: VenueView,
+        price_basis: PriceBasis,
+    ) -> DailyBarsResult:
         bars: list[MassiveDailyBarDTO] = []
         seen_pages: set[str] = set()
         next_path: str | None = path
@@ -400,7 +424,20 @@ class MassiveClient:
                 raise ProviderResponseError(message)
             seen_pages.add(next_path or "")
 
-            page = await self._get_json(next_path, params=next_params, dataset="daily-bars")
+            try:
+                page = await self._get_json(
+                    next_path,
+                    params=next_params,
+                    dataset="daily-bars",
+                    capture_undecodable_as=_CaptureAs(_DAILY_BARS_PATH, params),
+                )
+            except ProviderResponseError as exc:
+                # An undecodable 200 carries its own bytes; keep them after the
+                # pages that preceded it, so the evidence is every page received.
+                if exc.captures:
+                    captures.extend(exc.captures)
+                    exc.captures = tuple(captures)
+                raise
             captures.append(
                 _capture(
                     dataset="daily-bars",
@@ -721,6 +758,7 @@ class MassiveClient:
         *,
         params: Mapping[str, str],
         dataset: str,
+        capture_undecodable_as: _CaptureAs | None = None,
     ) -> _Response:
         """Issue a GET, retrying transient failures, and decode it exactly.
 
@@ -728,6 +766,12 @@ class MassiveClient:
         are needed: the document to interpret, and the bytes to preserve. Raises a
         :class:`~quantforge.providers.errors.ProviderError` subclass for
         everything else.
+
+        With ``capture_undecodable_as``, a 200 whose body cannot be decoded still
+        raises :class:`ProviderResponseError`, but carrying a :class:`RawCapture`
+        of those exact bytes, recorded under the given endpoint template and
+        safe parameters exactly as a decodable response would be. Opt-in, so
+        callers that already merge evidence their own way are unaffected.
         """
         # Resolved once per call and sent as a header, never as a query parameter:
         # a URL can end up in a proxy log, a traceback, or a raw artefact, and a
@@ -761,7 +805,22 @@ class MassiveClient:
                 raise ProviderTransportError(type(exc).__name__) from exc
 
             if response.status_code == HTTP_OK:
-                return _Response(document=_decode(response), raw=response.content)
+                raw = response.content
+                try:
+                    document = _decode(response)
+                except ProviderResponseError as exc:
+                    if capture_undecodable_as is not None:
+                        exc.captures = (
+                            _capture(
+                                dataset=dataset,
+                                endpoint=capture_undecodable_as.endpoint,
+                                request_parameters=capture_undecodable_as.request_parameters,
+                                response=_Response(document=None, raw=raw),
+                                retrieved_at=self._now(),
+                            ),
+                        )
+                    raise
+                return _Response(document=document, raw=raw)
 
             retry_after = _bounded_retry_after(response.headers.get("Retry-After"))
             if response.status_code == HTTP_TOO_MANY_REQUESTS:
@@ -818,6 +877,17 @@ class _Response(NamedTuple):
 
     document: JsonValue
     raw: bytes
+
+
+class _CaptureAs(NamedTuple):
+    """How to record a response as evidence: its endpoint template and safe parameters.
+
+    Never a URL or a query string, and never a header, so a capture built from it
+    cannot carry the credential.
+    """
+
+    endpoint: str
+    request_parameters: Mapping[str, str]
 
 
 def _decode(response: httpx.Response) -> JsonValue:

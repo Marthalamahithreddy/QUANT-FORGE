@@ -58,7 +58,7 @@ def company(db_session: Session) -> Company:
 
 @pytest.fixture
 def exchange(db_session: Session) -> Exchange:
-    row = Exchange(mic="XALN", name="Alignment Test Exchange", timezone="America/New_York")
+    row = Exchange(mic="XNYS", name="Alignment Test Exchange", timezone="America/New_York")
     db_session.add(row)
     db_session.commit()
     return row
@@ -307,14 +307,20 @@ def test_ambiguous_listing_yields_no_session_alignment(
     assert result.session_alignment is None
 
 
-def test_insufficient_price_history_yields_no_session_data(
+def test_alignment_does_not_depend_on_stored_price_bars(
     company: Company, source: DataSource, listing: Listing, db_session: Session
 ) -> None:
-    """A resolved listing with no price bars at all still fails honestly, not silently."""
+    """Step 11.2E: with no price bars at all the anchor still comes from the exchange calendar.
+
+    (Before it, a listing with no stored bars was NO_SESSION_DATA: stored bars chose the anchor. A
+    missing bar is now a missing PRICE, reported by the returns, never an alignment failure.)
+    """
     event = _event(company, source, db_session, timing=EarningsTiming.BEFORE_MARKET)
 
     result = align_earnings_event(db_session, event, mode=ResearchMode.DESCRIPTIVE)
 
     assert result.listing_resolution.status is ListingResolutionStatus.RESOLVED
     assert result.session_alignment is not None
-    assert result.session_alignment.status is AlignmentStatus.NO_SESSION_DATA
+    assert result.session_alignment.status is AlignmentStatus.ALIGNED
+    assert result.session_alignment.first_post_event_session == event.event_date
+    assert result.session_calendar_mic == "XNYS"

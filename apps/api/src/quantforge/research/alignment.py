@@ -6,8 +6,10 @@ module that owns it:
 
 1. Resolve the event's issuer to a listing as of ``event_date``
    (:mod:`quantforge.research.listing_resolution` -- the database read).
-2. Fetch the trading sessions QuantForge actually holds price data for around
-   that date (this module, a thin query -- see :func:`_available_sessions`).
+2. Look up the venue of the resolved listing (this module, a thin query -- see
+   :func:`_listing_exchange_mic`) so the exchange calendar's session sequence
+   for THAT venue is used. Stored price bars no longer define sessions (Step
+   11.2E): an absent bar is a missing price, not a non-trading day.
 3. Compute the session alignment and the point-in-time eligibility
    (:mod:`quantforge.research.calendar` and
    :mod:`quantforge.research.availability` -- both pure).
@@ -24,14 +26,15 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from quantforge.market.sessions import SessionCalendar
 from quantforge.models.earnings import EarningsEvent
-from quantforge.models.enums import RESEARCH_PRICE_BASIS, EarningsTiming
-from quantforge.models.market import DailyPriceBar
+from quantforge.models.enums import EarningsTiming
+from quantforge.models.security import Exchange, Listing
 from quantforge.research.availability import (
     PointInTimeEligibility,
     ResearchMode,
@@ -44,17 +47,18 @@ from quantforge.research.listing_resolution import (
     resolve_company_listing_for_date,
 )
 
-__all__ = ["ALIGNMENT_WINDOW_DAYS", "EventStudyAlignment", "align_earnings_event"]
+__all__ = [
+    "ALIGNMENT_WINDOW_DAYS",
+    "EventStudyAlignment",
+    "align_earnings_event",
+    "resolve_session_calendar",
+]
 
-#: Default window, in calendar days, searched on either side of ``event_date``
-#: for available trading sessions. Generous enough to span a long holiday
-#: weekend or a short gap in ingested history while staying a small, bounded
-#: query -- this is a per-event lookup, not a full-history scan.
-_DEFAULT_WINDOW_DAYS = 10
-
-#: The calendar-day half-width within which stored sessions are considered around an event date.
-#: Public so reproducibility can pin exactly the session window alignment reads.
-ALIGNMENT_WINDOW_DAYS = _DEFAULT_WINDOW_DAYS
+#: The calendar-day half-width within which stored sessions are pinned around an event date by
+#: the reproducibility manifest (the digest of stored session dates read). Alignment itself no
+#: longer reads stored sessions: the anchor comes from the exchange calendar. Public so
+#: reproducibility can pin exactly this window.
+ALIGNMENT_WINDOW_DAYS = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,37 +87,39 @@ class EventStudyAlignment:
     point_in_time_eligibility: PointInTimeEligibility
     listing_resolution: ListingResolution
     session_alignment: SessionAlignment | None
+    #: The venue whose exchange-calendar session sequence was used: the stored listing's
+    #: exchange (the venue of the bars that are read). ``None`` when no listing resolved. It
+    #: says nothing about where the issuer traded on the event date -- venue history is not
+    #: established, and the resolver's own ``exchange_mic`` stays ``None`` when it is not.
+    session_calendar_mic: str | None = None
 
 
-def _available_sessions(
-    session: Session,
-    *,
-    listing_id: uuid.UUID,
-    start: date,
-    end: date,
-) -> list[date]:
-    """Return the distinct, ordered trading sessions held for a listing in a window.
+def resolve_session_calendar(calendar: SessionCalendar | None) -> SessionCalendar:
+    """The given calendar, or the shared ``exchange_calendars`` adapter built on first use.
 
-    Sourced directly from :class:`~quantforge.models.market.DailyPriceBar`,
-    per the Step 8 design note to prefer the price history QuantForge actually
-    has over introducing an exchange-calendar dependency: "available session"
-    here means "a session we have a price observation for", not "a session the
-    venue was open", which is the conservative reading this milestone commits
-    to. Only ``SPLIT_ADJUSTED`` rows count: the sessions an event aligns to come
-    from the same basis the returns are then measured on.
+    The import is deliberately local: ``quantforge.market`` exports the adapter lazily, and
+    importing it here at module level would load ``exchange_calendars`` and pandas whenever
+    research is imported (``tests/test_module_isolation.py`` forbids that).
     """
-    statement = (
-        sa.select(DailyPriceBar.trading_date)
-        .where(
-            DailyPriceBar.listing_id == listing_id,
-            DailyPriceBar.price_basis == RESEARCH_PRICE_BASIS,
-            DailyPriceBar.trading_date >= start,
-            DailyPriceBar.trading_date <= end,
-        )
-        .distinct()
-        .order_by(DailyPriceBar.trading_date)
+    if calendar is not None:
+        return calendar
+    from quantforge.market import default_session_calendar  # noqa: PLC0415 - lazy by design
+
+    return default_session_calendar()
+
+
+def _listing_exchange_mic(session: Session, *, listing_id: uuid.UUID) -> str | None:
+    """The exchange MIC of the stored listing whose bars are read (one small query).
+
+    The bars of a listing were ingested for that listing's venue, so its session sequence is
+    the matching one. For the supported US venues (XNYS/XNAS/ARCX) the calendar is the same
+    US-equity sequence; any other MIC is refused by the calendar adapter, never defaulted.
+    """
+    return session.scalar(
+        sa.select(Exchange.mic)
+        .join(Listing, Listing.exchange_id == Exchange.id)
+        .where(Listing.id == listing_id)
     )
-    return list(session.scalars(statement))
 
 
 def align_earnings_event(
@@ -122,7 +128,7 @@ def align_earnings_event(
     *,
     mode: ResearchMode,
     security_id: uuid.UUID | None = None,
-    window_days: int = _DEFAULT_WINDOW_DAYS,
+    calendar: SessionCalendar | None = None,
 ) -> EventStudyAlignment:
     """Align one earnings event to QuantForge's own trading sessions.
 
@@ -140,10 +146,9 @@ def align_earnings_event(
         security_id: Passed straight through to
             :func:`~quantforge.research.listing_resolution.resolve_company_listing_for_date`
             to disambiguate a multi-security issuer.
-        window_days: How many calendar days on either side of ``event_date``
-            to search for available trading sessions. The search is still
-            over actual stored sessions, never calendar-day arithmetic; this
-            only bounds the query.
+        calendar: The exchange session calendar. Defaults to the shared
+            ``exchange_calendars``-backed adapter (built lazily, so importing
+            this module loads no calendar library). Tests inject a fake.
 
     Returns:
         The computed :class:`EventStudyAlignment`.
@@ -160,21 +165,26 @@ def align_earnings_event(
     )
 
     session_alignment: SessionAlignment | None = None
+    session_calendar_mic: str | None = None
     if listing_resolution.status is ListingResolutionStatus.RESOLVED:
         assert listing_resolution.listing_id is not None  # guaranteed by RESOLVED, for mypy
-        window_start = event.event_date - timedelta(days=window_days)
-        window_end = event.event_date + timedelta(days=window_days)
-        available_sessions = _available_sessions(
-            session,
-            listing_id=listing_resolution.listing_id,
-            start=window_start,
-            end=window_end,
+        session_calendar_mic = _listing_exchange_mic(
+            session, listing_id=listing_resolution.listing_id
         )
-        session_alignment = align_event_to_sessions(
-            event_date=event.event_date,
-            timing=timing,
-            available_sessions=available_sessions,
-        )
+        if session_calendar_mic is None:
+            session_alignment = SessionAlignment(
+                event_session=None,
+                first_post_event_session=None,
+                status=AlignmentStatus.NO_SESSION_DATA,
+                reason="the resolved listing has no exchange, so no session calendar applies",
+            )
+        else:
+            session_alignment = align_event_to_sessions(
+                event_date=event.event_date,
+                timing=timing,
+                calendar=resolve_session_calendar(calendar),
+                mic=session_calendar_mic,
+            )
 
         if (
             mode is ResearchMode.POINT_IN_TIME
@@ -209,4 +219,5 @@ def align_earnings_event(
         point_in_time_eligibility=eligibility,
         listing_resolution=listing_resolution,
         session_alignment=session_alignment,
+        session_calendar_mic=session_calendar_mic,
     )

@@ -64,6 +64,7 @@ from typing import Final
 
 from sqlalchemy.orm import Session
 
+from quantforge.market.sessions import SessionCalendar
 from quantforge.models.earnings import EarningsEvent
 from quantforge.research.abnormal_returns import AbnormalReturn, compute_abnormal_return
 from quantforge.research.alignment import EventStudyAlignment, align_earnings_event
@@ -209,6 +210,7 @@ def analyze_earnings_event(  # noqa: PLR0913 - one explicit knob per independent
     stock_source_id: uuid.UUID | None = None,
     benchmark_id: uuid.UUID | None = None,
     benchmark_source_id: uuid.UUID | None = None,
+    calendar: SessionCalendar | None = None,
 ) -> EventStudyResult:
     """Run the complete Step 8 event study for one already-selected earnings observation.
 
@@ -239,6 +241,9 @@ def analyze_earnings_event(  # noqa: PLR0913 - one explicit knob per independent
             Never defaulted to an inferred index.
         benchmark_source_id: Restrict the benchmark price series to one
             source, bypassing its own ambiguity check.
+        calendar: The exchange session calendar the anchor and the horizon
+            targets are proven from (default: the shared adapter). Stored
+            price bars never define sessions.
 
     Returns:
         The composed :class:`EventStudyResult`. A horizon failing for the
@@ -262,10 +267,12 @@ def analyze_earnings_event(  # noqa: PLR0913 - one explicit knob per independent
         mode=mode,
     )
 
-    alignment = align_earnings_event(session, event, mode=mode, security_id=security_id)
+    alignment = align_earnings_event(
+        session, event, mode=mode, security_id=security_id, calendar=calendar
+    )
 
     stock_returns = compute_event_forward_returns(
-        session, alignment, horizons=horizons_list, source_id=stock_source_id
+        session, alignment, horizons=horizons_list, source_id=stock_source_id, calendar=calendar
     )
 
     benchmark_returns = (

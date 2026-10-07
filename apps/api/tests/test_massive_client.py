@@ -13,7 +13,7 @@ Three concerns, in order of how badly they would hurt if wrong:
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -23,10 +23,12 @@ import pytest
 
 from quantforge.ingestion.canonical import ResolvedVenue
 from quantforge.models.enums import PriceBasis
+from quantforge.providers.base import RawCapture
 from quantforge.providers.errors import (
     ProviderAuthenticationError,
     ProviderBasisMismatchError,
     ProviderConfigurationError,
+    ProviderPayloadError,
     ProviderRateLimitError,
     ProviderResponseError,
     ProviderServerError,
@@ -935,3 +937,326 @@ async def test_a_next_page_mismatch_carries_every_page_fetched_so_far() -> None:
         )
 
     assert len(caught.value.captures) == 2
+
+
+# ── NKE regression: a provider vwap outside the bar's own range (11.2C/11.2E) ──
+
+NYSE = ResolvedVenue(mic="XNYS", name="New York Stock Exchange", timezone_name="America/New_York")
+
+#: The observed ``/v2/aggs`` record for NKE 2026-10-01 (adjusted=true) and the three sessions after
+#: it, exact values. The 2026-10-01 ``vw`` (34.8298) is BELOW that day's low (35.02): Massive's
+#: documented aggregate rules let a trade update volume without updating the bar's high/low, and
+#: nothing in the contract places ``vw`` inside [low, high]. See
+#: docs/production-validation-design.md section 20 and docs/market-data-repair-design.md section 3.
+NKE_AGGREGATES: dict[str, object] = {
+    "ticker": "NKE",
+    "queryCount": 4,
+    "resultsCount": 4,
+    "adjusted": True,
+    "status": "OK",
+    "results": [
+        {
+            "v": 112413524.118262,
+            "vw": 34.8298,
+            "o": 35.45,
+            "c": 35.15,
+            "h": 36.235,
+            "l": 35.02,
+            "t": 1790827200000,
+            "n": 560588,
+        },
+        {
+            "v": 142717008.024328,
+            "vw": 33.1565,
+            "o": 32.553,
+            "c": 33.87,
+            "h": 33.97,
+            "l": 31.97,
+            "t": 1790913600000,
+            "n": 693009,
+        },
+        {
+            "v": 69574914.414271,
+            "vw": 33.4753,
+            "o": 33.82,
+            "c": 33.96,
+            "h": 34.12,
+            "l": 32.76,
+            "t": 1791172800000,
+            "n": 348365,
+        },
+        {
+            "v": 50148121.392537,
+            "vw": 34.2191,
+            "o": 33.7,
+            "c": 34.61,
+            "h": 34.62,
+            "l": 33.5,
+            "t": 1791259200000,
+            "n": 256686,
+        },
+    ],
+}
+
+
+@pytest.mark.anyio
+async def test_the_observed_nke_aggregate_with_vwap_below_the_low_is_accepted_exactly() -> None:
+    """The four observed NKE sessions parse whole: a provider ``vw`` is not asserted in-range.
+
+    Before 11.2E the canonical bar rejected the 2026-10-01 record (``vw`` 34.8298 < low 35.02)
+    and the whole range failed. ``vw`` is now carried as the provider reported it.
+    """
+    client = _client(lambda _r: _json(NKE_AGGREGATES))
+
+    result = await client.get_daily_bars(
+        "NKE",
+        date(2026, 10, 1),
+        date(2026, 10, 6),
+        venue=NYSE,
+        price_basis=PriceBasis.SPLIT_ADJUSTED,
+    )
+
+    assert [bar.trading_session_date for bar in result.bars] == [
+        date(2026, 10, 1),
+        date(2026, 10, 2),
+        date(2026, 10, 5),
+        date(2026, 10, 6),
+    ]
+    first = result.bars[0]
+    assert first.vwap == Decimal("34.8298")
+    assert first.vwap < first.low
+    assert (first.open, first.high, first.low, first.close) == (
+        Decimal("35.45"),
+        Decimal("36.235"),
+        Decimal("35.02"),
+        Decimal("35.15"),
+    )
+    assert (first.volume, first.trades) == (112413524, 560588)
+    assert {bar.price_basis for bar in result.bars} == {PriceBasis.SPLIT_ADJUSTED}
+    assert [bar.vwap for bar in result.bars] == [
+        Decimal("34.8298"),
+        Decimal("33.1565"),
+        Decimal("33.4753"),
+        Decimal("34.2191"),
+    ]
+    assert len(result.captures) == 1
+
+
+# ── raw evidence on failed bar responses (Option C: the range fails, the bytes are kept) ──
+
+
+def _assert_no_credential_in(captures: Sequence[RawCapture]) -> None:
+    """The key travels as a header only; no capture may carry it or an Authorization value."""
+    for capture in captures:
+        rendered = repr(capture.request_parameters) + repr(capture.endpoint)
+        assert "test-key-0123456789" not in rendered
+        assert "Bearer" not in rendered
+        assert "Authorization" not in rendered
+        assert "?" not in capture.endpoint
+
+
+_BAD_OHLC_BAR = {"t": 1_757_164_800_000, "o": 110, "h": 105, "l": 99, "c": 104, "v": 1}
+
+
+@pytest.mark.anyio
+async def test_an_invalid_bar_payload_error_carries_the_response_bytes() -> None:
+    """A row failing canonical validation fails the range, but its response is evidence."""
+    body = json.dumps({"status": "OK", "results": [_ONE_BAR, _BAD_OHLC_BAR]}).encode()
+    client = _client(lambda _r: httpx.Response(200, content=body))
+
+    with pytest.raises(ProviderPayloadError, match="open=110 is outside") as caught:
+        await client.get_daily_bars(
+            "AAPL", date(2026, 9, 1), date(2026, 9, 5), venue=XNAS, price_basis=PriceBasis.AS_TRADED
+        )
+
+    captures = caught.value.captures
+    assert [capture.body for capture in captures] == [body]
+    assert [capture.dataset for capture in captures] == ["daily-bars"]
+    assert captures[0].endpoint == "/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}"
+    assert dict(captures[0].request_parameters) == {
+        "ticker": "AAPL",
+        "start": "2026-09-01",
+        "end": "2026-09-05",
+        "adjusted": "false",
+    }
+    _assert_no_credential_in(captures)
+
+
+@pytest.mark.anyio
+async def test_a_malformed_dto_row_payload_error_carries_the_response_bytes() -> None:
+    body = json.dumps({"status": "OK", "results": [{"t": "not-a-time", "o": 1}]}).encode()
+    client = _client(lambda _r: httpx.Response(200, content=body))
+
+    with pytest.raises(ProviderPayloadError) as caught:
+        await client.get_daily_bars(
+            "AAPL", date(2026, 9, 1), date(2026, 9, 5), venue=XNAS, price_basis=PriceBasis.AS_TRADED
+        )
+
+    assert [capture.body for capture in caught.value.captures] == [body]
+
+
+@pytest.mark.anyio
+async def test_a_missing_results_response_error_carries_the_response_bytes() -> None:
+    body = json.dumps({"status": "ERROR", "error": "universe not loaded"}).encode()
+    client = _client(lambda _r: httpx.Response(200, content=body))
+
+    with pytest.raises(ProviderResponseError, match="no 'results' member") as caught:
+        await client.get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+        )
+
+    assert [capture.body for capture in caught.value.captures] == [body]
+    _assert_no_credential_in(caught.value.captures)
+
+
+@pytest.mark.anyio
+async def test_a_failure_on_page_two_carries_both_pages() -> None:
+    """The evidence for a mid-pagination failure is every page received, not just the last."""
+    first = json.dumps(
+        _bars_document(next_url="https://api.massive.com/v2/aggs/ticker/AAPL/range/1/day/a/b?c=2")
+    ).encode()
+    second = json.dumps({"status": "OK", "results": [_BAD_OHLC_BAR]}).encode()
+    bodies = iter([first, second])
+    client = _client(lambda _r: httpx.Response(200, content=next(bodies)))
+
+    with pytest.raises(ProviderPayloadError) as caught:
+        await client.get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+        )
+
+    assert [capture.body for capture in caught.value.captures] == [first, second]
+    _assert_no_credential_in(caught.value.captures)
+
+
+@pytest.mark.anyio
+async def test_a_missing_results_on_page_two_carries_both_pages() -> None:
+    first = json.dumps(
+        _bars_document(next_url="https://api.massive.com/v2/aggs/ticker/AAPL/range/1/day/a/b?c=2")
+    ).encode()
+    second = json.dumps({"status": "ERROR"}).encode()
+    bodies = iter([first, second])
+    client = _client(lambda _r: httpx.Response(200, content=next(bodies)))
+
+    with pytest.raises(ProviderResponseError) as caught:
+        await client.get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+        )
+
+    assert [capture.body for capture in caught.value.captures] == [first, second]
+
+
+@pytest.mark.anyio
+async def test_an_undecodable_200_still_carries_its_bytes_as_evidence() -> None:
+    """The bytes are captured before the decode failure can destroy them."""
+    body = b"<html>upstream proxy error</html>"
+    client = _client(lambda _r: httpx.Response(200, content=body))
+
+    with pytest.raises(ProviderResponseError) as caught:
+        await client.get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+        )
+
+    captures = caught.value.captures
+    assert [capture.body for capture in captures] == [body]
+    assert captures[0].dataset == "daily-bars"
+    assert captures[0].endpoint == "/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}"
+    assert dict(captures[0].request_parameters) == {
+        "ticker": "AAPL",
+        "start": "2026-09-01",
+        "end": "2026-09-05",
+        "adjusted": "true",
+    }
+    assert captures[0].provider_status is None
+    _assert_no_credential_in(captures)
+
+
+@pytest.mark.anyio
+async def test_an_undecodable_page_two_carries_both_pages() -> None:
+    first = json.dumps(
+        _bars_document(next_url="https://api.massive.com/v2/aggs/ticker/AAPL/range/1/day/a/b?c=2")
+    ).encode()
+    second = b'{"status":"OK","results":[{"t":'
+    bodies = iter([first, second])
+    client = _client(lambda _r: httpx.Response(200, content=next(bodies)))
+
+    with pytest.raises(ProviderResponseError) as caught:
+        await client.get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+        )
+
+    assert [capture.body for capture in caught.value.captures] == [first, second]
+
+
+@pytest.mark.anyio
+async def test_an_undecodable_200_on_other_endpoints_still_fails_without_captures() -> None:
+    """Only the daily-bars path keeps undecodable bytes; reference behaviour is unchanged."""
+    client = _client(lambda _r: httpx.Response(200, content=b"not json at all"))
+
+    with pytest.raises(ProviderResponseError) as caught:
+        await client.get_ticker_details("AAPL")
+
+    assert caught.value.captures == ()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [(500, ProviderServerError), (429, ProviderRateLimitError), (401, ProviderAuthenticationError)],
+)
+async def test_a_non_200_bar_response_carries_no_captures(
+    status: int, error: type[Exception]
+) -> None:
+    """A non-200 body is never captured; there is no evidence to attach."""
+    client = _client(
+        lambda _r: httpx.Response(status, content=b'{"echo":"anything"}'), max_retries=0
+    )
+
+    with pytest.raises(error) as caught:
+        await client.get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+        )
+
+    assert getattr(caught.value, "captures", ()) == ()
+
+
+@pytest.mark.anyio
+async def test_a_transport_failure_on_bars_carries_no_captures() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused", request=request)
+
+    client = _client(handler, max_retries=0)
+
+    with pytest.raises(ProviderTransportError) as caught:
+        await client.get_daily_bars(
+            "AAPL",
+            date(2026, 9, 1),
+            date(2026, 9, 5),
+            venue=XNAS,
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+        )
+
+    assert caught.value.captures == ()

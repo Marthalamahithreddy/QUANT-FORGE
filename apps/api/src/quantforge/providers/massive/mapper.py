@@ -290,14 +290,31 @@ def is_supported_snapshot_type(dto: MassiveTickerSnapshotDTO) -> bool:
     return dto.type is not None and dto.type.strip().upper() in _SNAPSHOT_SUPPORTED_TYPES
 
 
+#: Massive's dated-snapshot contract (``GET /v3/reference/tickers``, read 2026-10-07): ``date`` --
+#: "Specify a point in time to retrieve tickers available on that date"; ``active`` -- whether the
+#: tickers returned are "actively traded on the queried date". So the REQUEST parameter is the
+#: as-of date of the ticker's availability, and the adapter dates each record by it. The response
+#: itself states no as-of date (``last_updated_utc`` is not one), and the returned attributes --
+#: name, CIK, FIGIs, ``primary_exchange`` -- are NOT documented as of that date: they identify the
+#: returned instrument, they are not dated evidence. That is why a snapshot's venue is never stored
+#: as a fact. See docs/production-validation-design.md section 20 and
+#: docs/market-data-repair-design.md section 6. Pinned by tests; no runtime code branches on these.
+SNAPSHOT_DATE_SEMANTICS: Final[str] = "REQUEST_PARAMETER_IS_AS_OF_DATE"
+SNAPSHOT_DATE_STATED_IN_RESPONSE: Final[bool] = False
+SNAPSHOT_ATTRIBUTES_ARE_AS_OF_DATE: Final[bool] = False
+
+
 def to_canonical_ticker_snapshot(
     dto: MassiveTickerSnapshotDTO, *, as_of_date: date
 ) -> CanonicalTickerSnapshot:
     """Map one dated-snapshot record. Dates are taken as stated; no interval is derived.
 
-    The provider's venue code becomes a MIC only through the explicit venue table; a code the
-    table does not know leaves ``primary_mic`` empty (the venue evidence is simply absent, and
-    nothing is guessed). ``delisted_utc`` contributes only its calendar date.
+    ``as_of_date`` is the REQUEST's ``date`` parameter (see :data:`SNAPSHOT_DATE_SEMANTICS`); any
+    date-like key in the payload is ignored. The provider's venue code becomes a MIC only through
+    the explicit venue table; a code the table does not know leaves ``primary_mic`` empty (nothing
+    is guessed). ``primary_mic`` is the provider's primary exchange as returned, NOT documented as
+    of ``as_of_date`` (:data:`SNAPSHOT_ATTRIBUTES_ARE_AS_OF_DATE`). ``delisted_utc`` contributes
+    only its calendar date.
 
     Raises:
         ProviderPayloadError: the values fail the canonical invariants.

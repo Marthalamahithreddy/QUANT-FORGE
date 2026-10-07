@@ -33,8 +33,9 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
-from quantforge.research.alignment import EventStudyAlignment
-from quantforge.research.calendar import AlignmentStatus
+from quantforge.market.sessions import SessionCalendar
+from quantforge.research.alignment import EventStudyAlignment, resolve_session_calendar
+from quantforge.research.calendar import AlignmentStatus, proven_sessions_after
 from quantforge.research.price_series import PriceSeriesStatus, fetch_coherent_price_series
 from quantforge.research.returns import (
     EventForwardReturns,
@@ -54,9 +55,8 @@ DEFAULT_HORIZONS: tuple[int, ...] = (1, 5, 20)
 #: price-series query window. Three calendar days per session comfortably
 #: covers a five-day trading week (5 sessions / 7 calendar days ~= 1.4) plus
 #: routine holidays, without the window being unbounded. This is a query-sizing
-#: heuristic only -- it never substitutes for a real session, which is why
-#: `compute_forward_returns` still reports `INSUFFICIENT_FORWARD_SESSIONS`
-#: rather than assuming the window was big enough.
+#: heuristic only: targets are the calendar's PROVEN sessions, looked up by
+#: exact date, and a proven target outside the window simply has no price.
 _CALENDAR_DAYS_PER_SESSION_BUFFER = 3
 
 #: Minimum window padding regardless of horizon, so even horizon=1 searches
@@ -103,6 +103,7 @@ def compute_event_forward_returns(
     *,
     horizons: Sequence[int] = DEFAULT_HORIZONS,
     source_id: uuid.UUID | None = None,
+    calendar: SessionCalendar | None = None,
 ) -> EventForwardReturns:
     """Compute forward returns for one already-aligned earnings event.
 
@@ -121,6 +122,9 @@ def compute_event_forward_returns(
         source_id: Restrict to one price source, bypassing the coherent-series
             ambiguity check. See
             :func:`quantforge.research.price_series.fetch_coherent_price_series`.
+        calendar: The exchange session calendar the targets are proven from
+            (default: the shared adapter). Horizon ``N`` means the N-th
+            PROVEN exchange session after the anchor, never the N-th stored bar.
 
     Returns:
         An :class:`~quantforge.research.returns.EventForwardReturns` with one
@@ -147,6 +151,14 @@ def compute_event_forward_returns(
 
     anchor_session = session_alignment.first_post_event_session
     assert listing_id is not None  # a non-None session_alignment implies a RESOLVED listing
+    mic = alignment.session_calendar_mic
+    if mic is None:
+        # An ALIGNED anchor is always proven from one venue's calendar. An alignment that names
+        # none (built by hand, or from before the field existed) cannot prove session targets, so
+        # it is refused like any other missing alignment rather than priced from stored dates.
+        return no_alignment_forward_returns(
+            event_id=alignment.event_id, listing_id=listing_id, horizons=horizons_list
+        )
 
     window_end = _window_end(anchor_session, horizons_list)
     price_resolution = fetch_coherent_price_series(
@@ -172,10 +184,18 @@ def compute_event_forward_returns(
             reason=price_resolution.reason,
         )
     else:
+        proven = proven_sessions_after(
+            calendar=resolve_session_calendar(calendar),
+            mic=mic,
+            anchor_session=anchor_session,
+            count=max(horizons_list),
+        )
         forward_returns = compute_forward_returns(
             anchor_session=anchor_session,
             price_series=price_resolution.series,
             horizons=horizons_list,
+            forward_sessions=proven.sessions,
+            forward_sessions_reason=proven.reason if not proven.complete else "",
         )
 
     return EventForwardReturns(

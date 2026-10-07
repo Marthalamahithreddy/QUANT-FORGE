@@ -14,6 +14,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 
+import httpx2 as httpx
 import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
@@ -33,7 +34,6 @@ from quantforge.ingestion.earnings import UnknownIssuerError, resolve_company_id
 from quantforge.ingestion.listing_history import (
     IncompleteListingHistoryError,
     InvalidAnchorDateError,
-    ListingFactConflictError,
     ListingHistoryIngestionService,
 )
 from quantforge.ingestion.raw_store import RawResponseStore
@@ -64,6 +64,7 @@ from quantforge.models.security import Exchange, Listing, Security, SecurityIden
 from quantforge.providers.base import RawCapture
 from quantforge.providers.errors import ProviderServerError
 from quantforge.providers.listing_history import TickerEventsResult, TickerSnapshotsResult
+from quantforge.providers.massive.client import MassiveClient, MassiveConfig
 from quantforge.providers.splits import SplitsResult
 from quantforge.research.alignment import align_earnings_event
 from quantforge.research.availability import ResearchMode
@@ -540,13 +541,13 @@ async def test_a_snapshot_stores_a_single_dated_observation_with_provenance(
     db_session.commit()
 
     fact = db_session.query(ListingHistoryFact).one()
-    assert (fact.security_id, fact.kind, fact.ticker, fact.effective_date, fact.mic) == (
+    assert (fact.security_id, fact.kind, fact.ticker, fact.effective_date) == (
         meta.id,
         ListingFactKind.TICKER_OBSERVED,
         "META",
         D(2020, 1, 2),
-        "XNAS",
     )
+    assert fact.mic is None, "the snapshot's primary exchange is not dated evidence; never stored"
     run = db_session.query(IngestionRun).one()
     assert (run.provider, run.dataset, run.status) == (
         "massive",
@@ -599,23 +600,121 @@ async def test_a_delisted_snapshot_stores_a_last_traded_fact_only(
 
 
 @pytest.mark.anyio
-async def test_a_rerun_is_idempotent_and_a_changed_venue_is_an_explicit_conflict(
+async def test_a_rerun_is_idempotent_and_a_different_reported_venue_is_not_a_conflict(
     db_session: Session, world: World, tmp_path: Path
 ) -> None:
+    """The venue is not part of the stored fact, so a provider reporting another primary
+    exchange for the same date is the same fact -- skipped, never a conflict, never stored."""
     world.security("Meta", FIGI_A)
     db_session.commit()
     provider = StubListingProvider([_snapshot()])
     await _service(db_session, provider, tmp_path).ingest_ticker_snapshot("META", D(2020, 1, 2))
     db_session.commit()
-    await _service(db_session, provider, tmp_path).ingest_ticker_snapshot("META", D(2020, 1, 2))
+    again = await _service(db_session, provider, tmp_path).ingest_ticker_snapshot(
+        "META", D(2020, 1, 2)
+    )
     db_session.commit()
+    assert (again.records_written, again.records_skipped) == (0, 1)
     assert db_session.query(ListingHistoryFact).count() == 1
 
     changed = StubListingProvider([_snapshot(primary_mic="XNYS")])
-    with pytest.raises(ListingFactConflictError):
-        await _service(db_session, changed, tmp_path).ingest_ticker_snapshot("META", D(2020, 1, 2))
-    db_session.rollback()
-    assert db_session.query(ListingHistoryFact).one().mic == "XNAS"
+    outcome = await _service(db_session, changed, tmp_path).ingest_ticker_snapshot(
+        "META", D(2020, 1, 2)
+    )
+    db_session.commit()
+
+    assert outcome.status is IngestionStatus.SUCCEEDED
+    assert (outcome.records_written, outcome.records_skipped) == (0, 1)
+    fact = db_session.query(ListingHistoryFact).one()
+    assert fact.mic is None
+    assert {run.status for run in db_session.query(IngestionRun)} == {IngestionStatus.SUCCEEDED}
+
+
+def _massive_snapshot_client(record: dict[str, object]) -> MassiveClient:
+    """The REAL Massive adapter over a mock transport: it, not a stub, dates the snapshot."""
+    body = json.dumps({"status": "OK", "request_id": "r", "results": [record]}).encode()
+    return MassiveClient(
+        MassiveConfig(api_key="test-key-0123456789", base_url="https://api.massive.com"),
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, content=body)),
+    )
+
+
+_META_RECORD: dict[str, object] = {
+    "ticker": "META",
+    "name": "Meta Platforms, Inc. Class A Common Stock",
+    "market": "stocks",
+    "locale": "us",
+    "type": "CS",
+    "active": True,
+    "primary_exchange": "XNAS",
+    "cik": "1326801",
+    "composite_figi": COMPOSITE,
+    "share_class_figi": FIGI_A,
+    "last_updated_utc": "2026-10-02T06:11:31Z",
+}
+
+
+@pytest.mark.anyio
+async def test_the_request_date_becomes_the_fact_date_through_the_real_adapter(
+    db_session: Session, world: World, tmp_path: Path
+) -> None:
+    """The response carries no as-of date (a stray ``date`` key is ignored); the request's date
+    parameter dates the fact, the venue is not stored, and the fact proves that day only."""
+    meta = world.security("Meta", FIGI_A, cik="0001326801")
+    world.listing(meta, "META")  # first observed 2026-10-02 on XNAS
+    db_session.commit()
+    record = dict(_META_RECORD, date="1999-01-01")
+
+    async with _massive_snapshot_client(record) as client:
+        outcome = await ListingHistoryIngestionService(
+            session=db_session,
+            provider=client,
+            store=RawResponseStore(root=tmp_path / "raw"),
+            now=NOW,
+        ).ingest_ticker_snapshot("META", D(2020, 1, 2))
+    db_session.commit()
+
+    assert outcome.status is IngestionStatus.SUCCEEDED and outcome.records_written == 1
+    fact = db_session.query(ListingHistoryFact).one()
+    assert (fact.kind, fact.ticker, fact.effective_date, fact.mic) == (
+        OBSERVED,
+        "META",
+        D(2020, 1, 2),
+        None,
+    )
+    resolver = HistoricalListingResolver(db_session)
+    on_the_day = resolver.resolve_security_on(meta.id, D(2020, 1, 2))
+    assert (on_the_day.status, on_the_day.ticker) == (ResolutionStatus.RESOLVED, "META")
+    assert on_the_day.exchange_mic is None, "the snapshot's venue is never venue evidence"
+    assert resolver.resolve_ticker_on("META", D(2020, 1, 2)).security_id == meta.id
+    for neighbour in (D(2020, 1, 1), D(2020, 1, 3)):
+        assert resolver.resolve_security_on(meta.id, neighbour).status is (
+            ResolutionStatus.NO_EVIDENCE
+        ), "one dated snapshot is never extended backward or forward"
+    files = [p for p in (tmp_path / "raw").rglob("*.json") if "ticker-snapshots/" in p.as_posix()]
+    assert any(b'"primary_exchange": "XNAS"' in p.read_bytes() for p in files), (
+        "the raw response still keeps the provider's primary exchange"
+    )
+
+
+@pytest.mark.anyio
+async def test_a_cik_mismatch_through_the_real_adapter_still_refuses(
+    db_session: Session, world: World, tmp_path: Path
+) -> None:
+    world.security("Meta", FIGI_A, cik="0001326801")
+    db_session.commit()
+
+    async with _massive_snapshot_client(dict(_META_RECORD, cik="999999")) as client:
+        with pytest.raises(IncompleteListingHistoryError, match="contradicts the stored company"):
+            await ListingHistoryIngestionService(
+                session=db_session,
+                provider=client,
+                store=RawResponseStore(root=tmp_path / "raw"),
+                now=NOW,
+            ).ingest_ticker_snapshot("META", D(2020, 1, 2))
+    db_session.commit()
+
+    assert db_session.query(ListingHistoryFact).count() == 0
 
 
 @pytest.mark.anyio
@@ -732,6 +831,9 @@ async def test_ticker_events_store_started_facts_anchored_by_the_share_class_fig
     }
     assert started == {("FB", D(2012, 5, 18)), ("META", D(2022, 6, 9))}
     assert {f.security_id for f in db_session.query(ListingHistoryFact)} == {meta.id}
+    assert {f.mic for f in db_session.query(ListingHistoryFact)} == {None}, (
+        "the anchor snapshot's primary exchange is not stored either"
+    )
     assert (
         HistoricalListingResolver(db_session).resolve_security_on(meta.id, D(2018, 3, 1)).ticker
         == "FB"
