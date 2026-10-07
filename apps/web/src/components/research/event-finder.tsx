@@ -1,18 +1,16 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 
 import { FinancialValue } from "@/components/financial/financial-value";
-import { StatusBadge } from "@/components/state/status-badge";
+import { ResearchLink } from "@/components/research/research-link";
+import { PitBadge } from "@/components/state/pit-badge";
 import { ApiFailureState } from "@/components/ui/api-failure";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { ListEmpty } from "@/components/ui/list-empty";
 import { Pagination } from "@/components/ui/pagination";
 import { getEarningsPage } from "@/lib/api/earnings";
 import type { EarningsEvent } from "@/lib/api/schema";
-import { PIT_PRESENTATION } from "@/lib/availability";
 import { earningsPageHref, tickersAtEvent, type EarningsListState } from "@/lib/earnings-view";
 import { MAX_PAGE } from "@/lib/list-query";
-import { researchHref } from "@/lib/research-view";
-import { PIT_STATE } from "@/lib/state-map";
 
 export const RESEARCH_PATH = "/research";
 
@@ -21,9 +19,9 @@ const COLUMNS: DataTableColumn<EarningsEvent>[] = [
     id: "event_date",
     header: "Event date",
     cell: (event) => (
-      <Link href={`/earnings/${event.id}`} className="font-medium text-accent underline-offset-2 hover:underline">
+      <AppLink href={`/earnings/${event.id}`} className="font-medium text-accent underline-offset-2 hover:underline">
         {event.event_date}
-      </Link>
+      </AppLink>
     ),
   },
   { id: "company", header: "Company", cell: (event) => <span className="text-text">{event.company.display_name}</span> },
@@ -36,35 +34,18 @@ const COLUMNS: DataTableColumn<EarningsEvent>[] = [
     },
   },
   { id: "reported", header: "Reported EPS", align: "end", cell: (event) => <FinancialValue kind="eps" value={event.reported_eps} /> },
+  { id: "pit", header: "Point-in-time", cell: (event) => <PitBadge eligibility={event.availability.pit_eligibility} /> },
   {
-    id: "pit",
-    header: "PIT status",
-    cell: (event) => {
-      const state = PIT_STATE[event.availability.pit_eligibility];
-      return (
-        <StatusBadge kind={state} mode={state === "NOT_APPLICABLE" ? undefined : "pit"}>
-          {PIT_PRESENTATION[event.availability.pit_eligibility].label}
-        </StatusBadge>
-      );
-    },
-  },
-  {
-    id: "study",
-    header: "Study",
+    id: "research",
+    header: "Research",
     cell: (event) => (
-      <Link
-        href={researchHref(event.id)}
-        aria-label={`Open study for ${event.company.display_name}, ${event.event_date}`}
-        className="text-accent underline-offset-2 hover:underline"
-      >
-        Open study
-      </Link>
+      <ResearchLink eventId={event.id} company={event.company.display_name} eventDate={event.event_date} />
     ),
   },
 ];
 
 /**
- * The research entry's event finder: a compact page of stored events, each with an "Open study"
+ * The research entry's event finder: a compact page of stored events, each with a "Research"
  * link. It calls only the earnings list (one request) and chooses no event for the reader.
  */
 export async function EventFinder({ state }: { readonly state: EarningsListState }) {
@@ -81,9 +62,9 @@ export async function EventFinder({ state }: { readonly state: EarningsListState
         filtered={state.filtered}
         clearHref={RESEARCH_PATH}
         firstPageHref={earningsPageHref(state.query, 1, RESEARCH_PATH)}
-        noun="stored observations"
+        noun="stored earnings events"
         noData={{ title: "No earnings events are stored", body: "A study starts from a stored earnings event. Events appear here after ingestion has loaded them." }}
-        noMatch={{ title: "Nothing matches these filters", body: "No stored earnings observation matches. Clear the filters to see every stored one." }}
+        noMatch={{ title: "Nothing matches these filters", body: "No stored earnings event matches. Clear the filters to see every stored one." }}
       />
     );
   }
@@ -96,7 +77,7 @@ export async function EventFinder({ state }: { readonly state: EarningsListState
         offset={offset}
         maxPage={MAX_PAGE}
         hrefFor={(page) => earningsPageHref(state.query, page, RESEARCH_PATH)}
-        noun="stored observations"
+        noun="stored earnings events"
       />
     </>
   );

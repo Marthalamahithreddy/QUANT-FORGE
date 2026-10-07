@@ -40,7 +40,7 @@ describe("EarningsTable", () => {
       "Reported EPS",
       "Est. EPS",
       "EPS surprise",
-      "PIT status",
+      "Point-in-time",
       "Research",
       "Timing",
       "Observed at",
@@ -124,7 +124,7 @@ describe("EarningsTable", () => {
     const row = bodyRows()[0]!;
     expect(row).not.toHaveAttribute("onclick");
     expect(row).not.toHaveAttribute("tabindex");
-    expect(within(within(row).getByRole("rowheader")).getByRole("link", { name: "2024-03-15" })).toHaveAttribute(
+    expect(within(within(row).getByRole("rowheader")).getByRole("link", { name: "Earnings event Pub Co, 2024-03-15" })).toHaveAttribute(
       "href",
       "/earnings/ok",
     );
@@ -187,7 +187,7 @@ describe("EarningsTable", () => {
     it("hides P3 below 1280px and P2 below 768px; P1 stays visible", () => {
       render(<EarningsTable events={[NONE]} />);
       const classOf = (name: string) => screen.getByRole("columnheader", { name }).className;
-      for (const p1 of ["Event date", "Company", "Ticker", "Reported EPS", "Est. EPS", "EPS surprise", "PIT status", "Research"]) {
+      for (const p1 of ["Event date", "Company", "Ticker", "Reported EPS", "Est. EPS", "EPS surprise", "Point-in-time", "Research"]) {
         expect(classOf(p1)).not.toMatch(/\bhidden\b/);
       }
       expect(classOf("Timing")).toMatch(/hidden md:table-cell/);

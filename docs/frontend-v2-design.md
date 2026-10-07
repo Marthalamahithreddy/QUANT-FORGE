@@ -1515,6 +1515,45 @@ win):
 8. **Re-run live** carries only parameters the workspace accepts and says when the stored request pinned something
    it cannot carry (a security or a price source).
 
+## Implementation notes: Step 11.1F
+
+The convergence slice. Where Frontend V2 as shipped differs from, or settles, this document:
+
+1. **Overview is a launchpad.** Start research, latest earnings events, latest filings, recent saved research and the
+   API's health, each an independent bounded list read (five rows) in its own boundary. No KPI, aggregate, count of
+   its own or per-row enrichment. Companies and Backtests are not mentioned: a section that does not exist is not shown.
+2. **One name per concept** (the vocabulary the product now uses everywhere): a saved item is a *saved research
+   record*; what it holds is a *stored baseline*; the live computation is a *research result* (never a baseline); an
+   earnings row is an *event*; the column is *Point-in-time*; the link into the workspace is *Research* /
+   *Open Research*. Page titles read `{identity} · {surface}`.
+3. **One badge per status.** The point-in-time classification is one component on four surfaces; verification,
+   reproducibility and mode badges are unchanged. Redundant badges were removed (the earnings availability frame
+   showed the same verdict twice).
+4. **Production link prefetching is off** for every link except the primary navigation (see the README). This was
+   found by the browser tests, not by the unit tests or `next dev` (which never prefetches): an Overview of five events
+   made fifteen API requests in production. Budgets per surface are pinned.
+5. **Accessibility found by a real browser**, where jsdom cannot measure: links inside running text were told apart
+   by colour alone (WCAG 1.4.1, 1.03 to 1.6:1 against the sentence) and the horizon presets were 5.6 by 18 px targets
+   (WCAG 2.5.8). Prose links are now underlined (a zero-specificity rule in the components layer) and the presets are
+   at least 24 by 24 px. A state that is itself the page (not-found, the error boundary) now carries the page's one h1.
+6. **Deliberately deferred, with the evidence:**
+   - **Companies**: not added to make the navigation look complete; company context continues through event and
+     filing links.
+   - **Save, authentication, ownership**: unchanged from D1.
+   - **Density preference**: not implemented. The final V2 was reviewed at 1440, 1024, 390 and 320 px in both
+     themes; tables are already dense by design (12 px, a 1.35 line height, priority columns, a labelled scroll
+     region), touch targets are 44 px below 1024 px, and nothing was cramped or wasteful enough to justify a control.
+   - **Direction tint**: not implemented as a control. Every signed figure carries its sign in the text, the tables
+     read clearly without a hue, and the default stays restrained. The server-readable cookie and its CSS hook from
+     11.0 remain (inert without the cookie, tested).
+   - **Status refresh**: kept per document load. Browser testing (`e2e/shell-status.spec.ts`) shows the chip says,
+     in its own tooltip, when it was checked; a client navigation does not re-check it, and a page whose data fails
+     says so itself, so a stale "Connected" never leaves a failure unexplained. Polling or global client state was
+     not introduced to make it "live".
+7. **Fixture-pinned vocabulary.** `EVIDENCE_STATES` (NOT_REQUESTED, NOT_READ, PINNED) cannot be derived from the
+   OpenAPI because a record's manifest is an open object; it is pinned by the decoder and the captured manifests, and
+   a test says so. No backend schema was changed for it.
+
 ---
 
 ---

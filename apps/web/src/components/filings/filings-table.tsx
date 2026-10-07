@@ -1,9 +1,9 @@
-import Link from "next/link";
 
+import { AccessionLink } from "@/components/filings/accession-link";
 import { DomainState } from "@/components/state/domain-state";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import type { FilingIndexItem } from "@/lib/api/schema";
-import { filingDetailHref, isAmendment } from "@/lib/filings-view";
+import { isAmendment } from "@/lib/filings-view";
 import { formatDate } from "@/lib/format";
 
 /** A date the source may not have stated: NOT_STATED, never a blank or a guess. */
@@ -12,19 +12,7 @@ function DateCell({ value }: { readonly value: string | null }) {
 }
 
 const COLUMNS: readonly DataTableColumn<FilingIndexItem>[] = [
-  {
-    id: "accession",
-    header: "Accession",
-    cell: (filing) => (
-      <Link
-        href={filingDetailHref(filing)}
-        className="type-id text-accent underline-offset-2 hover:underline"
-        aria-label={`Filing ${filing.accession}, ${filing.form}${filing.company_cik ? `, CIK ${filing.company_cik}` : ""}`}
-      >
-        {filing.accession}
-      </Link>
-    ),
-  },
+  { id: "accession", header: "Accession", cell: (filing) => <AccessionLink filing={filing} /> },
   {
     id: "form",
     header: "Form",

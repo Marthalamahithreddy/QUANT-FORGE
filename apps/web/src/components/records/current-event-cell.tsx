@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 import { Suspense } from "react";
 
 import { DomainState } from "@/components/state/domain-state";
@@ -28,9 +28,9 @@ async function CurrentEvent({ lookup }: { readonly lookup: Promise<ApiResult<Ear
     const tickers = tickersAtEvent(event);
     return (
       <span className="flex flex-col gap-0.5">
-        <Link href={`/earnings/${event.id}`} className="text-accent hover:underline">
+        <AppLink href={`/earnings/${event.id}`} className="text-accent hover:underline">
           {event.company.display_name}
-        </Link>
+        </AppLink>
         <span className="type-meta">
           {tickers.length > 0 ? <span className="type-id">{tickers.join(", ")}</span> : "No ticker proven for the event date"} · {fiscalPeriod(event)} ·{" "}
           <span className="num">{formatDate(event.event_date)}</span>
@@ -39,9 +39,9 @@ async function CurrentEvent({ lookup }: { readonly lookup: Promise<ApiResult<Ear
     );
   }
   if (result.kind === "not_found") {
-    return <DomainState kind="MISSING" reason="No stored event has this identifier now. The saved baseline is unaffected." />;
+    return <DomainState kind="MISSING" reason="No stored event has this identifier now. The stored baseline is unaffected." />;
   }
-  return <DomainState kind="UNAVAILABLE" reason="The current event record could not be read. The saved baseline is unaffected." />;
+  return <DomainState kind="UNAVAILABLE" reason="The current event record could not be read. The stored baseline is unaffected." />;
 }
 
 export function CurrentEventCell({ lookup }: { readonly lookup: Promise<ApiResult<EarningsEvent>> }) {

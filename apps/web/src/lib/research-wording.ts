@@ -7,7 +7,6 @@
  */
 
 import type {
-  AbnormalReturnStatus,
   AccountingState,
   AlignmentStatus,
   BenchmarkReturnStatus,
@@ -59,12 +58,6 @@ export const BENCHMARK_RETURN_LABEL: Record<BenchmarkReturnStatus, string> = {
   AMBIGUOUS_BENCHMARK_PRICE_SOURCE: "Ambiguous price source",
 };
 
-export const ABNORMAL_RETURN_LABEL: Record<AbnormalReturnStatus, string> = {
-  AVAILABLE: "Available",
-  STOCK_RETURN_UNAVAILABLE: "Stock return unavailable",
-  BENCHMARK_RETURN_UNAVAILABLE: "Benchmark return unavailable",
-};
-
 export const FILING_LINK_LABEL: Record<FilingLinkStatus, string> = {
   NOT_LINKED: "No filing supplied",
   FILING_NOT_STORED: "Filing not stored",
@@ -111,7 +104,7 @@ export const DISCLOSURE_WORDING: Record<DisclosureEvidenceLevel, DisclosureWordi
 };
 
 export const DISCLOSURE_CAVEAT =
-  "This is a category of stored metadata. It implies no time, no first public disclosure and no availability, and it does not make the observation point-in-time eligible.";
+  "This is a category of stored metadata. It implies no time, no first public disclosure and no availability, and it does not make the event point-in-time eligible.";
 
 export const REFUSAL_SCOPE_LABEL: Record<RefusalScope, string> = {
   EVENT: "Event",

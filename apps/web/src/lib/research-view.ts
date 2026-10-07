@@ -114,7 +114,7 @@ export function parseResearchConfig(eventId: string, raw: RawSearchParams): Rese
 
   let filingAccession: string | undefined;
   if (accessionParam.repeated || (accessionParam.text !== "" && !ACCESSION_PATTERN.test(accessionParam.text))) {
-    errors.push({ param: "filing_accession", message: "Filing accession must look like 0000320193-24-000123 (ten digits, two digits, six digits), as a single value." });
+    errors.push({ param: "filing_accession", message: "Filing accession must look like 0000000000-00-000000 (ten digits, two digits, six digits), as a single value." });
   } else if (accessionParam.text !== "") {
     filingAccession = accessionParam.text;
   }

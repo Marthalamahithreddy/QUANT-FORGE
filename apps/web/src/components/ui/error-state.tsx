@@ -20,6 +20,8 @@ export interface ErrorStateProps {
   readonly detail?: string;
   readonly children?: ReactNode;
   readonly action?: ReactNode;
+  /** The state IS the page (an error boundary): its title is the page's one `h1`. */
+  readonly page?: boolean;
 }
 
 /**
@@ -29,21 +31,23 @@ export interface ErrorStateProps {
  * Safe by construction: it never prints a service address (URLs in `detail` are redacted), a
  * driver or SQL message, a stack or a DSN. Callers pass `failureCopy(...)` text (api/messages.ts), never a raw error message.
  */
-export function ErrorState({ id, title, detail, children, action }: ErrorStateProps) {
+export function ErrorState({ id, title, detail, children, action, page = false }: ErrorStateProps) {
+  // A state that IS the page carries the page's one h1; an inline state is a paragraph.
+  const Title = page ? "h1" : "p";
   return (
     <div
       id={id}
       role="alert"
       className="rounded border border-danger/60 border-l-[3px] border-l-danger bg-surface p-4"
     >
-      <p className="flex items-center gap-2 text-sm font-medium text-text">
+      <Title className="flex items-center gap-2 text-sm font-medium text-text">
         <span className="text-danger">
           <StateGlyph kind="ERROR" />
         </span>
         {title}
-      </p>
+      </Title>
       {detail || children ? (
-        <div className="mt-1.5 max-w-3xl text-sm leading-relaxed text-text-2">
+        <div className="qf-prose mt-1.5 max-w-3xl text-sm leading-relaxed text-text-2">
           {detail ? <p>{redactUrls(detail)}</p> : null}
           {redactNode(children)}
         </div>

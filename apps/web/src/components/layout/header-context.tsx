@@ -16,7 +16,7 @@ export function HeaderContext() {
   const group = NAV_GROUPS.find((candidate) => candidate.items.some((entry) => entry.id === item.id));
   return (
     <p className="type-meta truncate" data-testid="header-context">
-      {group?.label ? <span>{group.label} / </span> : null}
+      {group?.label && group.label !== item.label ? <span>{group.label} / </span> : null}
       <span className="text-text-2">{item.label}</span>
     </p>
   );

@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 
 import { formatGroupedDecimal } from "@/lib/format";
 
@@ -43,18 +43,18 @@ export function Pagination({ total, limit, offset, maxPage, hrefFor, noun }: Pag
       </p>
       <div className="flex items-center gap-4">
         {hasPrevious ? (
-          <Link href={hrefFor(page - 1)} rel="prev" className={LINK}>
+          <AppLink href={hrefFor(page - 1)} rel="prev" className={LINK}>
             Previous page
-          </Link>
+          </AppLink>
         ) : (
           <span aria-disabled="true" className={DISABLED}>
             Previous page
           </span>
         )}
         {hasNext ? (
-          <Link href={hrefFor(page + 1)} rel="next" className={LINK}>
+          <AppLink href={hrefFor(page + 1)} rel="next" className={LINK}>
             Next page
-          </Link>
+          </AppLink>
         ) : (
           <span aria-disabled="true" className={DISABLED}>
             Next page

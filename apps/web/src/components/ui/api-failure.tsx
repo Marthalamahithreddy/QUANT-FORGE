@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 import type { ReactNode } from "react";
 
 import { ErrorState } from "@/components/ui/error-state";
@@ -29,9 +29,9 @@ export function ApiFailureState({ failure, subject, notFoundTitle, retryHref, ch
       detail={`The QuantForge API did not return ${subject}. ${copy.body}`}
       action={
         retryHref && failure.kind !== "not_found" && failure.kind !== "rejected" && failure.kind !== "contract" ? (
-          <Link href={retryHref} className="text-accent hover:underline">
+          <AppLink href={retryHref} className="text-accent hover:underline">
             Try again
-          </Link>
+          </AppLink>
         ) : undefined
       }
     >

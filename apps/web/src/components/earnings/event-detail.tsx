@@ -5,6 +5,7 @@ import { Skeleton, SkeletonRegion } from "@/components/ui/skeleton";
 import { FinancialValue } from "@/components/financial/financial-value";
 import { EpsSurpriseValue } from "@/components/financial/eps-surprise";
 import { DomainState } from "@/components/state/domain-state";
+import { PitBadge } from "@/components/state/pit-badge";
 import { StatusBadge } from "@/components/state/status-badge";
 import { LinkButton } from "@/components/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
@@ -13,12 +14,12 @@ import { Frame } from "@/components/ui/frame";
 import { KeyValue, KeyValueList } from "@/components/ui/key-value";
 import { PageHeader } from "@/components/ui/page-header";
 import { CIK_PATTERN, type EarningsEvent, type ListingRef } from "@/lib/api/schema";
-import { BASIS_LABEL, BASIS_MEANING, PIT_PRESENTATION, TIMING_LABEL } from "@/lib/availability";
+import { BASIS_LABEL, BASIS_MEANING, TIMING_LABEL } from "@/lib/availability";
 import { earningsPageHref, fiscalPeriod, tickersAtEvent } from "@/lib/earnings-view";
 import { filingsPageHref } from "@/lib/filings-view";
 import { formatDate, formatUtcInstant } from "@/lib/format";
 import { researchHref } from "@/lib/research-view";
-import { PIT_STATE, TIMING_STATE } from "@/lib/state-map";
+import { TIMING_STATE } from "@/lib/state-map";
 
 const LISTING_COLUMNS: readonly DataTableColumn<ListingRef>[] = [
   { id: "ticker", header: "Ticker", cell: (listing) => <span className="type-id">{listing.ticker}</span> },
@@ -55,15 +56,13 @@ const linkableTicker = (ticker: string): boolean => ticker.length <= 32 && ticke
  */
 export function EventDetail({ event }: { readonly event: EarningsEvent }) {
   const { availability, company } = event;
-  const pit = PIT_PRESENTATION[availability.pit_eligibility];
-  const pitState = PIT_STATE[availability.pit_eligibility];
   const tickers = tickersAtEvent(event).filter(linkableTicker);
   const hasCik = company.cik !== null && CIK_PATTERN.test(company.cik);
 
   return (
     <>
       <PageHeader
-        eyebrow={`Earnings observation · ${fiscalPeriod(event)}`}
+        eyebrow={`Earnings event · ${fiscalPeriod(event)}`}
         title={company.display_name}
         description={`${event.event_date} · ${event.timing === "UNKNOWN" ? "timing not stated by the source" : TIMING_LABEL[event.timing]}`}
         actions={
@@ -71,9 +70,9 @@ export function EventDetail({ event }: { readonly event: EarningsEvent }) {
             <LinkButton
               href={researchHref(event.id)}
               variant="primary"
-              label={`Open research workspace for ${company.display_name}, ${event.event_date}`}
+              label={`Open Research for ${company.display_name}, ${event.event_date}`}
             >
-              Open research workspace
+              Open Research
             </LinkButton>
             {tickers.map((ticker) => (
               <LinkButton key={ticker} href={earningsPageHref({ ticker }, 1)}>
@@ -89,7 +88,7 @@ export function EventDetail({ event }: { readonly event: EarningsEvent }) {
 
       <div className="grid items-start gap-4 xl:grid-cols-2">
         <Frame
-          title="Stored observation"
+          title="Stored event"
           note="What the source reported."
           actions={<StatusBadge kind="VALUE" mode="descriptive">Descriptive</StatusBadge>}
         >
@@ -157,11 +156,7 @@ export function EventDetail({ event }: { readonly event: EarningsEvent }) {
         <Frame
           title="Availability"
           note="When this could have been known."
-          actions={
-            <StatusBadge kind={pitState} mode={pitState === "NOT_APPLICABLE" ? undefined : "pit"}>
-              {pit.label}
-            </StatusBadge>
-          }
+          actions={<PitBadge eligibility={availability.pit_eligibility} />}
         >
           <KeyValueList>
             <KeyValue label="Observed at">
@@ -182,17 +177,14 @@ export function EventDetail({ event }: { readonly event: EarningsEvent }) {
               )}
             </KeyValue>
             <KeyValue label="Point-in-time verdict">
-              <StatusBadge kind={pitState} mode={pitState === "NOT_APPLICABLE" ? undefined : "pit"}>
-                {pit.label}
-              </StatusBadge>
-              <div className="mt-1 text-text-2">{availability.pit_reason}</div>
+              <div className="text-text-2">{availability.pit_reason}</div>
               {availability.pit_eligibility === "INELIGIBLE_UNAPPROVED_AVAILABILITY_BASIS" ? (
                 <div className="type-meta">This basis is not currently approved for point-in-time use.</div>
               ) : null}
             </KeyValue>
           </KeyValueList>
           <p className="type-meta mt-3">
-            The verdict is about what could have been known and acted on. It does not change the stored observation beside it.
+            The verdict is about what could have been known and acted on. It does not change the stored event beside it.
           </p>
         </Frame>
       </div>
@@ -215,7 +207,7 @@ export function EventDetail({ event }: { readonly event: EarningsEvent }) {
           <KeyValue label="Provider type">
             <span className="type-id">{event.source.provider_type}</span>
           </KeyValue>
-          <KeyValue label="Ingested at">{formatUtcInstant(event.ingested_at)}</KeyValue>
+          <KeyValue label="Stored by this system at">{formatUtcInstant(event.ingested_at)}</KeyValue>
         </KeyValueList>
       </Frame>
     </>

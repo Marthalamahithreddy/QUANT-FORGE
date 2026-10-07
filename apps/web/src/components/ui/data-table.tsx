@@ -15,6 +15,11 @@ export interface DataTableColumn<Row> {
 export interface DataTableProps<Row> {
   /** The table's title and accessible name. */
   readonly caption: string;
+  /**
+   * Keep the caption for assistive technology only. For a table that sits directly under a visible
+   * heading saying the same thing, so the title is not shown twice.
+   */
+  readonly captionHidden?: boolean;
   /** The FIRST column is the identity column: a row header, sticky while scrolling sideways. */
   readonly columns: readonly DataTableColumn<Row>[];
   readonly rows: readonly Row[];
@@ -39,7 +44,7 @@ const CELL = "border-b border-border-subtle px-3 py-1.5 align-top";
  * focusable, labelled region, and secondary columns drop by priority instead of stacking into
  * cards.
  */
-export function DataTable<Row>({ caption, columns, rows, rowKey, empty }: DataTableProps<Row>) {
+export function DataTable<Row>({ caption, captionHidden = false, columns, rows, rowKey, empty }: DataTableProps<Row>) {
   if (rows.length === 0 && empty !== undefined) return <>{empty}</>;
 
   const hiddenBelowXl = columns.filter((column) => column.priority === "P3").length;
@@ -58,7 +63,7 @@ export function DataTable<Row>({ caption, columns, rows, rowKey, empty }: DataTa
         className="relative max-h-[70vh] overflow-auto rounded border border-border"
       >
         <table className="w-full border-separate border-spacing-0 text-left">
-          <caption className="type-section border-b border-border-subtle px-3 py-2 text-left">{caption}</caption>
+          <caption className={captionHidden ? "sr-only" : "type-section border-b border-border-subtle px-3 py-2 text-left"}>{caption}</caption>
           <thead>
             <tr>
               {columns.map((column, index) => (

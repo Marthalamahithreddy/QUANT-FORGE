@@ -103,6 +103,7 @@ def test_capture(db_session: Session, market: dict[str, object], tmp_path: Path)
         return {"status": response.status_code, "body": body}
 
     out["empty_list"] = get(BASE)
+    out["benchmarks"] = get("/api/v1/benchmarks")
 
     counter = {"n": 0}
 
@@ -127,6 +128,20 @@ def test_capture(db_session: Session, market: dict[str, object], tmp_path: Path)
         if verify:
             entry["verify"] = get(f"{BASE}/{entry['record_id']}/verify")
         entry["event_record"] = get(f"/api/v1/earnings-events/{entry['event_id']}")
+        # What "Re-run this request live" asks the workspace for: the same event with the request's
+        # own parameters, captured here so a fixture-backed browser run can render the live study.
+        request = entry["detail"]["body"]["request"]
+        params: dict[str, Any] = {"horizons": ",".join(str(h) for h in request["horizons"])}
+        if request["benchmark_id"] is not None:
+            params["benchmark_id"] = request["benchmark_id"]
+        if request["filing_accession"] is not None:
+            params["filing_accession"] = request["filing_accession"]
+            params["eps_period_class"] = request["eps_period_class"]
+            params["eps_kind"] = request["eps_kind"]
+        entry["rerun_observation"] = {
+            "params": params,
+            **get(f"/api/v1/research/observations/{entry['event_id']}", **params),
+        }
 
     # ── PARTIAL baselines: saved before anything is pinned ───────────────────────────────
     p_bench = save("partial_benchmark", event(), [1, 2], benchmark_id=benchmark.id)

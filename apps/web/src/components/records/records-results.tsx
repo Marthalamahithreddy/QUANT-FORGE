@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 
 import { RecordFailure } from "@/components/records/record-failure";
 import { RecordsTable } from "@/components/records/records-table";
@@ -20,21 +20,21 @@ export async function SavedRecordsResults({ state }: { readonly state: SavedList
   const retry = state.canonical ?? SAVED_PATH;
 
   if (result.kind !== "ok") {
-    return <RecordFailure failure={result} subject="the saved research baselines" retryHref={retry} />;
+    return <RecordFailure failure={result} subject="the saved research records" retryHref={retry} />;
   }
   const { items, total, limit, offset } = result.data;
 
   if (total === 0) {
     return (
       <EmptyState
-        title="No saved research baselines are stored"
+        title="No saved research records are stored"
         action={
-          <Link href="/research" className="text-accent hover:underline">
+          <AppLink href="/research" className="text-accent hover:underline">
             Open Research
-          </Link>
+          </AppLink>
         }
       >
-        This page lists baselines that have already been persisted; it does not create them, and this interface cannot save one. Nothing is shown in the
+        This page lists records that already exist; it does not create them, and this interface cannot save one. Nothing is shown in the
         meantime.
       </EmptyState>
     );
@@ -44,12 +44,12 @@ export async function SavedRecordsResults({ state }: { readonly state: SavedList
       <EmptyState
         title="This page is past the last result"
         action={
-          <Link href={SAVED_PATH} className="text-accent hover:underline">
+          <AppLink href={SAVED_PATH} className="text-accent hover:underline">
             Go to the first page
-          </Link>
+          </AppLink>
         }
       >
-        There are {total} saved baselines, and none at this position.
+        There are {total} saved research records, and none at this position.
       </EmptyState>
     );
   }
@@ -57,7 +57,7 @@ export async function SavedRecordsResults({ state }: { readonly state: SavedList
   return (
     <>
       <RecordsTable records={items} />
-      <Pagination total={total} limit={limit} offset={offset} maxPage={MAX_PAGE} hrefFor={savedPageHref} noun="saved baselines" />
+      <Pagination total={total} limit={limit} offset={offset} maxPage={MAX_PAGE} hrefFor={savedPageHref} noun="saved research records" />
     </>
   );
 }

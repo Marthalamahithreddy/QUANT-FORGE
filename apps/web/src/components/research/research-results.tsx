@@ -44,7 +44,7 @@ export async function ResearchResults({ eventId, record, config }: ResearchResul
     return (
       <ApiFailureState
         failure={result}
-        subject="this research observation"
+        subject="this research result"
         notFoundTitle="No stored event has this identifier"
         retryHref={config.canonical ?? undefined}
       />

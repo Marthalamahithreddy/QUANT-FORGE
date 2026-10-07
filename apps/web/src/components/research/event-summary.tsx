@@ -79,7 +79,7 @@ export function EventSummary({ observation, record }: { readonly observation: Ob
     <Frame
       id="section-event"
       title="Event"
-      note="The stored observation."
+      note="The stored event."
       actions={<EvidenceDrawer subject="the stored event" title="Event evidence"><EventEvidence observation={observation} record={record} /></EvidenceDrawer>}
     >
       <EventFacts event={event} resolution={identity.listing_resolution} />

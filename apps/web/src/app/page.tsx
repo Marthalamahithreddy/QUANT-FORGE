@@ -1,116 +1,82 @@
-import Link from "next/link";
-import type { ReactNode } from "react";
+import { Suspense } from "react";
 
-import { StatusBadge } from "@/components/state/status-badge";
+import { LatestEarnings } from "@/components/overview/latest-earnings";
+import { LatestFilings } from "@/components/overview/latest-filings";
+import { OverviewBlock } from "@/components/overview/overview-block";
+import { RecentRecords } from "@/components/overview/recent-records";
+import { SystemStatus } from "@/components/overview/system-status";
+import { LinkButton } from "@/components/ui/button";
 import { Frame } from "@/components/ui/frame";
 import { PageContainer } from "@/components/ui/page-container";
 import { PageHeader } from "@/components/ui/page-header";
-import { getEarningsPage, getReadiness } from "@/lib/api/earnings";
-import { getRequestBackendStatus } from "@/lib/api/health";
-import { failureSummary } from "@/lib/api/messages";
-import type { DependencyState } from "@/lib/api/schema";
-import { MISSING } from "@/lib/format";
+import { Section } from "@/components/ui/section";
+import { Skeleton, SkeletonRegion } from "@/components/ui/skeleton";
 
-function Line({ label, children }: { readonly label: string; readonly children: ReactNode }) {
+/**
+ * Overview: a launchpad into the research workflow, not a dashboard. It holds no figure of its
+ * own: no count, score, aggregate or performance number is computed or invented here. Each block
+ * below is one independent list read (or the API's own health), in its own boundary, so one
+ * source being slow, empty or down never blanks another. Nothing is polled.
+ */
+export default function Overview() {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-border-subtle py-2 last:border-b-0">
-      <dt className="text-sm text-text-2">{label}</dt>
-      <dd className="num text-sm text-text">{children}</dd>
-    </div>
-  );
-}
-
-const dependencyBadge = (state: DependencyState) => (
-  <StatusBadge kind={state === "ok" ? "VALUE" : "ERROR"}>{state === "ok" ? "Reachable" : "Unavailable"}</StatusBadge>
-);
-
-export default async function Overview() {
-  // Resolved once per request on the server, in parallel. The health read is shared with the
-  // shell's status chip (one call per page view). Never polled, never faked.
-  const [status, readiness, earnings] = await Promise.all([
-    getRequestBackendStatus(),
-    getReadiness(),
-    getEarningsPage({ limit: 1 }),
-  ]);
-
-  return (
-    <PageContainer>
+    <PageContainer width="workspace">
       <PageHeader
-        eyebrow="Research workspace"
+        eyebrow="QuantForge"
         title="Overview"
-        description="System state and data coverage, read from the QuantForge API. Nothing on this page is estimated."
+        description="Where to start. Everything on this page is read from the QuantForge API; nothing here is estimated or computed."
       />
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Frame title="System">
-          <dl>
-            <Line label="API process">
-              {status.state === "connected" ? (
-                <StatusBadge kind="VALUE">Live · {status.health.version}</StatusBadge>
-              ) : (
-                <StatusBadge kind="ERROR">Unavailable</StatusBadge>
-              )}
-            </Line>
-            <Line label="Database">
-              {readiness.kind === "ok" ? dependencyBadge(readiness.data.dependencies.database) : MISSING}
-            </Line>
-            <Line label="Redis">
-              {readiness.kind === "ok" ? dependencyBadge(readiness.data.dependencies.redis) : MISSING}
-            </Line>
-          </dl>
-          {status.state === "unavailable" ? (
-            <p role="alert" className="type-meta mt-3 break-words">
-              {status.detail}
-            </p>
-          ) : null}
-          {readiness.kind !== "ok" ? (
-            <p className="type-meta mt-3">Dependency readiness could not be read: {failureSummary(readiness)}</p>
-          ) : null}
-        </Frame>
+      <Frame title="Start research">
+        <p className="type-body max-w-3xl text-text-2">
+          A study starts from one stored earnings event: the descriptive returns around it, the separate point-in-time verdict, an optional
+          benchmark and an optional filing you supply, with every refusal stated. Open Research to find an event, or start from one of the
+          latest below.
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <LinkButton href="/research" variant="primary">
+            Open Research
+          </LinkButton>
+        </div>
+      </Frame>
 
-        <Frame title="Earnings data">
-          {earnings.kind !== "ok" ? (
-            <p className="text-sm text-text-2">Earnings coverage is unavailable because the API did not answer.</p>
-          ) : earnings.data.total === 0 ? (
-            <p className="text-sm text-text-2">
-              No earnings events are stored yet. Coverage appears here once ingestion has loaded events.
-            </p>
-          ) : (
-            <dl>
-              <Line label="Earnings observations stored">{earnings.data.total}</Line>
-              <Line label="Latest event date (incl. scheduled)">{earnings.data.items[0]?.event_date ?? MISSING}</Line>
-            </dl>
-          )}
-          <p className="mt-3 text-sm">
-            <Link href="/earnings" className="text-accent hover:underline">
-              Open the earnings list →
-            </Link>
-          </p>
-        </Frame>
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
+        <OverviewBlock
+          title="Latest earnings events"
+          note="Newest event date first; scheduled events included."
+          loadingLabel="Loading the latest earnings events"
+        >
+          <LatestEarnings />
+        </OverviewBlock>
+        <OverviewBlock
+          title="Latest filings"
+          note="Newest filing date first; filings with SEC FSDS data only."
+          loadingLabel="Loading the latest filings"
+        >
+          <LatestFilings />
+        </OverviewBlock>
       </div>
 
-      <Frame title="What is available">
-        <ul className="flex flex-col gap-2 text-sm text-text-2">
-          <li>
-            <span className="text-text">Earnings</span> — stored events with reported and estimated EPS, availability
-            evidence and the backend&apos;s point-in-time classification.
-          </li>
-          <li>
-            <span className="text-text">Filings</span> — stored filings with SEC FSDS data, and their descriptive EPS.
-          </li>
-          <li>
-            <span className="text-text">Research</span> — how the research engine behaves. The event-study workspace is
-            not part of the interface yet, although the API serves it.
-          </li>
-          <li>
-            <span className="text-text">Saved research</span> — stored research baselines. Nothing can be saved from the
-            interface, and none are shown yet.
-          </li>
-          <li>
-            <span className="text-text-3">Not available yet</span> — Companies and Backtests.
-          </li>
-        </ul>
-      </Frame>
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
+        <OverviewBlock
+          title="Recent saved research"
+          note="Newest saved first. Each is an immutable stored baseline."
+          loadingLabel="Loading recent saved research records"
+        >
+          <RecentRecords />
+        </OverviewBlock>
+        <Section title="System" note="As reported by the API when this page was served.">
+          <Suspense
+            fallback={
+              <SkeletonRegion label="Loading system status">
+                <Skeleton height="9rem" />
+              </SkeletonRegion>
+            }
+          >
+            <SystemStatus />
+          </Suspense>
+        </Section>
+      </div>
     </PageContainer>
   );
 }

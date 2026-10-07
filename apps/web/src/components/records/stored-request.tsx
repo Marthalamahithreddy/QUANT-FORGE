@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 
 import { Id } from "@/components/records/identifier";
 import { DomainState } from "@/components/state/domain-state";
@@ -22,9 +22,9 @@ export function StoredRequest({ record }: { readonly record: RecordDetail }) {
         <KeyValue label="Event">
           <Id value={request.event_id} />
           <div className="type-meta">
-            <Link href={`/earnings/${request.event_id}`} className="text-accent hover:underline">
+            <AppLink href={`/earnings/${request.event_id}`} className="text-accent hover:underline">
               Open the current event record
-            </Link>{" "}
+            </AppLink>{" "}
             (the event as stored now, not part of this baseline).
           </div>
         </KeyValue>

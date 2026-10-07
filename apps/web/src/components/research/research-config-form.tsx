@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 import { Suspense } from "react";
 
 import { BenchmarkSelector } from "@/components/research/benchmark-selector";
@@ -66,13 +66,14 @@ export function ResearchConfigForm({ eventId, config, companyCik }: ResearchConf
             Comma-separated, 1 to 252, at most 10, no spaces. Empty means the default {DEFAULT_HORIZON_TEXT}.
           </p>
           <p className="type-meta flex flex-wrap gap-x-3">
-            <Link href={researchHref(eventId, { ...config.query, horizons: undefined })} className="text-accent hover:underline">
+            <AppLink href={researchHref(eventId, { ...config.query, horizons: undefined })} className="text-accent hover:underline">
               Default ({DEFAULT_HORIZON_TEXT})
-            </Link>
+            </AppLink>
             {PRESETS.map((horizons) => (
-              <Link key={horizons.join(",")} href={preset(horizons)} className="text-accent hover:underline">
+              // A flex item is a block-level target: at least 24 by 24 CSS px (WCAG 2.5.8).
+              <AppLink key={horizons.join(",")} href={preset(horizons)} className="inline-flex min-h-6 min-w-6 items-center justify-center text-accent hover:underline">
                 {horizons.join(",")}
-              </Link>
+              </AppLink>
             ))}
           </p>
         </div>
@@ -118,9 +119,9 @@ export function ResearchConfigForm({ eventId, config, companyCik }: ResearchConf
             {companyCik !== null && CIK_PATTERN.test(companyCik) ? (
               <>
                 {" "}
-                <Link href={`/filings?cik=${companyCik}`} className="text-accent hover:underline">
+                <AppLink href={`/filings?cik=${companyCik}`} className="text-accent hover:underline">
                   Filings for this registrant (CIK {companyCik})
-                </Link>{" "}
+                </AppLink>{" "}
                 lists stored filings with SEC FSDS data. It is a lookup aid: it does not say a filing belongs to this event.
               </>
             ) : null}
@@ -132,9 +133,9 @@ export function ResearchConfigForm({ eventId, config, companyCik }: ResearchConf
         <Button type="submit" variant="primary">
           Apply
         </Button>
-        <Link href={`${RESEARCH_EVENTS_PATH}/${eventId}`} className="text-sm text-accent hover:underline max-lg:flex max-lg:min-h-11 max-lg:items-center">
+        <AppLink href={`${RESEARCH_EVENTS_PATH}/${eventId}`} className="text-sm text-accent hover:underline max-lg:flex max-lg:min-h-11 max-lg:items-center">
           Reset
-        </Link>
+        </AppLink>
       </div>
     </form>
   );

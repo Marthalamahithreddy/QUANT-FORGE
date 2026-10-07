@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageContainer } from "@/components/ui/page-container";
@@ -8,11 +8,12 @@ export default function SavedRecordNotFound() {
   return (
     <PageContainer>
       <EmptyState
+        page
         title="No saved research record has this identifier"
         action={
-          <Link href={SAVED_PATH} className="text-accent hover:underline">
+          <AppLink href={SAVED_PATH} className="text-accent hover:underline">
             Back to saved research
-          </Link>
+          </AppLink>
         }
       >
         The record may not exist, or the address was mistyped. Records are listed on the saved research page.

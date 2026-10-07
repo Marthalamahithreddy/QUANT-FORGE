@@ -18,7 +18,7 @@ import { parseResearchConfig } from "@/lib/research-view";
 export async function generateMetadata({ params }: PageProps<"/research/events/[eventId]">): Promise<Metadata> {
   const { eventId } = await params;
   const result = decode(uuid, eventId).ok ? await getEarningsEventOnce(eventId) : null;
-  return { title: result?.kind === "ok" ? `Research · ${result.data.company.display_name} ${result.data.event_date}` : "Research" };
+  return { title: result?.kind === "ok" ? `${result.data.company.display_name} · ${result.data.event_date} · Research` : "Research" };
 }
 
 export default async function ResearchEventPage({ params, searchParams }: PageProps<"/research/events/[eventId]">) {

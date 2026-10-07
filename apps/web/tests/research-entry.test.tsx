@@ -37,12 +37,12 @@ describe("research entry (/research)", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Research");
     expect(screen.getByText(/A study starts from one stored earnings event/)).toBeInTheDocument();
     const table = screen.getByRole("table", { name: "Stored earnings events" });
-    expect(within(table).getAllByRole("link", { name: /^Open study for / })).toHaveLength(3);
+    expect(within(table).getAllByRole("link", { name: /^Research / })).toHaveLength(3);
   });
 
-  it("each Open study link names its event and carries nothing else: no benchmark, no filing, no horizons", async () => {
+  it("each Research link names its event and carries nothing else: no benchmark, no filing, no horizons", async () => {
     await renderServer(await ResearchPage(listProps()));
-    const links = screen.getAllByRole("link", { name: /^Open study for / });
+    const links = screen.getAllByRole("link", { name: /^Research / });
     links.forEach((link, index) => {
       expect(link).toHaveAttribute("href", `/research/events/${records()[index]!.id}`);
     });
@@ -134,7 +134,7 @@ describe("the event record's stock-only market-reaction preview", () => {
     expect(within(frame).queryByText(/POINT-IN-TIME|Refusal ledger/)).toBeNull();
     expect(within(frame).getByRole("link", { name: "Open the research workspace" })).toHaveAttribute("href", `/research/events/${ID}`);
     // the primary action is still Open research
-    expect(screen.getAllByRole("link", { name: /Open research workspace for/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: /Open Research for/ }).length).toBeGreaterThan(0);
   });
 
   it("a refused study (unknown timing) shows the backend's reason in the preview, not an error", async () => {

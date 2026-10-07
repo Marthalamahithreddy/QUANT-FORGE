@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 
 import { ReturnsTable } from "@/components/research/returns-table";
 import { SessionLadder } from "@/components/research/session-ladder";
@@ -33,9 +33,9 @@ export async function MarketReactionPreview({ eventId }: { readonly eventId: str
         <ReturnsTable study={study} caption="Stock returns by horizon" stockOnly />
         <p className="type-meta max-w-3xl">
           Split-adjusted price returns, dividends excluded. No benchmark is selected and no filing is linked here.{" "}
-          <Link href={open} className="text-accent hover:underline">
+          <AppLink href={open} className="text-accent hover:underline">
             Open the research workspace
-          </Link>{" "}
+          </AppLink>{" "}
           to choose a benchmark, other horizons or a filing, and to see the point-in-time verdict and every refusal.
         </p>
       </div>

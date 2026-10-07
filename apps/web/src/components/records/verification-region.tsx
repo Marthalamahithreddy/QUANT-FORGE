@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 
 import { RecordFailure } from "@/components/records/record-failure";
 import { VerificationResult } from "@/components/records/verification-result";
@@ -27,9 +27,9 @@ export async function VerificationRegion({ recordId }: { readonly recordId: stri
         title="This record cannot be re-run"
         detail="The earnings event of this record is no longer stored, so there is nothing to re-run it against. The stored baseline above is unaffected."
         action={
-          <Link href={recordPath(recordId)} className="text-accent hover:underline">
+          <AppLink href={recordPath(recordId)} className="text-accent hover:underline">
             Hide the verification
-          </Link>
+          </AppLink>
         }
       />
     );

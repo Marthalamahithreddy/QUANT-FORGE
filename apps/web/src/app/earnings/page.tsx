@@ -25,7 +25,7 @@ export default async function EarningsPage({ searchParams }: PageProps<"/earning
       <PageHeader
         eyebrow="Evidence"
         title="Earnings"
-        description="Stored earnings observations with their availability evidence, newest event date first. Each row is one stored observation: a revision or a second source for the same fiscal period appears as its own row. Point-in-time status is the backend's classification; this page does not recompute it."
+        description="Stored earnings events with their availability evidence, newest event date first. Each row is one stored event: a revision or a second source for the same fiscal period appears as its own row. Point-in-time status is the backend's classification; this page does not recompute it."
       />
 
       <FilterBar action={EARNINGS_PATH} label="Filter earnings" clearHref={state.filtered ? EARNINGS_PATH : undefined}>

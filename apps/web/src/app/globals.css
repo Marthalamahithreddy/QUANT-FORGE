@@ -147,9 +147,9 @@
 
 /*
  * Tailwind utilities. `inline` makes each utility read the variable directly, so a theme switch
- * needs no rebuild. The pre-V2 names (surface-0..3, border-strong, text-primary/secondary/muted,
- * status-ok/warn/down) stay as COMPATIBILITY ALIASES so existing pages adopt the new tokens
- * without edits; new code uses the semantic names.
+ * needs no rebuild. Only the semantic names exist: the pre-V2 compatibility aliases (surface-0..3,
+ * border-strong, text-primary/secondary/muted, status-ok/warn/down) were removed in 11.1F once no
+ * consumer was left.
  */
 @theme inline {
   --color-bg: var(--bg);
@@ -163,7 +163,6 @@
   --color-text-2: var(--text-2);
   --color-text-3: var(--text-3);
   --color-accent: var(--accent);
-  --color-accent-subtle: var(--accent-subtle);
   --color-accent-contrast: var(--accent-contrast);
   --color-info: var(--info);
   --color-warning: var(--warning);
@@ -171,8 +170,6 @@
   --color-success: var(--success);
   --color-mode-descriptive: var(--mode-descriptive);
   --color-mode-pit: var(--mode-pit);
-  --color-positive: var(--dir-positive);
-  --color-negative: var(--dir-negative);
   --color-chart-stock: var(--chart-stock);
   --color-chart-bench: var(--chart-bench);
   --color-chart-abnormal: var(--chart-abnormal);
@@ -181,19 +178,6 @@
   --color-hover: var(--hover);
   --color-selected: var(--selected);
   --color-focus: var(--focus);
-
-  /* Compatibility aliases (pre-V2 names). */
-  --color-surface-0: var(--bg);
-  --color-surface-1: var(--surface);
-  --color-surface-2: var(--surface-elevated);
-  --color-surface-3: var(--surface-raised);
-  --color-border-strong: var(--border);
-  --color-text-primary: var(--text);
-  --color-text-secondary: var(--text-2);
-  --color-text-muted: var(--text-3);
-  --color-status-ok: var(--success);
-  --color-status-warn: var(--warning);
-  --color-status-down: var(--danger);
 
   /* Approved container widths: reading, workspace, table. */
   --container-reading: 64rem;
@@ -279,6 +263,17 @@
   .type-meta {
     font-size: 0.75rem;
     color: var(--text-3);
+  }
+
+  /*
+   * A link set inside running text is underlined as well as coloured: colour alone cannot tell it from
+   * the sentence around it (WCAG 1.4.1, measured by axe as "link-in-text-block"). Links that stand
+   * alone (table identities, navigation, buttons) are recognised by where they are and keep their own
+   * hover underline. Zero specificity, in the components layer: any utility (`no-underline`) wins.
+   */
+  :where(p, [role="status"], [role="alert"], .type-meta, .type-body, .qf-prose) a {
+    text-decoration-line: underline;
+    text-underline-offset: 2px;
   }
 
   .type-id {

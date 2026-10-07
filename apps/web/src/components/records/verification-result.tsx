@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 
 import { ChangedPaths } from "@/components/records/changed-paths";
 import { ReproducibilityBadge } from "@/components/state/reproducibility-badge";
@@ -98,9 +98,9 @@ export function VerificationResult({ report }: { readonly report: Verification }
         </div>
 
         <p className="text-sm">
-          <Link href={recordPath(report.record_id)} className="text-accent hover:underline">
+          <AppLink href={recordPath(report.record_id)} className="text-accent hover:underline">
             Hide the verification
-          </Link>
+          </AppLink>
         </p>
       </div>
     </Frame>

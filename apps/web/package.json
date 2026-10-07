@@ -11,7 +11,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "contract:export": "node scripts/openapi.mjs export",
-    "contract:check": "node scripts/openapi.mjs check"
+    "contract:check": "node scripts/openapi.mjs check",
+    "e2e:build": "QF_DIST_DIR=.next-e2e NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8765 next build",
+    "e2e": "npm run e2e:build && playwright test",
+    "e2e:run": "playwright test",
+    "e2e:live": "next build && playwright test -c playwright.live.config.ts"
   },
   "dependencies": {
     "next": "16.3.6",
@@ -19,6 +23,7 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^7.0.1",
@@ -28,6 +33,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.1.1",
+    "axe-core": "^4.14.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.3.6",
     "jsdom": "^30.1.1",

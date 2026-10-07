@@ -23,7 +23,7 @@ export default function RouteError({
 
   return (
     <PageContainer>
-      <ErrorState title="Something went wrong rendering this page">
+      <ErrorState page title="Something went wrong rendering this page">
         The page failed to render. This is a frontend error, not missing data.
         {error.digest ? <span className="type-id block pt-1 text-text-3">Reference {error.digest}</span> : null}
       </ErrorState>

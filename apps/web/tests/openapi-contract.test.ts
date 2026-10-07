@@ -56,7 +56,6 @@ import {
   TIMING_STATE,
 } from "@/lib/state-map";
 import {
-  ABNORMAL_RETURN_LABEL,
   ACCOUNTING_STATE_LABEL,
   ALIGNMENT_LABEL,
   BENCHMARK_RETURN_LABEL,
@@ -237,7 +236,6 @@ describe("enum parity: runtime lists equal the snapshot", () => {
       ["AlignmentStatus", ALIGNMENT_LABEL],
       ["ForwardReturnStatus", FORWARD_RETURN_LABEL],
       ["BenchmarkReturnStatus", BENCHMARK_RETURN_LABEL],
-      ["AbnormalReturnStatus", ABNORMAL_RETURN_LABEL],
       ["SectionState", SECTION_STATE_LABEL],
       ["PointInTimeState", POINT_IN_TIME_STATE_LABEL],
       ["FilingLinkStatus", FILING_LINK_LABEL],

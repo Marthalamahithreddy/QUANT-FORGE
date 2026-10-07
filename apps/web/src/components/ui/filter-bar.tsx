@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -26,9 +26,9 @@ export function FilterBar({ action, label, clearHref, children }: FilterBarProps
       {children}
       <Button type="submit">Apply</Button>
       {clearHref ? (
-        <Link href={clearHref} className="text-sm text-accent hover:underline max-lg:flex max-lg:min-h-11 max-lg:items-center">
+        <AppLink href={clearHref} className="text-sm text-accent hover:underline max-lg:flex max-lg:min-h-11 max-lg:items-center">
           Clear
-        </Link>
+        </AppLink>
       ) : null}
     </form>
   );

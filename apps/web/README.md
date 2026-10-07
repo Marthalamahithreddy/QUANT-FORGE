@@ -5,10 +5,15 @@ Next.js research workspace for the QuantForge platform (read-only; it displays w
 
 ## What exists
 
-Frontend V2 is being built incrementally (design: `docs/frontend-v2-design.md`). 11.1B delivered the foundations;
-11.1C delivered the API contract layer and migrated Earnings and Filings; 11.1D the research workspace; 11.1E the
-read-only Saved Research viewer.
+Frontend V2 (design: `docs/frontend-v2-design.md`) was built in slices: 11.1B the foundations; 11.1C the API
+contract layer and the Earnings and Filings surfaces; 11.1D the research workspace; 11.1E the read-only Saved
+Research viewer; 11.1F the convergence slice (Overview, cross-surface consistency, browser end-to-end tests,
+accessibility and responsive convergence, request budgets, dead-code removal).
 
+- **Overview** (`/`) — a launchpad, not a dashboard. "Start research" and four independent regions: latest earnings
+  events, latest filings, recent saved research, and the API's own health and readiness. Each region is one bounded
+  list read (five rows) in its own `Suspense` boundary, so a slow, empty or failed source never blanks another; none
+  enriches a row, reads a detail endpoint or computes anything. There is no count, score or aggregate of its own.
 - **Routes** — Overview `/`, Earnings `/earnings` and `/earnings/[id]`, Filings `/filings` and
   `/filings/[accession]`, Research `/research` (an event finder) and the research workspace
   `/research/events/[eventId]` (11.1D), Saved Research `/research/saved` and `/research/saved/[recordId]` (11.1E).
@@ -17,6 +22,10 @@ read-only Saved Research viewer.
   chip streams behind `Suspense` ("Checking API" first), so a slow or failed health read never delays the page or
   blanks the chrome. It reflects the API when the document was loaded (stated in its tooltip); each page reports
   its own data failures. Below 1024px the rail becomes an accessible drawer.
+- **Links never prefetch the API** — every in-app link is an `AppLink` (`prefetch={false}`) except the primary
+  navigation. In production a viewport-prefetched dynamic page is RENDERED on the server and reads the API, so a
+  list of N rows made N extra reads, and a prefetched `?verify=1` address could start a verification. A structural
+  test pins that nothing else imports `next/link`; `e2e/request-budget.spec.ts` pins the request count per surface.
 - **Tokens and theme** — semantic tokens for dark (default) and light; the theme is the server-readable cookie
   `qf-theme` (no flash, no `localStorage`).
 - **Data display** — `DataTable` (a server component: semantic table, sticky identity column and header,
@@ -134,6 +143,26 @@ on the server.
 Read once, validated as an absolute `http(s)` URL, in `src/lib/config/env.ts`.
 Copy `.env.example` to `.env` to override it for local development.
 
+## Browser end-to-end tests (`e2e/`, Playwright)
+
+Two separate things, never conflated:
+
+- **Fixture-backed E2E** (`npm run e2e`) — the PRODUCTION build (`next build` + `next start`, into its own
+  `.next-e2e` directory, because the API address is fixed into a build) against `e2e/fixture-api.mjs`, a stand-in
+  API that serves the real backend responses captured under `tests/contract/` byte for byte. Nothing is simulated or
+  hand-edited; a request no capture answers is refused with 501. Test-only control routes (`/__e2e/*`) inject faults
+  (a 503, a contract drift, a delay) and read the request log. It covers the journeys: Earnings to Research,
+  PIT refusal, benchmark failure, filing and accounting, Saved Research, verification (MATCH, EVIDENCE_INCOMPLETE,
+  MANIFEST_CHANGED, RESULT_CHANGED, a 409), Re-run live, theme, mobile navigation, error safety, keyboard-only
+  journeys, loading, axe in real Chrome (both themes, narrow viewport, drawers) and a responsive matrix
+  (14 routes x 1440/1024/390/320 x dark/light). `e2e/request-budget.spec.ts` pins the API requests per surface.
+- **Live seeded-backend smoke** (`npm run e2e:live`) — the normal build against a real API on `localhost:8000` and
+  its seeded database. Small by design: it claims nothing about states the database does not hold (it has no
+  filings, no saved records and no price bars).
+
+System Chrome is used (`channel: "chrome"`), so no browser is downloaded. Refresh the saved-record captures with
+`scripts/capture_record_fixtures.py` (its docstring has the command); never edit a capture by hand.
+
 ## Commands
 
 ```bash
@@ -147,6 +176,10 @@ npm run lint          # eslint
 npm run typecheck     # next's route-type generation, then tsc --noEmit
 npm run test          # vitest, single run
 npm run test:watch    # vitest, watch mode
+
+npm run e2e               # fixture-backed browser tests: builds into .next-e2e, then runs Playwright
+npm run e2e:run           # the same tests without rebuilding
+npm run e2e:live          # live seeded-backend smoke (API on :8000; builds the normal .next)
 
 npm run contract:export   # refresh contract/openapi.json and the generated types from the backend
 npm run contract:check    # fail if the backend schema, the snapshot and the types disagree

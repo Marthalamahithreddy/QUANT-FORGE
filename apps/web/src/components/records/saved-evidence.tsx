@@ -189,7 +189,7 @@ function FilingEvidenceBody({ filing }: { readonly filing: FilingEvidenceManifes
             Stored 8-K items: <span className="type-id">{filing.items === "" ? "(none stated)" : filing.items}</span>
           </div>
         ) : null}
-        <div className="type-meta">It carries no time and does not make the observation point-in-time eligible.</div>
+        <div className="type-meta">It carries no time and does not make the event point-in-time eligible.</div>
       </KeyValue>
     </KeyValueList>
   );

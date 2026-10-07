@@ -1,29 +1,18 @@
-import Link from "next/link";
 
 import { CurrentEventCell, lookupEvents } from "@/components/records/current-event-cell";
 import { FingerprintShort } from "@/components/records/fingerprint";
+import { RecordLink } from "@/components/records/record-link";
 import { ReproducibilityBadge } from "@/components/state/reproducibility-badge";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import type { RecordSummary } from "@/lib/api/schema";
 import { EPS_KIND_LABEL, PERIOD_CLASS_LABEL } from "@/lib/filings-view";
 import { formatUtcInstant } from "@/lib/format";
 import { gapSummary, shortId } from "@/lib/record-wording";
-import { recordPath } from "@/lib/record-view";
 
 const horizonsText = (horizons: readonly number[]) => `${horizons.map((value) => `+${value}`).join(", ")} sessions`;
 
 const columns = (events: ReturnType<typeof lookupEvents>): DataTableColumn<RecordSummary>[] => [
-  {
-    id: "record",
-    header: "Record",
-    cell: (record) => (
-      <Link href={recordPath(record.record_id)} className="type-id text-accent hover:underline">
-        {shortId(record.record_id)}
-        <span aria-hidden="true">…</span>
-        <span className="sr-only">{record.record_id.slice(8)}</span>
-      </Link>
-    ),
-  },
+  { id: "record", header: "Record", cell: (record) => <RecordLink record={record} /> },
   {
     id: "saved",
     header: "Saved (UTC)",
@@ -88,7 +77,7 @@ const columns = (events: ReturnType<typeof lookupEvents>): DataTableColumn<Recor
 ];
 
 /**
- * One page of saved baselines, in the API's order (newest saved first). Every column is a field the
+ * One page of saved research records, in the API's order (newest saved first). Every column is a field the
  * list endpoint returns, except the event column, which is the CURRENT event record looked up for
  * readability (one read per distinct event on the page) and is labelled as such.
  */
@@ -96,10 +85,10 @@ export function RecordsTable({ records }: { readonly records: readonly RecordSum
   const events = lookupEvents(records.map((record) => record.request.event_id));
   return (
     <div className="flex flex-col gap-2">
-      <DataTable caption="Saved research baselines" columns={columns(events)} rows={records} rowKey={(record) => record.record_id} />
+      <DataTable caption="Saved research records" columns={columns(events)} rows={records} rowKey={(record) => record.record_id} />
       <p className="type-meta max-w-3xl">
         <strong className="font-medium text-text-2">Event (current record)</strong> is the event as it is stored now, looked up for readability. It is not
-        part of a saved baseline, which keeps its own event facts. The two fingerprints are different identities: the manifest fingerprint identifies the
+        part of a stored baseline, which keeps its own event facts. The two fingerprints are different identities: the manifest fingerprint identifies the
         request, methodology and consumed evidence; the result fingerprint identifies the stored result. Hover a shortened value for the whole, or open the record.
       </p>
     </div>

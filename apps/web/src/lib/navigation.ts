@@ -12,7 +12,6 @@
 export interface NavItem {
   readonly id: string;
   readonly label: string;
-  readonly summary: string;
   readonly href: string;
 }
 
@@ -31,7 +30,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       {
         id: "overview",
         label: "Overview",
-        summary: "System state and data coverage.",
         href: "/",
       },
     ],
@@ -43,13 +41,11 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       {
         id: "earnings",
         label: "Earnings",
-        summary: "Earnings events with availability evidence.",
         href: "/earnings",
       },
       {
         id: "filings",
         label: "Filings",
-        summary: "Stored filings with SEC FSDS data, and their descriptive EPS.",
         href: "/filings",
       },
     ],
@@ -61,13 +57,11 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       {
         id: "research",
         label: "Research",
-        summary: "Event studies and the research engine's behaviour.",
         href: "/research",
       },
       {
         id: "saved",
         label: "Saved research",
-        summary: "Stored research baselines.",
         href: "/research/saved",
       },
     ],

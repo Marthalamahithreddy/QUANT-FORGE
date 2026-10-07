@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 
 export interface Crumb {
   readonly label: string;
@@ -30,9 +30,9 @@ export function Breadcrumbs({ items }: BreadcrumbsProps) {
                   {item.label}
                 </span>
               ) : (
-                <Link href={item.href} className="text-accent hover:underline">
+                <AppLink href={item.href} className="text-accent hover:underline">
                   {item.label}
-                </Link>
+                </AppLink>
               )}
             </li>
           );

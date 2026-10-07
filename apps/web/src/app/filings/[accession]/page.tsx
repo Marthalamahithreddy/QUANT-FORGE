@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 import type { ReactNode } from "react";
 
 import {
@@ -35,7 +35,7 @@ import {
 import { MISSING } from "@/lib/format";
 
 export async function generateMetadata({ params }: PageProps<"/filings/[accession]">): Promise<Metadata> {
-  return { title: `Filing ${(await params).accession}` };
+  return { title: `${(await params).accession} · Filing` };
 }
 
 const ERROR_ID = "filing-selector-errors";
@@ -155,7 +155,7 @@ export default async function FilingDetailPage({ params, searchParams }: PagePro
   if (!wellFormed) {
     body = (
       <ErrorState title="Malformed accession">
-        An accession looks like 0000320193-24-000123 (ten digits, two digits, six digits). No request was made.
+        An accession looks like 0000000000-00-000000 (ten digits, two digits, six digits). No request was made.
       </ErrorState>
     );
   } else if (cik.state === "invalid") {
@@ -166,9 +166,9 @@ export default async function FilingDetailPage({ params, searchParams }: PagePro
       <ErrorState title="Unsupported registrant CIK">
         The CIK in the address (“{cik.raw}”) must be exactly ten digits, including leading zeros. Nothing is
         substituted, and no request was made. Correct the address, or open the filing again from the{" "}
-        <Link href="/filings" className="text-accent hover:underline">
+        <AppLink href="/filings" className="text-accent hover:underline">
           filings list
-        </Link>
+        </AppLink>
         .
       </ErrorState>
     );

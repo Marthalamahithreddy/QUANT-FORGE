@@ -28,9 +28,9 @@ export async function EarningsResults({ state }: { readonly state: EarningsListS
       filtered={state.filtered}
       clearHref={EARNINGS_PATH}
       firstPageHref={earningsPageHref(state.query, 1)}
-      noun="stored observations"
+      noun="stored earnings events"
       noData={{ title: "No earnings events are stored", body: "Events appear here after ingestion has loaded them. Nothing is shown in the meantime." }}
-      noMatch={{ title: "Nothing matches these filters", body: "No stored earnings observation matches. Clear the filters to see every stored one." }}
+      noMatch={{ title: "Nothing matches these filters", body: "No stored earnings event matches. Clear the filters to see every stored one." }}
       />
     );
   }
@@ -44,7 +44,7 @@ export async function EarningsResults({ state }: { readonly state: EarningsListS
         offset={offset}
         maxPage={MAX_PAGE}
         hrefFor={(page) => earningsPageHref(state.query, page)}
-        noun="stored observations"
+        noun="stored earnings events"
       />
     </>
   );

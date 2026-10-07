@@ -13,7 +13,7 @@ import { shortId } from "@/lib/record-wording";
 
 export async function generateMetadata({ params }: PageProps<"/research/saved/[recordId]">): Promise<Metadata> {
   const { recordId } = await params;
-  return { title: decode(uuid, recordId).ok ? `Saved baseline ${shortId(recordId)}` : "Saved research record" };
+  return { title: decode(uuid, recordId).ok ? `Record ${shortId(recordId)} · Saved research` : "Saved research record" };
 }
 
 export default async function SavedRecordPage({ params, searchParams }: PageProps<"/research/saved/[recordId]">) {

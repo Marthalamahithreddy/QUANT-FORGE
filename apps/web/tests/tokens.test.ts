@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -11,6 +11,12 @@ import { describe, expect, it } from "vitest";
  */
 
 const CSS = readFileSync(resolve(__dirname, "../src/app/globals.css"), "utf8");
+
+/** Every application source file, to find the consumers of a token. */
+const SOURCES = (readdirSync(resolve(__dirname, "../src"), { recursive: true }) as string[])
+  .filter((file) => /\.tsx?$/.test(file) && !file.includes("types/generated"))
+  .map((file) => readFileSync(resolve(__dirname, "../src", file), "utf8"))
+  .join("\n");
 
 /** The declarations of the first rule whose selector (whitespace-normalised) equals `selector`. */
 function block(selector: string): Record<string, string> {
@@ -96,22 +102,30 @@ describe("token presence", () => {
     expect(LIGHT_MEDIA).toEqual(LIGHT);
   });
 
-  it("keeps the pre-V2 token names as compatibility aliases", () => {
+  it("carries no pre-V2 compatibility alias and no unused colour utility", () => {
     for (const alias of [
       "--color-surface-0",
       "--color-surface-1",
       "--color-surface-2",
       "--color-surface-3",
       "--color-border-strong",
-      "--color-border-subtle",
       "--color-text-primary",
       "--color-text-secondary",
       "--color-text-muted",
       "--color-status-ok",
       "--color-status-warn",
       "--color-status-down",
+      "--color-accent-subtle",
+      "--color-positive",
+      "--color-negative",
     ]) {
-      expect(CSS).toContain(alias);
+      expect(CSS, alias).not.toContain(alias);
+    }
+    // Every colour utility the theme generates has a consumer in the application.
+    const used = (name: string) =>
+      new RegExp(`(?:bg|text|border|ring|fill|stroke|outline|divide|from|to|via|decoration|accent|caret|shadow|placeholder)-${name}(?![a-z0-9-])`).test(SOURCES);
+    for (const [, name] of CSS.matchAll(/--color-([a-z0-9-]+):/g)) {
+      expect(used(name!) || new RegExp(`var\\(--color-${name}\\)`).test(SOURCES + CSS), `--color-${name} has no consumer`).toBe(true);
     }
   });
 

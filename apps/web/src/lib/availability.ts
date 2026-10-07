@@ -18,7 +18,7 @@ export const BASIS_LABEL: Record<AvailabilityBasis, string> = {
 
 /** What the timestamp does and does not prove, per basis. */
 export const BASIS_MEANING: Record<AvailabilityBasis, string> = {
-  SOURCE_PUBLICATION: "The source states when this observation was published.",
+  SOURCE_PUBLICATION: "The source states when this event's data was published.",
   SEC_FILING_ACCEPTANCE:
     "The time the SEC accepted the filing on EDGAR. It is not the earnings release time and does not prove first public disclosure.",
 };

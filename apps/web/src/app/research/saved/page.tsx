@@ -28,7 +28,7 @@ export default async function SavedResearchPage({ searchParams }: PageProps<"/re
         <FilterErrors id={ERROR_ID} errors={state.errors} title="This page address is not valid" />
       ) : (
         // Keyed by the canonical address, so a page change shows the skeleton instead of old rows.
-        <Suspense key={state.canonical} fallback={<TableSkeleton label="Loading saved research baselines" rows={8} />}>
+        <Suspense key={state.canonical} fallback={<TableSkeleton label="Loading saved research records" rows={8} />}>
           <SavedRecordsResults state={state} />
         </Suspense>
       )}

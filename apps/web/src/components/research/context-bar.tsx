@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 import { Suspense } from "react";
 
 import type { EarningsEvent } from "@/lib/api/schema";
@@ -30,9 +30,9 @@ function BenchmarkChip({ eventId, config }: { readonly eventId: string; readonly
           {(item) => (item ? benchmarkName(item) : idLabel)}
         </BenchmarkLookup>
       </Suspense>
-      <Link href={researchHref(eventId, { ...config.query, benchmarkId: undefined })} aria-label="Remove the benchmark" className="text-accent hover:underline max-lg:flex max-lg:min-h-11 max-lg:items-center">
+      <AppLink href={researchHref(eventId, { ...config.query, benchmarkId: undefined })} aria-label="Remove the benchmark" className="text-accent hover:underline max-lg:flex max-lg:min-h-11 max-lg:items-center">
         remove
-      </Link>
+      </AppLink>
     </span>
   );
 }
@@ -59,9 +59,9 @@ export function ContextBar({ eventId, record, config }: { readonly eventId: stri
           </span>
         </Item>
       </dl>
-      <Link href={`/earnings/${eventId}`} className="text-sm text-accent hover:underline max-lg:flex max-lg:min-h-11 max-lg:items-center">
+      <AppLink href={`/earnings/${eventId}`} className="text-sm text-accent hover:underline max-lg:flex max-lg:min-h-11 max-lg:items-center">
         Stored event record
-      </Link>
+      </AppLink>
       </div>
       <dl className="flex flex-wrap gap-x-6 gap-y-1">
         <Item label="Price basis">Split-adjusted (the only basis research reads)</Item>
@@ -98,13 +98,13 @@ export function ContextBar({ eventId, record, config }: { readonly eventId: stri
               <span className="text-text-3">
                 {config.query.epsPeriodClass?.toLowerCase()} · {config.query.epsKind?.toLowerCase().replaceAll("_", " ")}
               </span>
-              <Link
+              <AppLink
                 href={researchHref(eventId, { ...config.query, filingAccession: undefined, epsPeriodClass: undefined, epsKind: undefined })}
                 aria-label="Remove the filing"
                 className="text-accent hover:underline max-lg:flex max-lg:min-h-11 max-lg:items-center"
               >
                 remove
-              </Link>
+              </AppLink>
             </span>
           ) : (
             <span className="text-text-2">none (not linked)</span>

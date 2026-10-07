@@ -1,17 +1,17 @@
-import Link from "next/link";
 
 import { FinancialValue } from "@/components/financial/financial-value";
 import { PercentValue } from "@/components/financial/percent-value";
 import { DomainState } from "@/components/state/domain-state";
-import { StatusBadge } from "@/components/state/status-badge";
+import { EventDateCell } from "@/components/earnings/event-date-cell";
+import { ResearchLink } from "@/components/research/research-link";
+import { PitBadge } from "@/components/state/pit-badge";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import type { EarningsEvent } from "@/lib/api/schema";
 import { BASIS_LABEL, PIT_PRESENTATION, TIMING_LABEL } from "@/lib/availability";
-import { fiscalPeriod, tickersAtEvent } from "@/lib/earnings-view";
+import { tickersAtEvent } from "@/lib/earnings-view";
 import { formatUtcInstant } from "@/lib/format";
 import type { NonValueState, StateKind } from "@/lib/state";
-import { researchHref } from "@/lib/research-view";
-import { PIT_STATE, SURPRISE_STATE, TIMING_STATE } from "@/lib/state-map";
+import { SURPRISE_STATE, TIMING_STATE } from "@/lib/state-map";
 
 function SurpriseCell({ event }: { readonly event: EarningsEvent }) {
   const { eps_surprise: surprise } = event;
@@ -42,15 +42,11 @@ function nonValue(kind: StateKind): NonValueState {
 
 function PitCell({ event }: { readonly event: EarningsEvent }) {
   const { availability } = event;
-  const presentation = PIT_PRESENTATION[availability.pit_eligibility];
-  const state = PIT_STATE[availability.pit_eligibility];
   return (
     <div className="flex flex-col items-start gap-0.5">
-      <StatusBadge kind={state} mode={state === "NOT_APPLICABLE" ? undefined : "pit"}>
-        {presentation.label}
-      </StatusBadge>
+      <PitBadge eligibility={availability.pit_eligibility} />
       <span className="type-meta" title={availability.pit_reason}>
-        {presentation.short}
+        {PIT_PRESENTATION[availability.pit_eligibility].short}
       </span>
     </div>
   );
@@ -60,14 +56,7 @@ const COLUMNS: readonly DataTableColumn<EarningsEvent>[] = [
   {
     id: "event_date",
     header: "Event date",
-    cell: (event) => (
-      <>
-        <Link href={`/earnings/${event.id}`} className="font-medium text-accent underline-offset-2 hover:underline">
-          {event.event_date}
-        </Link>
-        <div className="type-meta">{fiscalPeriod(event)}</div>
-      </>
-    ),
+    cell: (event) => <EventDateCell event={event} />,
   },
   {
     id: "company",
@@ -106,18 +95,12 @@ const COLUMNS: readonly DataTableColumn<EarningsEvent>[] = [
     cell: (event) => <FinancialValue kind="eps" value={event.estimated_eps} />,
   },
   { id: "surprise", header: "EPS surprise", align: "end", cell: (event) => <SurpriseCell event={event} /> },
-  { id: "pit", header: "PIT status", cell: (event) => <PitCell event={event} /> },
+  { id: "pit", header: "Point-in-time", cell: (event) => <PitCell event={event} /> },
   {
     id: "research",
     header: "Research",
     cell: (event) => (
-      <Link
-        href={researchHref(event.id)}
-        aria-label={`Research ${event.company.display_name}, ${event.event_date}`}
-        className="text-accent underline-offset-2 hover:underline"
-      >
-        Research
-      </Link>
+      <ResearchLink eventId={event.id} company={event.company.display_name} eventDate={event.event_date} />
     ),
   },
   {

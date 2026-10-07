@@ -10,7 +10,7 @@ export const CONTROL =
   "rounded-md border border-border-control bg-surface-elevated px-2.5 py-1.5 text-sm text-text placeholder:text-text-3 max-lg:min-h-11";
 
 export const BUTTON_BASE =
-  "inline-flex items-center justify-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium max-lg:min-h-11";
+  "inline-flex items-center justify-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium no-underline max-lg:min-h-11";
 
 export const BUTTON_VARIANT = {
   secondary:

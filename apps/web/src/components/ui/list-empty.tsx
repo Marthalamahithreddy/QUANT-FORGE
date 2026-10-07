@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 import type { ReactNode } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
@@ -26,9 +26,9 @@ export function ListEmpty({ total, rows, filtered, clearHref, firstPageHref, nou
       <EmptyState
         title={noMatch.title}
         action={
-          <Link href={clearHref} className="text-accent hover:underline">
+          <AppLink href={clearHref} className="text-accent hover:underline">
             Clear the filters
-          </Link>
+          </AppLink>
         }
       >
         {noMatch.body}
@@ -42,9 +42,9 @@ export function ListEmpty({ total, rows, filtered, clearHref, firstPageHref, nou
       <EmptyState
         title="This page is past the last result"
         action={
-          <Link href={firstPageHref} className="text-accent hover:underline">
+          <AppLink href={firstPageHref} className="text-accent hover:underline">
             Go to the first page
-          </Link>
+          </AppLink>
         }
       >
         There are {total} {noun} for this view, and none at this position.

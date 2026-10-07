@@ -87,7 +87,7 @@ describe("the saved research list", () => {
     await openList();
     expect(screen.getByRole("heading", { level: 1, name: "Saved research" })).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/not part of the interface yet|placeholder/i);
-    const region = screen.getByRole("region", { name: /Saved research baselines, scrollable/ });
+    const region = screen.getByRole("region", { name: /Saved research records, scrollable/ });
     const table = within(region).getByRole("table");
     expect(within(table).getAllByRole("row")).toHaveLength(1 + (RECORDS.lists.limit_20!.body as Json).items.length);
     const headers = within(table).getAllByRole("columnheader").map((h) => h.textContent);
@@ -149,7 +149,7 @@ describe("the saved research list", () => {
   it("labels the event as CURRENT metadata, apart from the stored fields", async () => {
     await openList();
     expect(screen.getByRole("columnheader", { name: "Event (current record)" })).toBeInTheDocument();
-    expect(document.body.textContent).toMatch(/event as it is stored now, looked up for readability\. It is not part of a saved baseline/);
+    expect(document.body.textContent).toMatch(/event as it is stored now, looked up for readability\. It is not part of a stored baseline/);
     // The stored request cell carries no company or ticker: those come only from the current lookup.
     const table = screen.getByRole("table");
     const requestCells = within(table).getAllByRole("cell").filter((cell) => cell.textContent?.includes("sessions") && cell.textContent.includes("Benchmark:"));
@@ -178,7 +178,7 @@ describe("the saved research list", () => {
   it("rows are not fabricated for an empty store, and there is no 'save your first' prompt", async () => {
     serve({ list: (url) => jsonResponse({ items: [], total: 0, limit: Number(url.searchParams.get("limit")), offset: 0 }) });
     await openList();
-    expect(screen.getByText("No saved research baselines are stored")).toBeInTheDocument();
+    expect(screen.getByText("No saved research records are stored")).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
     expect(screen.getByRole("link", { name: "Open Research" })).toHaveAttribute("href", "/research");
     expect(document.body.textContent).not.toMatch(/save your first|create a baseline|new baseline/i);

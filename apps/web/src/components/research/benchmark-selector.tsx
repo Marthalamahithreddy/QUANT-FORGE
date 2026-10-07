@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 
 import { SelectField } from "@/components/ui/fields";
 import { Callout } from "@/components/ui/callout";
@@ -41,9 +41,9 @@ export async function BenchmarkSelector({ eventId, config }: { readonly eventId:
           {selected ? (
             <>
               {" "}
-              <Link href={clearHref} className="text-accent hover:underline">
+              <AppLink href={clearHref} className="text-accent hover:underline">
                 Remove the selected benchmark
-              </Link>
+              </AppLink>
             </>
           ) : null}
         </p>
@@ -79,15 +79,15 @@ export async function BenchmarkSelector({ eventId, config }: { readonly eventId:
         <p className="type-meta max-w-sm" data-testid="benchmark-paging">
           Showing benchmarks {at + 1}–{at + items.length} of {total} stored. This list is one page of the index, not a search.{" "}
           {hasPrevious ? (
-            <Link href={researchHref(eventId, config.query, config.benchmarkPage - 1)} className="text-accent hover:underline">
+            <AppLink href={researchHref(eventId, config.query, config.benchmarkPage - 1)} className="text-accent hover:underline">
               Previous benchmarks
-            </Link>
+            </AppLink>
           ) : null}
           {hasPrevious && hasNext ? " · " : null}
           {hasNext ? (
-            <Link href={researchHref(eventId, config.query, config.benchmarkPage + 1)} className="text-accent hover:underline">
+            <AppLink href={researchHref(eventId, config.query, config.benchmarkPage + 1)} className="text-accent hover:underline">
               Next benchmarks
-            </Link>
+            </AppLink>
           ) : null}
         </p>
       ) : null}

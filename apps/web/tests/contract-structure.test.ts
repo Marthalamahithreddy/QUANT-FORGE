@@ -196,7 +196,17 @@ describe("the shell lives in the layout, once", () => {
 
   it("no page or component other than the status components reads the shell's health", () => {
     const readers = files.filter((f) => /getRequestBackendStatus|getBackendStatus/.test(read(f))).map(rel).sort();
-    expect(readers).toEqual(["app/page.tsx", "components/layout/live-api-status.tsx", "lib/api/health.ts"]);
+    expect(readers).toEqual(["components/layout/live-api-status.tsx", "components/overview/system-status.tsx", "lib/api/health.ts"]);
+  });
+});
+
+describe("navigation never makes the API read on its own", () => {
+  it("only the primary navigation uses next/link directly; every other link is an AppLink that does not prefetch", () => {
+    const importers = files.filter((f) => /from "next\/link"/.test(read(f))).map(rel).sort();
+    expect(importers).toEqual(["components/layout/nav-link.tsx", "components/ui/app-link.tsx"]);
+    // No hand-written internal anchor either: a plain <a href="/..."> would bypass the policy.
+    for (const file of files) expect(code(read(file)), rel(file)).not.toMatch(/<a\s[^>]*href=\{?["'`]\//);
+    expect(code(read(join(SRC, "components/ui/app-link.tsx")))).toMatch(/<Link \{\.\.\.props\} prefetch=\{false\} \/>/);
   });
 });
 
@@ -244,10 +254,14 @@ describe("tooling and dependencies", () => {
     scripts: Record<string, string>;
   };
 
-  it("adds only openapi-typescript (dev) in 11.1C: no chart, table, state, date or icon library", () => {
+  it("runtime dependencies are exactly next, react and react-dom; dev tooling adds no chart, table, state, date or icon library", () => {
     expect(Object.keys(pkg.dependencies).sort()).toEqual(["next", "react", "react-dom"]);
     expect(pkg.devDependencies["openapi-typescript"]).toBeDefined();
-    const banned = /chart|recharts|d3|table|tanstack|zustand|redux|swr|query|date-fns|dayjs|moment|lucide|icons|playwright|server-only/i;
+    // Browser end-to-end tooling (11.1F) is dev-only and is exactly these two packages.
+    expect(pkg.devDependencies["@playwright/test"]).toBeDefined();
+    expect(pkg.devDependencies["axe-core"]).toBeDefined();
+    expect(Object.keys(pkg.dependencies)).not.toContain("@playwright/test");
+    const banned = /chart|recharts|d3|table|tanstack|zustand|redux|swr|query|date-fns|dayjs|moment|lucide|icons|server-only/i;
     for (const name of [...Object.keys(pkg.dependencies), ...Object.keys(pkg.devDependencies)]) {
       expect(name, name).not.toMatch(banned);
     }

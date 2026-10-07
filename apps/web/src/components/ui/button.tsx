@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 import { BUTTON_BASE, BUTTON_VARIANT, type ButtonVariant } from "@/components/ui/controls";
@@ -23,8 +23,8 @@ export interface LinkButtonProps {
 /** A link that looks like a button (navigation, not an action). */
 export function LinkButton({ href, variant = "secondary", label, children }: LinkButtonProps) {
   return (
-    <Link href={href} aria-label={label} className={`${BUTTON_BASE} ${BUTTON_VARIANT[variant]}`}>
+    <AppLink href={href} aria-label={label} className={`${BUTTON_BASE} ${BUTTON_VARIANT[variant]}`}>
       {children}
-    </Link>
+    </AppLink>
   );
 }

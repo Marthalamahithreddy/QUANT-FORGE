@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { AppLink } from "@/components/ui/app-link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
@@ -17,11 +17,11 @@ export const metadata = { title: "Research" };
 const PRINCIPLES = [
   {
     title: "Point-in-time discipline",
-    body: "An observation is treated as known at a time only when the source states when it was published. A timestamp with no stated basis, or with an unapproved basis, does not qualify.",
+    body: "A stored event is treated as known at a time only when the source states when it was published. A timestamp with no stated basis, or with an unapproved basis, does not qualify.",
   },
   {
     title: "Descriptive versus point-in-time",
-    body: "Retrospective questions may use observations with no availability time. Questions about what could have been known and acted on at a given moment may not. A study shows both, separately.",
+    body: "Retrospective questions may use events with no availability time. Questions about what could have been known and acted on at a given moment may not. A study shows both, separately.",
   },
   {
     title: "Split-adjusted research prices",
@@ -64,9 +64,9 @@ export default async function ResearchPage({ searchParams }: PageProps<"/researc
 
       <p className="type-meta">
         Stored baselines of completed studies are listed under{" "}
-        <Link href="/research/saved" className="text-accent hover:underline">
+        <AppLink href="/research/saved" className="text-accent hover:underline">
           Saved research
-        </Link>
+        </AppLink>
         .
       </p>
 

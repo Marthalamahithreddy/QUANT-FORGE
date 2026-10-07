@@ -190,7 +190,7 @@ function Row({ title, subject, children, summary }: { readonly title: string; re
 /**
  * The collapsed provenance section: one row per kind of evidence, each opening its drawer. The
  * live observation is NOT a saved baseline, so no reproducibility level appears here:
- * "Reproducibility is assessed when a study is saved as a baseline."
+ * "Reproducibility is assessed for a saved research record."
  */
 export function ProvenanceSection({
   observation,
@@ -228,7 +228,7 @@ export function ProvenanceSection({
       <Row title="Accounting facts" subject="the accounting facts" summary={observation.accounting.eps ? "Selected facts and source artifact digests" : "Not requested or refused"}>
         <AccountingEvidence observation={observation} />
       </Row>
-      <p className="type-meta pt-2">Reproducibility is assessed when a study is saved as a baseline. A live study shows no level.</p>
+      <p className="type-meta pt-2">Reproducibility is assessed for a saved research record. A live study shows no level.</p>
     </div>
   );
 }

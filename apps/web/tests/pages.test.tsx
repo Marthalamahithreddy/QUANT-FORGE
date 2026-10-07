@@ -1,9 +1,8 @@
-import { render, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import EarningsDetailPage from "@/app/earnings/[id]/page";
 import EarningsPage from "@/app/earnings/page";
-import Overview from "@/app/page";
 import { jsonResponse, makeEvent } from "./fixtures";
 import { renderServer } from "./render-server";
 
@@ -54,9 +53,6 @@ const apiCalls = (needle: string) =>
 
 const page = (items: unknown[], total = items.length, offset = 0) =>
   jsonResponse({ items, total, limit: 50, offset });
-
-/** The Overview asks for one row, and the API echoes the limit it was given. */
-const coverage = (items: unknown[], total = items.length) => jsonResponse({ items, total, limit: 1, offset: 0 });
 
 const listProps = (search: Record<string, string | string[]> = {}) =>
   ({ searchParams: Promise.resolve(search), params: Promise.resolve({}) }) as never;
@@ -114,7 +110,7 @@ describe("Earnings list page", () => {
     const table = screen.getByRole("table", { name: "Earnings events" });
     expect(within(table).getByText("Acme Corp")).toBeInTheDocument();
     expect(within(table).getByText("ACME")).toBeInTheDocument();
-    expect(screen.getByTestId("pagination-position")).toHaveTextContent("Rows 1–1 of 1 stored observations");
+    expect(screen.getByTestId("pagination-position")).toHaveTextContent("Rows 1–1 of 1 stored earnings events");
   });
 
   it("states that a revision or a second source is its own row", async () => {
@@ -224,12 +220,12 @@ describe("Earnings detail page", () => {
     route({ earnings: jsonResponse(makeEvent()) });
     await renderServer(await EarningsDetailPage(detailProps()));
 
-    const observation = screen.getByRole("region", { name: "Stored observation" });
+    const observation = screen.getByRole("region", { name: "Stored event" });
     const availability = screen.getByRole("region", { name: "Availability" });
     expect(observation).not.toContainElement(availability);
     expect(within(observation).queryByText(/PIT/)).toBeNull();
     expect(within(observation).getByText("Descriptive")).toBeInTheDocument();
-    expect(availability).toHaveTextContent(/does not change the stored observation/);
+    expect(availability).toHaveTextContent(/does not change the stored event/);
   });
 
   it("describes SEC filing acceptance as filing acceptance only", async () => {
@@ -298,14 +294,14 @@ describe("Earnings detail page", () => {
     expect(row.querySelector('[data-state="REFUSED"]')).not.toBeNull();
     expect(row).toHaveTextContent("withheld in point-in-time mode");
     // (The preview's own failed read, with no observation mocked, is a separate alert elsewhere.)
-    expect(within(screen.getByRole("region", { name: "Stored observation" })).queryByRole("alert")).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Stored event" })).queryByRole("alert")).toBeNull();
   });
 
   it("offers the primary Open research action with the event identity explicit in the address", async () => {
     route({ earnings: jsonResponse(makeEvent()) });
     await renderServer(await EarningsDetailPage(detailProps()));
 
-    const action = screen.getByRole("link", { name: /Open research workspace for Acme Corp, 2024-03-15/ });
+    const action = screen.getByRole("link", { name: /Open Research for Acme Corp, 2024-03-15/ });
     expect(action).toHaveAttribute("href", `/research/events/${ID}`);
     expect(action.getAttribute("href")).not.toMatch(/benchmark|filing|horizon/);
   });
@@ -348,7 +344,7 @@ describe("Earnings detail page", () => {
     expect(within(crumbs).getByText("Acme Corp · 2024-03-15")).toHaveAttribute("aria-current", "page");
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     const h2 = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(h2).toEqual(expect.arrayContaining(["Stored observation", "Availability", "Provenance"]));
+    expect(h2).toEqual(expect.arrayContaining(["Stored event", "Availability", "Provenance"]));
   });
 
   it("does not expose provenance internals", async () => {
@@ -365,7 +361,7 @@ describe("Earnings detail page", () => {
     const preview = screen.getByRole("region", { name: "Market reaction" });
     expect(within(preview).getByRole("alert")).toHaveTextContent("Cannot reach the QuantForge API");
     expect(preview.textContent).not.toMatch(/127\.0\.0\.1|8000/);
-    expect(screen.getByRole("region", { name: "Stored observation" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Stored event" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Availability" })).toBeInTheDocument();
   });
 
@@ -392,59 +388,5 @@ describe("Earnings detail page", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent("does not understand");
     expect(document.body.textContent).not.toContain("Acme Corp");
-  });
-});
-
-describe("Overview", () => {
-  it("shows real readiness and earnings coverage", async () => {
-    route({
-      health: jsonResponse(HEALTH),
-      ready: jsonResponse(READY),
-      earnings: coverage([makeEvent({ event_date: "2024-05-01" })], 7),
-    });
-    render(await Overview());
-
-    const system = screen.getByRole("region", { name: "System" });
-    expect(within(system).getAllByText("Reachable")).toHaveLength(2);
-    const data = screen.getByRole("region", { name: "Earnings data" });
-    expect(within(data).getByText("7")).toBeInTheDocument();
-    expect(within(data).getByText("2024-05-01")).toBeInTheDocument();
-  });
-
-  it("reads each endpoint once, in parallel", async () => {
-    route({ health: jsonResponse(HEALTH), ready: jsonResponse(READY), earnings: coverage([makeEvent()], 1) });
-    render(await Overview());
-
-    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3);
-    expect(apiCalls("/health/ready")).toHaveLength(1);
-    expect(apiCalls("/earnings-events")).toHaveLength(1);
-  });
-
-  it("shows a down dependency from a 503 readiness body", async () => {
-    route({
-      health: jsonResponse(HEALTH),
-      ready: jsonResponse({ ...READY, status: "not_ready", dependencies: { database: "unavailable", redis: "ok" } }, 503),
-      earnings: coverage([]),
-    });
-    render(await Overview());
-
-    const system = screen.getByRole("region", { name: "System" });
-    expect(within(system).getAllByText("Unavailable").length).toBeGreaterThan(0);
-  });
-
-  it("invents no coverage when the backend is down and leaks no address", async () => {
-    route({ health: new TypeError("down"), ready: new TypeError("down"), earnings: new TypeError("down") });
-    render(await Overview());
-
-    expect(screen.getByText(/Earnings coverage is unavailable/)).toBeInTheDocument();
-    expect(screen.queryByText("Earnings observations stored")).toBeNull();
-    expect(document.body.textContent).not.toMatch(/localhost|8000|https?:/);
-  });
-
-  it("explains an empty store", async () => {
-    route({ health: jsonResponse(HEALTH), ready: jsonResponse(READY), earnings: coverage([]) });
-    render(await Overview());
-
-    expect(screen.getByText(/No earnings events are stored yet/)).toBeInTheDocument();
   });
 });

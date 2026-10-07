@@ -38,5 +38,3 @@ export type ApiResult<T> =
   | { readonly kind: "contract"; readonly path: string; readonly expected: string };
 
 export type ApiFailure = Exclude<ApiResult<unknown>, { kind: "ok" }>;
-
-export const isOk = <T>(result: ApiResult<T>): result is { kind: "ok"; data: T } => result.kind === "ok";

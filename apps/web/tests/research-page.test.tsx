@@ -568,7 +568,7 @@ describe("provenance and evidence", () => {
 
   it("states that a live study has no reproducibility level", async () => {
     await open("default_no_benchmark");
-    expect(screen.getByText("Reproducibility is assessed when a study is saved as a baseline. A live study shows no level.")).toBeInTheDocument();
+    expect(screen.getByText("Reproducibility is assessed for a saved research record. A live study shows no level.")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/\b(COMPLETE|PARTIAL)\b(?! \()/);
   });
 });

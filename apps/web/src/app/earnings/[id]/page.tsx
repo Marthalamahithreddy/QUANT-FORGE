@@ -13,7 +13,7 @@ export async function generateMetadata({ params }: PageProps<"/earnings/[id]">):
   return {
     title:
       result.kind === "ok"
-        ? `${result.data.company.display_name} · ${result.data.event_date}`
+        ? `${result.data.company.display_name} · ${result.data.event_date} · Earnings`
         : "Earnings event",
   };
 }
@@ -28,7 +28,7 @@ export default async function EarningsDetailPage({ params }: PageProps<"/earning
     return (
       <PageContainer>
         <Breadcrumbs items={[{ label: "Earnings", href: "/earnings" }, { label: "Event" }]} />
-        <PageHeader eyebrow="Earnings observation" title="Earnings event" />
+        <PageHeader eyebrow="Earnings event" title="Earnings event" />
         <ApiFailureState failure={result} subject="this earnings event" retryHref={`/earnings/${encodeURIComponent(id)}`} />
       </PageContainer>
     );
