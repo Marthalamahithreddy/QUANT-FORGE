@@ -22,10 +22,11 @@ from quantforge.ingestion.raw_store import RawResponseStore
 
 ROOT = Path(__file__).resolve().parents[2]
 ART = Path(__file__).resolve().parent / "artifacts"
-LEDGER = ART / "ledger-11.2E.json"  # 11.2B/C ledger kept separately as ledger.json (11 of 12)
+LEDGER = ART / os.environ.get("VALIDATION_LEDGER", "ledger-11.2F.json")  # one ledger file per step
+
 RAW_ROOT = ART / "raw"
 VALIDATION_DB = "quantforge_validation"
-HARD_CAP = 8
+HARD_CAP = int(os.environ.get("VALIDATION_CAP", "2"))  # per-step hard request ceiling
 
 
 class BudgetExceeded(Exception):  # noqa: N818 - plain Exception on purpose: clients must not retry or wrap it

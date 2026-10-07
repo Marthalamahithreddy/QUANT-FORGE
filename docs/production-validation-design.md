@@ -568,3 +568,73 @@ integration), 95.79%; frontend 1400 unchanged; migration head 0013.
 the ingesting service and no SQL repair. Secret scan clean (38 files, no key, no User-Agent).
 NOT YET VALIDATED: +5/+20 on real data (sessions have not occurred), the accounting vertical
 (NKE `0000320187-26-000037` approved, not ingested), real-data browser checks.
+
+## 23. 11.2F accounting golden validation -- BLOCKED / P1 DISCOVERED (not complete)
+
+Checkpointed base: `616fb94` (11.2E). Validation database `quantforge_validation` (migration head
+0013, retained from 11.2E). SEC budget: cap 2, used 2 (ledger `ledger-11.2F.json`, harness
+`scripts/validation/accounting.py`, `sec_header_probe.py`).
+
+**Preconditions passed.** The preserved FSDS package `2026q2.zip` matches the expected
+60,419,016 bytes and SHA-256 `d7c81539...22df77`. It was not re-downloaded.
+
+**Request 1 -- `GET data.sec.gov/submissions/CIK0000320187.json` (HTTP 200, 1.9 s).**
+`sec-filings-history --accession 0000320187-26-000037 --max-history-files 1` was refused by the
+adapter: `160 of 164 filings deviate from EDGAR's normal acceptance pattern; this looks like a
+systematic misreading of acceptanceDateTime (its timezone) ... the response is refused`. The failed
+run is durable (`sec-filing-history`, failed, 0 written) and the raw bytes are retained under
+`submissions-rejected`. Nothing was written to `sec_filing`, `financial_fact` or
+`financial_fact_submission`.
+
+**Request 2 -- official EDGAR SGML header for the target accession (HTTP 200, 886 bytes).**
+Diagnostic only; nothing ingested.
+
+| Source | Value for 0000320187-26-000037 | As an instant |
+|---|---|---|
+| EDGAR header `ACCEPTANCE-DATETIME` (Eastern, per the SEC dissemination spec) | `20260401161639` | 2026-04-01 16:16:39 ET = 20:16:39Z |
+| Submissions JSON `acceptanceDateTime` | `2026-04-02T00:16:39.000Z` | read as UTC (the 10.7A rule): 2026-04-02 00:16:39Z |
+| Difference | | JSON-as-UTC is 4 h late (EDT) |
+
+**Distribution evidence (offline, the 164 supported-form rows in `filings.recent`).** Read as UTC,
+154 rows are "accepted after 17:30 Eastern yet dated the same day" and 8 are outside 06:00-22:00
+Eastern; the Eastern hour is 20 in daylight time and 21 in standard time. Remove one further
+Eastern offset (4 h or 5 h) and all 164 rows are plausible, 126 fall in 16:00-16:30 ET, and the
+wall time is stable across the daylight/standard boundary. The extra shift tracks the
+Eastern offset. This is an OBSERVED PATTERN for one registrant, not a universal SEC rule; the
+transformation that produces it is not established (neutral term: submissions/header timestamp
+discrepancy).
+
+**Finding (P1, validation-blocking, fail-closed).** The 10.7A empirical rule "JSON `Z` value read as
+UTC" (11 of 11 pairs, other registrants) is contradicted by an official header for this real
+registrant (the corrected reading is a hypothesis, not proven). The systematic-anomaly tripwire did its job: no wrong instant was stored. Consequences:
+the NKE accounting vertical cannot be ingested through the production SEC path, and the scope
+(NKE only, or a class of registrants or filing eras) is **unknown**. The acceptance time carries
+no availability meaning (`SEC_FILING_ACCEPTANCE` stays unapproved), so this is an identity/provenance
+defect, not a look-ahead defect. Not repaired inside 11.2F.
+
+**Decision needed (a separate design step).** (a) Establish the rule per registrant/era by sampling
+more header pairs, with a bounded request budget; (b) decide whether `accepted_at` should stay a
+NOT NULL instant or be reconciled with the FILED-AS-OF/header representation; (c) decide whether the
+tripwire should stay a whole-response refusal. Accounting golden classification: **NOT PASSED --
+layer: SEC provider adapter (acceptance-time interpretation), before any database write.**
+
+**Not run, by rule.** FSDS ingestion, selectors, filing API, filings index (they all depend on a
+stored `sec_filing`), and the real-data frontend gate. The offline FSDS/selector result from 11.2C
+still stands: EPS diluted current 0.3500, comparative 0.5400, change -0.1900, ratio -0.3518,
+POSITIVE_DECREASED.
+
+**Market golden recheck under the checkpointed code (no network).** The saved record
+`e880eaf9-...` verifies `MATCH` (0.255 s); both the stock-only and the SPY observations remain
+`COMPLETE` with no gaps; PIT stays `REFUSED`. Real +1 and +2 AVAILABLE; real +5 PENDING FUTURE
+SESSION (target 2026-10-09); +20 not validated.
+
+### 23.1 Future +5 recheck (do not run before the target session has completed)
+
+1. Wait until 2026-10-09 has closed and Massive's daily aggregates are published (the next day).
+2. In `quantforge_validation`: re-ingest NKE daily bars for 2026-10-02..2026-10-09 (one `daily-bars`
+   request) and SPY for the same range (one `benchmark-daily-bars` request). No listing, earnings or
+   reference request is needed; the listing fact and event already exist.
+3. Run `probe.py observe` with horizons 1, 2, 5. Expect +5 target 2026-10-09 AVAILABLE and the manifest
+   COMPLETE. A record saved earlier keeps its stored baseline; verify it explicitly (a newly available
+   horizon changes the current result, not the baseline).
+4. Budget: 2 requests. Stop on any refusal and keep the rejected raw evidence.
