@@ -638,3 +638,13 @@ SESSION (target 2026-10-09); +20 not validated.
    COMPLETE. A record saved earlier keeps its stored baseline; verify it explicitly (a newly available
    horizon changes the current result, not the baseline).
 4. Budget: 2 requests. Stop on any refusal and keep the rejected raw evidence.
+
+## 24. 11.2G SEC acceptance-time investigation (design only; see docs/sec-acceptance-time-design.md)
+
+11 of 12 SEC requests used. Findings: `acceptanceDateTime` is TIMEZONE UNDOCUMENTED by the SEC. In nine
+JSON/header pairs the literal-Z instant differs from the official header by exactly 0 or exactly one Eastern
+offset for that date (DST-aware, 2018-2026). It differs by registrant document (NKE, AAPL shifted; MSFT, NVDA not)
+and for the same accession over time (AAPL drifted between 2026-10-04 and 2026-10-07), not by form, era or filer
+agent. The 10.7A rule was empirical and correct when observed. Recommendation: identity from JSON, `accepted_at`
+only from the header, nullable (migration required), no JSON promotion. No production change was made.
+Accounting golden remains blocked until a repair phase is approved.
