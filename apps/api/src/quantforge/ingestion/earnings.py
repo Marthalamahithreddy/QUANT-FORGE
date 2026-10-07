@@ -71,6 +71,7 @@ from quantforge.identity.listing_history import ResolutionStatus
 from quantforge.identity.resolver import HistoricalListingResolver
 from quantforge.ingestion.canonical import CanonicalEarningsEvent
 from quantforge.ingestion.daily import IngestCounts
+from quantforge.ingestion.runs import RecordFailure
 from quantforge.models.earnings import EarningsEvent, earnings_event_fingerprint
 from quantforge.models.ingestion import IngestionRun
 
@@ -173,7 +174,7 @@ def resolve_company_id(
 class EarningsIngestor:
     """Writes canonical earnings events, preserving revisions idempotently."""
 
-    __slots__ = ("_now", "_run", "_session")
+    __slots__ = ("_failures", "_now", "_run", "_session")
 
     def __init__(self, session: Session, *, now: datetime, run: IngestionRun | None = None) -> None:
         """
@@ -189,10 +190,16 @@ class EarningsIngestor:
         """
         self._session = session
         self._now = now
+        self._failures: list[RecordFailure] = []
         if run is not None and sa.inspect(run).identity is None:
             message = "run must be flushed before the ingestor can stamp it on rows"
             raise ValueError(message)
         self._run = run
+
+    @property
+    def failures(self) -> tuple[RecordFailure, ...]:
+        """Why each failed event failed, in the deterministic processing order of the last ingest."""
+        return tuple(self._failures)
 
     def ingest(
         self,
@@ -213,6 +220,7 @@ class EarningsIngestor:
         """
         counts = IngestCounts(received=len(events))
         written = skipped = failed = 0
+        self._failures = []
 
         # event_timestamp is frequently absent (a date-only observation), so
         # the sort and the issuer lookup both use event_date -- the one
@@ -226,6 +234,9 @@ class EarningsIngestor:
                 )
             except UnknownIssuerError as exc:
                 failed += 1
+                self._failures.append(
+                    RecordFailure.of(f"{event.ticker.upper()} {event.event_date.isoformat()}", exc)
+                )
                 logger.warning(
                     "earnings event %s skipped as failed: %s",
                     event.event_date.isoformat(),

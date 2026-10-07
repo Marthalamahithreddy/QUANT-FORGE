@@ -129,9 +129,16 @@ uv run quantforge ingestion daily AAPL --start 2026-01-01 --end 2026-01-31 \
   --price-basis as-traded                         # adjusted=false rows, stored beside the research rows
 uv run quantforge ingestion benchmark SPY --start 2026-01-01 --end 2026-01-31 \
   --name "SPY (ETF proxy for the S&P 500)"         # benchmark levels, explicit identity required
+uv run quantforge ingestion earnings AAPL --start 2026-01-01 --end 2026-03-31 \
+                                                  # earnings events (needs QF_FINNHUB_API_KEY)
 uv run quantforge ingestion runs                  # recent runs, newest first
 uv run quantforge ingestion runs --limit 20 --dataset daily-bars
+uv run quantforge ingestion runs --status partial # only runs that fell short (shows why)
 ```
+
+A failed run prints its run id, where its raw evidence is (`raw evidence: none` when nothing was kept),
+how many rows it wrote and `safe to retry: yes`: a failed run rolls its writes back and every write is
+idempotent. A `partial` run records the first failure on its row (`N record(s) failed; first: ...`).
 
 Writing data is deliberately conservative: reference resolution matches on CIK
 and FIGI, never on a name; daily bars are idempotent per

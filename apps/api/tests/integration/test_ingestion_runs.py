@@ -18,7 +18,7 @@ import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from quantforge.ingestion.raw_store import RawResponseStore
-from quantforge.ingestion.runs import FAILED_RUN_RECORDED, RunRecorder
+from quantforge.ingestion.runs import FAILED_RUN_RECORDED, RecordFailure, RunRecorder
 from quantforge.ingestion.sources import get_or_create_data_source
 from quantforge.models.company import Company
 from quantforge.models.enums import IngestionStatus, ProviderType
@@ -444,3 +444,91 @@ def test_a_data_source_race_inside_the_block_does_not_lose_the_run(
     assert source.name == "raced-source"
     row = _one(db_session, id=run.run_id)
     assert row.status is IngestionStatus.SUCCEEDED
+
+
+# ── Step 12C: durable partial reasons, and a cumulative manifest ─────────────
+
+
+def test_a_partial_run_records_why_on_the_existing_columns(
+    db_session: Session, store: RawResponseStore
+) -> None:
+    with _recorder(db_session, store) as run:
+        run.count_received(3)
+        run.count_written(2)
+        run.count_failed(1)
+        run.partial(NOW, [RecordFailure.of("MSFT", ValueError("locale 'global' is not 'us'"))])
+
+    row = _one(db_session, status=IngestionStatus.PARTIAL)
+    assert row.error_type == "ValueError"
+    assert row.error_message == "1 record(s) failed; first: MSFT: locale 'global' is not 'us'"
+
+
+def test_a_partial_run_without_reasons_and_a_success_have_no_error(
+    db_session: Session, store: RawResponseStore
+) -> None:
+    with _recorder(db_session, store) as run:
+        run.count_failed(1)
+        run.partial(NOW)
+    with _recorder(db_session, store, dataset="other") as run:
+        run.succeed(NOW)
+
+    for row in db_session.scalars(sa.select(IngestionRun)):
+        assert row.error_type is None and row.error_message is None, row.status
+
+
+def test_a_failed_run_still_records_the_exception_exactly_as_before(
+    db_session: Session, store: RawResponseStore
+) -> None:
+    with pytest.raises(RuntimeError), _recorder(db_session, store):
+        message = "boom at https://x/y?apiKey=SECRET123"
+        raise RuntimeError(message)
+
+    row = _one(db_session, status=IngestionStatus.FAILED)
+    assert row.error_type == "RuntimeError"
+    assert row.error_message == "boom at https://x/y?[redacted]"
+
+
+def test_kept_artifacts_accumulate_into_one_manifest_written_at_exit(
+    db_session: Session, store: RawResponseStore
+) -> None:
+    first, second = _capture(b'{"a":1}'), _capture(b'{"b":2}')
+    with _recorder(db_session, store) as run:
+        run.add_artifacts(store.store_all([first]))
+        run.add_artifacts(store.store_all([second]))
+        assert run.row.raw_artifact_path is None, "the manifest is written when the block ends"
+        run.succeed(NOW)
+
+    row = _one(db_session, status=IngestionStatus.SUCCEEDED)
+    assert row.raw_artifact_path
+    manifest = json.loads((store.root / row.raw_artifact_path).read_bytes())
+    assert manifest["artifact_count"] == 2
+    bodies = [(store.root / a["path"]).read_bytes() for a in manifest["artifacts"]]
+    assert bodies == [b'{"a":1}', b'{"b":2}']
+
+
+def test_artifacts_kept_before_a_failure_are_still_listed_by_the_failed_run(
+    db_session: Session, store: RawResponseStore
+) -> None:
+    with pytest.raises(RuntimeError), _recorder(db_session, store) as run:
+        run.add_artifacts(store.store_all([_capture(b'{"kept":true}')]))
+        message = "later failure"
+        raise RuntimeError(message)
+
+    row = _one(db_session, status=IngestionStatus.FAILED)
+    manifest = json.loads((store.root / (row.raw_artifact_path or "")).read_bytes())
+    assert [(store.root / a["path"]).read_bytes() for a in manifest["artifacts"]] == [
+        b'{"kept":true}'
+    ]
+
+
+def test_record_captures_after_add_artifacts_lists_both(
+    db_session: Session, store: RawResponseStore
+) -> None:
+    with _recorder(db_session, store) as run:
+        run.add_artifacts(store.store_all([_capture(b'{"a":1}')]))
+        run.record_captures(store.store_all([_capture(b'{"b":2}')]))
+        run.succeed(NOW)
+
+    row = _one(db_session, status=IngestionStatus.SUCCEEDED)
+    manifest = json.loads((store.root / (row.raw_artifact_path or "")).read_bytes())
+    assert manifest["artifact_count"] == 2

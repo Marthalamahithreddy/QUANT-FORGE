@@ -19,6 +19,8 @@ import pytest
 from quantforge.providers.errors import (
     ProviderAuthenticationError,
     ProviderConfigurationError,
+    ProviderError,
+    ProviderPayloadError,
     ProviderRateLimitError,
     ProviderResponseError,
     ProviderServerError,
@@ -271,3 +273,73 @@ async def test_pacing_is_enforced_before_each_request() -> None:
     # second must wait close to the full configured interval, minus whatever
     # real wall-clock time the first call itself took.
     assert any(delay > 4.0 for delay in delays), delays
+
+
+# ── Step 12C: a response that arrived but was refused travels with its exact bytes ──
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("body", "error"),
+    [
+        (b"<html>upstream proxy error</html>", ProviderResponseError),
+        (b"[1, 2, 3]", ProviderResponseError),
+        (b'{"earningsCalendar": "nope"}', ProviderResponseError),
+        (b'{"earningsCalendar":[{"symbol":"AAPL","year":2026}]}', ProviderResponseError),
+        (
+            b'{"earningsCalendar":[{"symbol":"AAPL","date":"2026-05-01","year":2026,"quarter":9}]}',
+            ProviderPayloadError,
+        ),
+    ],
+)
+async def test_a_refused_200_carries_its_exact_bytes(body: bytes, error: type[Exception]) -> None:
+    client = _client(lambda _r: httpx.Response(200, content=body))
+
+    with pytest.raises(error) as caught:
+        await client.get_earnings("AAPL", date(2026, 1, 1), date(2026, 12, 31))
+
+    (capture,) = caught.value.captures  # type: ignore[attr-defined]
+    assert capture.body == body, (
+        "the bytes the provider sent, never rebuilt from the parsed document"
+    )
+    assert (capture.dataset, capture.endpoint) == ("earnings", "/calendar/earnings")
+    assert capture.request_parameters == {
+        "symbol": "AAPL",
+        "from": "2026-01-01",
+        "to": "2026-12-31",
+    }
+    assert "test-key-0123456789" not in repr(capture.request_parameters)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", [500, 429, 401, 404])
+async def test_a_non_200_earnings_response_carries_no_captures(status: int) -> None:
+    client = _client(lambda _r: httpx.Response(status, content=b'{"echo":"x"}'), max_retries=0)
+
+    with pytest.raises(ProviderError) as caught:
+        await client.get_earnings("AAPL", date(2026, 1, 1), date(2026, 12, 31))
+
+    assert caught.value.captures == ()
+
+
+@pytest.mark.anyio
+async def test_observed_at_stays_undisclosed_for_every_finnhub_event() -> None:
+    """12C is provenance only: the availability semantics did not move."""
+    client = _client(lambda _r: httpx.Response(200, content=EARNINGS_BODY))
+    result = await client.get_earnings("AAPL", date(2026, 1, 1), date(2026, 12, 31))
+    assert all(
+        event.observed_at is None and event.observed_at_basis is None for event in result.events
+    )
+
+
+@pytest.mark.anyio
+async def test_a_pathologically_nested_200_is_a_refused_response_carrying_its_bytes() -> None:
+    """Step 12C review: a RecursionError while decoding is not a crash, it is a refused response."""
+    body = b"[" * 100_000 + b"]" * 100_000
+    client = _client(lambda _r: httpx.Response(200, content=body))
+
+    with pytest.raises(ProviderResponseError) as caught:
+        await client.get_earnings("AAPL", date(2026, 1, 1), date(2026, 12, 31))
+
+    (capture,) = caught.value.captures
+    assert capture.body == body

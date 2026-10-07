@@ -472,3 +472,60 @@ a P3 follow-up outside 12B.
 note covers it; `valid_to` is a separate concept).
 
 Next planned slice remains 12C (ingestion provenance hardening: findings 4-8).
+
+## 16. Step 12C result (ingestion provenance hardening; appended, sections 0-15 are unchanged history)
+
+12B was committed as `7dd6d59`. 12C implements findings 4-8 of the register with no migration (head stays `0014`), no research,
+reproducibility, frontend, readiness or configuration change, and no provider request (Massive 0, Finnhub 0, SEC 0).
+
+**Invariant.** If provider response bytes reached QuantForge, they end as accepted evidence of a normal ingestion or as retained rejected
+evidence under `<dataset>-rejected`; they are never discarded and never rebuilt from parsed JSON.
+
+**Where bytes used to disappear (audit, before the change).** Reference: an undecodable 200 (no capture requested); a decoded response that
+failed ticker-details validation (the capture existed only in a local list that the exception did not carry); canonical or resolution
+failure (bytes kept, but filed as *accepted*); every capture held in memory until after the whole ticker loop (a later unexpected failure
+dropped them all). Earnings: an undecodable 200; a validation failure and a canonical-mapping failure (capture built, never attached);
+no handler in the service that stores rejected bytes. Proof: 13 of 18 new provenance tests failed on the unchanged code, and in each the
+run had no manifest at all.
+
+**What changed.**
+
+| area | change |
+|---|---|
+| Massive `get_ticker_details`, Finnhub `get_earnings` | undecodable 200 and every later refusal raise with the exact response bytes attached (`ProviderError.captures`); a pathologically nested body (`RecursionError`) is now a refused response too |
+| `RunRecorder` | manifest is cumulative over everything kept; `add_artifacts` keeps already-durable artifacts and the manifest is written at exit on success **and** failure, so a failed run still points at what it kept; `record_captures` unchanged for existing callers |
+| reference service | per-ticker retention: accepted evidence is made durable as soon as that ticker's outcome is known; a refused response (client, canonical or resolution) is rejected evidence; an unexpected failure keeps the held response as rejected evidence then fails the run; per-ticker failure semantics unchanged |
+| earnings service | a provider refusal stores its bytes as `earnings-rejected`, then fails the run as before; a valid response with unattributable events stays accepted and the run is `partial` |
+| partial reasons | `error_message` = `N record(s) failed; first: <label>: <reason>` (redacted, capped to the 1000-char column, first in deterministic processing order), `error_type` = the first failure's class; success rows have none; failed rows are produced exactly as before |
+| redaction | now also URL userinfo (DSN passwords), e-mail addresses (SEC contact identity) and absolute paths under common roots |
+| CLI | `ingestion earnings TICKER --start --end`; a failed command prints a footer (`run <id> [provider/dataset] failed`, `raw evidence: <path|none>`, `written: N`, `safe to retry: yes`, `reason:`) after the error line; `ingestion runs --status <enum>`; `runs` shows the run id, `raw manifest:` and a bounded error |
+
+**Namespace rule (defensible, recorded).** *Accepted* = a provider payload that was valid and handed to ingestion, even if some of its events
+could not be attributed; *rejected* = a response the adapter or the canonical/resolution step refused. A failed run's accepted artifacts are
+real provider bytes of a rolled-back ingestion; the manifest lists them by path namespace only.
+
+**Raw path truth.** `ingestion_run.raw_artifact_path` is the run's **manifest**, not a payload: a run can keep many artifacts. A run that kept
+none shows `none`.
+
+**Retry claim.** `safe to retry: yes` rests on the 12A audit (a failed run rolls its writes back; every write is idempotent; raw artifacts
+are content-addressed; the manifest key includes the run id). It means a retry will not duplicate data, not that it will succeed (a
+conflict or an unattributable event fails again). Pinned for the two commands 12C changed.
+
+**Gates.** Backend 3524 passed (2460 unit + 1064 integration), 95.90 % coverage; ruff, format, mypy clean; `alembic check` clean at `0014`.
+Frontend untouched (1410 tests, lint, typecheck, build, contract check green). Goldens unchanged: `e880eaf9` verifies `MANIFEST_CHANGED`
+(`methodology.components[7][1]` only), `ed7a3a9b` verifies `MATCH`, market and accounting arithmetic identical.
+
+**Review.** One high-effort review: no P0/P1. Fixed: RecursionError escaping both clients with no captures (P2); DSN passwords containing
+`@`/`?` and more absolute-path roots (P3); `captures` handling moved inside the best-effort `try` (P3); an overclaiming test name (P3).
+
+**Known limits, recorded (not fixed in 12C).**
+- Reference bytes are written once their accepted/rejected outcome is known, which is after interpretation; a hard crash (SIGKILL, power
+  loss) between receipt and that point loses them, while every handled exception is covered. Earnings stores before ingesting.
+- A response larger than the raw store's limit is logged, not retained as rejected evidence.
+- A raw `/` in a DSN password is indistinguishable from the start of the URL path and is not redacted (real DSNs percent-encode it).
+- The invariant is not yet global: Massive stock-splits, ticker snapshots and ticker events, and the SEC client, still drop an undecodable
+  200's bytes. Out of 12C by scope; carry to a later provenance slice.
+- Ctrl-C still commits the failed row but prints no footer (unchanged exit behaviour).
+- A per-artifact `disposition` field in the manifest was considered and left out (it would change the manifest format).
+
+Next planned slice: 12D operational readiness (schema check, Redis tolerance, DB timeouts, production guards, README/runbook, backup).

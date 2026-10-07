@@ -47,6 +47,7 @@ from quantforge.providers.earnings import EarningsResult
 from quantforge.providers.errors import (
     ProviderAuthenticationError,
     ProviderConfigurationError,
+    ProviderError,
     ProviderRateLimitError,
     ProviderResponseError,
     ProviderServerError,
@@ -169,6 +170,16 @@ class _Response(NamedTuple):
     raw: bytes
 
 
+class _CaptureAs(NamedTuple):
+    """How to record a response as evidence: its endpoint template and safe parameters.
+
+    Never a URL, a query string or a header, so a capture built from it cannot carry the credential.
+    """
+
+    endpoint: str
+    request_parameters: Mapping[str, str]
+
+
 class FinnhubClient:
     """Async client for Finnhub's earnings calendar, scoped to one endpoint.
 
@@ -246,7 +257,13 @@ class FinnhubClient:
             "from": start.isoformat(),
             "to": end.isoformat(),
         }
-        response = await self._get_json(_EARNINGS_CALENDAR_PATH, params=params, dataset="earnings")
+        response = await self._get_json(
+            _EARNINGS_CALENDAR_PATH,
+            params=params,
+            dataset="earnings",
+            # An undecodable 200 still raises, but carrying its exact bytes.
+            capture_undecodable_as=_CaptureAs(_EARNINGS_CALENDAR_PATH, params),
+        )
         capture = _capture(
             dataset="earnings",
             endpoint=_EARNINGS_CALENDAR_PATH,
@@ -255,11 +272,17 @@ class FinnhubClient:
             retrieved_at=self._now(),
         )
 
-        envelope = _parse_earnings_calendar(response.document, symbol)
-        events = [
-            to_canonical_earnings_event(entry, identifier=symbol)
-            for entry in envelope.earnings_calendar
-        ]
+        try:
+            envelope = _parse_earnings_calendar(response.document, symbol)
+            events = [
+                to_canonical_earnings_event(entry, identifier=symbol)
+                for entry in envelope.earnings_calendar
+            ]
+        except ProviderError as exc:
+            # A response that arrived but cannot be validated or mapped travels with its exact
+            # bytes, for the caller to keep as rejected evidence.
+            exc.captures = (capture,)
+            raise
         events.sort(key=lambda event: event.event_date)
         return EarningsResult(events=events, captures=(capture,))
 
@@ -281,8 +304,13 @@ class FinnhubClient:
         *,
         params: Mapping[str, str],
         dataset: str,
+        capture_undecodable_as: _CaptureAs | None = None,
     ) -> _Response:
-        """Issue a GET, retrying transient failures, and decode it exactly."""
+        """Issue a GET, retrying transient failures, and decode it exactly.
+
+        With ``capture_undecodable_as``, a 200 whose body cannot be decoded still raises
+        :class:`ProviderResponseError`, but carrying a capture of those exact bytes.
+        """
         headers = self._auth_headers()
         attempt = 0
 
@@ -310,7 +338,21 @@ class FinnhubClient:
                 raise ProviderTransportError(type(exc).__name__) from exc
 
             if response.status_code == HTTP_OK:
-                return _Response(document=_decode(response), raw=response.content)
+                raw = response.content
+                try:
+                    return _Response(document=_decode(response), raw=raw)
+                except ProviderResponseError as exc:
+                    if capture_undecodable_as is not None:
+                        exc.captures = (
+                            _capture(
+                                dataset=dataset,
+                                endpoint=capture_undecodable_as.endpoint,
+                                request_parameters=capture_undecodable_as.request_parameters,
+                                response=_Response(document=None, raw=raw),
+                                retrieved_at=self._now(),
+                            ),
+                        )
+                    raise
 
             retry_after = _bounded_retry_after(response.headers.get("Retry-After"))
             if response.status_code == HTTP_TOO_MANY_REQUESTS:
@@ -355,8 +397,10 @@ def _decode(response: httpx.Response) -> JsonValue:
     """Decode a 200 body with exact decimals."""
     try:
         return decode_json_document(response.content)
-    except ValueError as exc:
-        raise ProviderResponseError(str(exc)) from exc
+    except (ValueError, RecursionError) as exc:
+        # RecursionError: a pathologically nested body is a refused response like any other, and
+        # must reach the caller as one (with its bytes), not escape as an unrelated crash.
+        raise ProviderResponseError(str(exc) or type(exc).__name__) from exc
 
 
 def _parse_earnings_calendar(document: JsonValue, symbol: str) -> FinnhubEarningsCalendarResponse:

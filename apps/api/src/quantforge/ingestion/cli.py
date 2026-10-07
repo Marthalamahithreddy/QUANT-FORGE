@@ -27,9 +27,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import re
 import sys
+import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -83,8 +85,12 @@ from quantforge.ingestion.listing_history import (
     ListingHistoryIngestionService,
 )
 from quantforge.ingestion.raw_store import RawResponseStore, RawStoreError
-from quantforge.ingestion.runs import FAILED_RUN_RECORDED, RunOutcome
-from quantforge.ingestion.service import IngestionService, UnknownListingError
+from quantforge.ingestion.runs import FAILED_RUN_ID, FAILED_RUN_RECORDED, RunOutcome
+from quantforge.ingestion.service import (
+    EarningsIngestionService,
+    IngestionService,
+    UnknownListingError,
+)
 from quantforge.ingestion.splits import (
     COVERAGE_SAFETY_MARGIN_DAYS,
     AmbiguousSplitSecurityError,
@@ -97,13 +103,14 @@ from quantforge.ingestion.splits import (
     UnknownSplitTickerError,
     UnmappedSplitError,
 )
-from quantforge.models.enums import PriceBasis
+from quantforge.models.enums import IngestionStatus, PriceBasis
 from quantforge.models.ingestion import IngestionRun
 from quantforge.providers.errors import (
     ProviderAuthenticationError,
     ProviderConfigurationError,
     ProviderError,
 )
+from quantforge.providers.finnhub.client import FinnhubClient, FinnhubConfig
 from quantforge.providers.massive.client import MassiveClient, MassiveConfig
 from quantforge.providers.sec.client import SecClient, SecConfig, normalise_cik
 from quantforge.providers.sec.fsds import FsdsPackageError
@@ -220,6 +227,46 @@ def _add_listing_history_commands(commands: Any) -> None:
     eras.set_defaults(handler=_cmd_listing_eras)
 
 
+def _add_earnings_command(commands: Any) -> None:
+    earnings = commands.add_parser(
+        "earnings",
+        help="fetch earnings-calendar events for one symbol from Finnhub",
+        description=(
+            "Fetch earnings-calendar entries for a symbol over an inclusive date range and store "
+            "them as earnings observations. Needs QF_FINNHUB_API_KEY. Each event is attributed to "
+            "the issuer that held the ticker on the event's own date, so the symbol should already "
+            "be ingested by 'quantforge ingestion reference'; an event that cannot be attributed "
+            "(for example one dated before the stored listing history of the ticker begins) is "
+            "counted as failed and the run finishes 'partial'. Safe to re-run: an identical "
+            "observation is skipped and a changed one is kept beside the original as a revision. "
+            "Example: quantforge ingestion earnings NKE --start 2026-09-01 --end 2026-10-31."
+        ),
+    )
+    earnings.add_argument("ticker", type=_ticker, help="e.g. NKE")
+    earnings.add_argument("--start", required=True, type=_iso_date, help="inclusive YYYY-MM-DD")
+    earnings.add_argument("--end", required=True, type=_iso_date, help="inclusive YYYY-MM-DD")
+    earnings.set_defaults(handler=_cmd_earnings)
+
+
+def _add_runs_command(commands: Any) -> None:
+    runs = commands.add_parser(
+        "runs",
+        help="list recent ingestion runs, newest first",
+        description=(
+            "Read-only. Shows what ran, whether it worked, why a partial or failed run fell "
+            "short, and where its raw evidence manifest is."
+        ),
+    )
+    runs.add_argument("--limit", type=int, default=10, help="rows to show (default: 10)")
+    runs.add_argument("--dataset", help="only runs of this dataset, e.g. reference or daily-bars")
+    runs.add_argument(
+        "--status",
+        choices=[status.value for status in IngestionStatus],
+        help="only runs that ended (or are) in this status",
+    )
+    runs.set_defaults(handler=_cmd_runs)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """The argument parser.
 
@@ -282,6 +329,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_price_basis_argument(daily)
     daily.set_defaults(handler=_cmd_daily)
+
+    _add_earnings_command(commands)
 
     benchmark = commands.add_parser(
         "benchmark",
@@ -446,14 +495,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     _add_listing_history_commands(commands)
 
-    runs = commands.add_parser(
-        "runs",
-        help="list recent ingestion runs, newest first",
-        description="Read-only. Shows what ran, whether it worked, and where its raw data is.",
-    )
-    runs.add_argument("--limit", type=int, default=10, help="rows to show (default: 10)")
-    runs.add_argument("--dataset", help="only runs of this dataset, e.g. reference or daily-bars")
-    runs.set_defaults(handler=_cmd_runs)
+    _add_runs_command(commands)
 
     return parser
 
@@ -535,6 +577,31 @@ def _cmd_daily(args: argparse.Namespace, settings: Settings) -> int:
     return _print_outcome(outcome)
 
 
+def _cmd_earnings(args: argparse.Namespace, settings: Settings) -> int:
+    if args.end < args.start:
+        print(f"error: --end {args.end} is before --start {args.start}", file=sys.stderr)
+        return EXIT_USAGE
+
+    async def run() -> RunOutcome:
+        async with _finnhub_client(settings) as client:
+            return await _ingest_earnings(
+                settings=settings,
+                client=client,
+                ticker=args.ticker,
+                start=args.start,
+                end=args.end,
+                now=datetime.now(UTC),
+            )
+
+    outcome = asyncio.run(run())
+    print(
+        f"\n{args.ticker} {args.start}..{args.end}: "
+        f"received={outcome.records_received} written={outcome.records_written} "
+        f"skipped={outcome.records_skipped} failed={outcome.records_failed}"
+    )
+    return _print_outcome(outcome)
+
+
 def _cmd_benchmark(args: argparse.Namespace, settings: Settings) -> int:
     if args.end < args.start:
         message = f"--end {args.end} is before --start {args.start}"
@@ -606,8 +673,8 @@ def _cmd_sec_filings_history(args: argparse.Namespace, settings: Settings) -> in
                         accessions=args.accession,
                         max_history_files=args.max_history_files,
                     )
-                except BaseException:
-                    _commit_failed_run(session)
+                except BaseException as exc:
+                    _commit_failed_run(session, exc)
                     raise
                 session.commit()
                 return report
@@ -696,8 +763,8 @@ def _cmd_sec_filing_acceptance(args: argparse.Namespace, settings: Settings) -> 
                 )
                 try:
                     report = await service.enrich(args.accession, cik=args.cik, verify=args.verify)
-                except BaseException:
-                    _commit_failed_run(session)
+                except BaseException as exc:
+                    _commit_failed_run(session, exc)
                     raise
                 session.commit()
                 return report
@@ -735,8 +802,8 @@ def _cmd_sec_fsds(args: argparse.Namespace, settings: Settings) -> int:
                 accessions=args.accession,
                 ciks=args.cik,
             )
-        except BaseException:
-            _commit_failed_run(session)
+        except BaseException as exc:
+            _commit_failed_run(session, exc)
             raise
         session.commit()
     outcome = result.outcome
@@ -870,6 +937,8 @@ def _cmd_runs(args: argparse.Namespace, settings: Settings) -> int:
         query = sa.select(IngestionRun).order_by(IngestionRun.started_at.desc())
         if args.dataset:
             query = query.where(IngestionRun.dataset == args.dataset)
+        if args.status:
+            query = query.where(IngestionRun.status == IngestionStatus(args.status))
         rows = list(session.scalars(query.limit(args.limit)))
         if not rows:
             print("no runs recorded")
@@ -899,6 +968,14 @@ def _client(settings: Settings) -> MassiveClient:
     return MassiveClient(config)
 
 
+def _finnhub_client(settings: Settings) -> FinnhubClient:
+    """Build the Finnhub adapter from settings, failing clearly if the key is absent."""
+    config = FinnhubConfig(api_key=settings.finnhub_api_key, base_url=settings.finnhub_base_url)
+    # Names QF_FINNHUB_API_KEY, rather than letting an auth failure look like an outage.
+    config.require_api_key()
+    return FinnhubClient(config)
+
+
 async def _ingest(
     *,
     settings: Settings,
@@ -923,8 +1000,8 @@ async def _ingest(
         )
         try:
             outcome, results = await service.ingest_reference(tickers)
-        except BaseException:
-            _commit_failed_run(session)
+        except BaseException as exc:
+            _commit_failed_run(session, exc)
             raise
         session.commit()
         return outcome, results
@@ -953,8 +1030,34 @@ async def _ingest_daily(
                 price_basis=request.price_basis,
                 exchange_mic=request.exchange_mic,
             )
-        except BaseException:
-            _commit_failed_run(session)
+        except BaseException as exc:
+            _commit_failed_run(session, exc)
+            raise
+        session.commit()
+        return outcome
+
+
+async def _ingest_earnings(  # noqa: PLR0913 - one keyword per request field
+    *,
+    settings: Settings,
+    client: FinnhubClient,
+    ticker: str,
+    start: date,
+    end: date,
+    now: datetime,
+) -> RunOutcome:
+    factory = get_session_factory(settings)
+    with factory() as session:
+        service = EarningsIngestionService(
+            session=session,
+            provider=client,
+            store=_store(settings),
+            now=now,
+        )
+        try:
+            outcome = await service.ingest_earnings(ticker, start, end)
+        except BaseException as exc:
+            _commit_failed_run(session, exc)
             raise
         session.commit()
         return outcome
@@ -984,14 +1087,40 @@ async def _ingest_benchmark(
                 price_basis=request.price_basis,
                 currency=request.currency,
             )
-        except BaseException:
-            _commit_failed_run(session)
+        except BaseException as exc:
+            _commit_failed_run(session, exc)
             raise
         session.commit()
         return outcome
 
 
-def _commit_failed_run(session: Session) -> None:
+@dataclass(frozen=True, slots=True)
+class FailedRunReport:
+    """What an operator needs after a run failed: which run, where its evidence is, what it wrote."""
+
+    run_id: uuid.UUID
+    provider: str
+    dataset: str
+    raw_path: str | None
+    written: int
+    reason: str | None
+
+
+#: Attribute under which the report travels on the exception that ended the command.
+_FAILED_RUN_ATTRIBUTE = "quantforge_failed_run"
+
+#: Every ingestion operation is retry-safe (12A audit, section 5.5): writes are idempotent
+#: (conflict-free inserts, content-addressed raw artifacts), a failed run's domain writes are rolled
+#: back and a run row only becomes durable together with its data. This line is only true while that
+#: stays true; ``test_every_failing_command_can_be_retried_without_duplicating`` pins it.
+RETRY_SAFE_LINE = "safe to retry: yes"
+
+_REASON_DISPLAY_CHARS = 300
+
+
+def _commit_failed_run(
+    session: Session, exc: BaseException | None = None
+) -> FailedRunReport | None:
     """After a failed ingestion, commit the ``failed`` run row -- and only if it was recorded.
 
     The run recorder rolled the run's domain writes back to a savepoint and set
@@ -1000,15 +1129,55 @@ def _commit_failed_run(session: Session) -> None:
     failed) nothing is committed: the session is rolled back, so an exception can
     never cause arbitrary pending state to be persisted. A failure while
     committing is logged and rolled back rather than replacing the original error.
+
+    With ``exc``, a :class:`FailedRunReport` is attached to it so the entry point can tell the
+    operator which run failed after printing the error itself. The report is only attached once
+    the failed row is actually durable, so it never names a run that does not exist.
     """
+    run_id = session.info.pop(FAILED_RUN_ID, None)
     if not session.info.pop(FAILED_RUN_RECORDED, False):
         session.rollback()
-        return
+        return None
+    report: FailedRunReport | None = None
+    row = session.get(IngestionRun, run_id) if run_id is not None else None
+    if row is not None:
+        report = FailedRunReport(
+            run_id=row.id,
+            provider=row.provider,
+            dataset=row.dataset,
+            raw_path=row.raw_artifact_path,
+            written=row.records_written,
+            reason=row.error_message,
+        )
     try:
         session.commit()
     except Exception:
         logger.exception("could not persist the failed ingestion run record")
         session.rollback()
+        return None
+    if exc is not None and report is not None:
+        # An exception type that refuses attributes simply gets no footer.
+        with contextlib.suppress(Exception):
+            setattr(exc, _FAILED_RUN_ATTRIBUTE, report)
+    return report
+
+
+def _print_failed_run_report(exc: BaseException) -> None:
+    """Footer on stderr naming the failed run, its evidence and the retry guidance."""
+    report = getattr(exc, _FAILED_RUN_ATTRIBUTE, None)
+    if not isinstance(report, FailedRunReport):
+        return
+    print(f"run {report.run_id} [{report.provider}/{report.dataset}] failed", file=sys.stderr)
+    print(f"  raw evidence: {report.raw_path or 'none'}", file=sys.stderr)
+    print(f"  written: {report.written}", file=sys.stderr)
+    print(f"  {RETRY_SAFE_LINE}", file=sys.stderr)
+    if report.reason:
+        print(f"  reason: {_shorten(report.reason)}", file=sys.stderr)
+
+
+def _shorten(text: str, limit: int = _REASON_DISPLAY_CHARS) -> str:
+    one_line = " ".join(text.split())
+    return one_line if len(one_line) <= limit else one_line[: limit - 3] + "..."
 
 
 def _sec_client(settings: Settings) -> SecClient:
@@ -1034,8 +1203,8 @@ async def _ingest_sec_filings(
         )
         try:
             outcome = await service.ingest_filings(cik)
-        except BaseException:
-            _commit_failed_run(session)
+        except BaseException as exc:
+            _commit_failed_run(session, exc)
             raise
         session.commit()
         return outcome
@@ -1060,8 +1229,8 @@ async def _ingest_stock_splits(  # noqa: PLR0913 - one keyword per request field
             outcome = await service.ingest_stock_splits(
                 ticker, start, end, provider_history_start=provider_history_start
             )
-        except BaseException:
-            _commit_failed_run(session)
+        except BaseException as exc:
+            _commit_failed_run(session, exc)
             raise
         session.commit()
         return outcome
@@ -1081,8 +1250,8 @@ async def _ingest_listing_history(
         )
         try:
             outcome = await operation(service)
-        except BaseException:
-            _commit_failed_run(session)
+        except BaseException as exc:
+            _commit_failed_run(session, exc)
             raise
         session.commit()
         return outcome
@@ -1138,6 +1307,12 @@ def _print_outcome(outcome: RunOutcome) -> int:
 
 
 def _print_run_row(row: IngestionRun) -> None:
+    """One run, bounded: when, what, how it ended, why it fell short, and where its evidence is.
+
+    ``raw manifest`` is the run's ``raw_artifact_path``: a manifest listing every artifact the run
+    kept (accepted and rejected), each with its path and SHA-256. A run can keep many artifacts, so
+    no single payload path is canonical; a run that kept none shows ``none``.
+    """
     counts = (
         f"recv={row.records_received} wrote={row.records_written} "
         f"skip={row.records_skipped} fail={row.records_failed}"
@@ -1146,8 +1321,10 @@ def _print_run_row(row: IngestionRun) -> None:
         f"{row.started_at:%Y-%m-%d %H:%M} {row.provider}/{row.dataset:<13} "
         f"{row.status.value:<9} {counts}"
     )
+    print(f"    run: {row.id}")
+    print(f"    raw manifest: {row.raw_artifact_path or 'none'}")
     if row.error_message:
-        print(f"    error: {row.error_message}")
+        print(f"    error: {_shorten(row.error_message)}")
 
 
 # ── Entry point ─────────────────────────────────────────────────────────────
@@ -1173,7 +1350,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         return int(handler(args, settings))
     except Exception as exc:
-        return _classify(exc)
+        try:
+            return _classify(exc)
+        finally:
+            _print_failed_run_report(exc)
 
 
 def _classify(exc: Exception) -> int:  # noqa: PLR0911, PLR0912 - one return per distinct, named failure kind; splitting it up would not simplify anything

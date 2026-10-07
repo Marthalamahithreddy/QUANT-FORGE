@@ -324,7 +324,11 @@ class MassiveClient:
         captures: list[RawCapture] = []
         try:
             response = await self._get_json(
-                _TICKER_DETAILS_PATH.format(ticker=symbol), params=params, dataset="reference"
+                _TICKER_DETAILS_PATH.format(ticker=symbol),
+                params=params,
+                dataset="reference",
+                # An undecodable 200 still raises, but carrying its exact bytes.
+                capture_undecodable_as=_CaptureAs(_TICKER_DETAILS_PATH, params),
             )
         except ProviderNotFoundError:
             return TickerDetailsResult(reference=None, captures=tuple(captures))
@@ -337,10 +341,14 @@ class MassiveClient:
                 retrieved_at=self._now(),
             )
         )
-        return TickerDetailsResult(
-            reference=_parse_ticker_details(response.document, symbol),
-            captures=tuple(captures),
-        )
+        try:
+            reference = _parse_ticker_details(response.document, symbol)
+        except ProviderResponseError as exc:
+            # A response that arrived but cannot be understood travels with its bytes, for the
+            # caller to keep as rejected evidence (never rebuilt from the parsed document).
+            exc.captures = tuple(captures)
+            raise
+        return TickerDetailsResult(reference=reference, captures=tuple(captures))
 
     async def get_daily_bars(
         self,
@@ -894,8 +902,10 @@ def _decode(response: httpx.Response) -> JsonValue:
     """Decode a 200 body with exact decimals."""
     try:
         return decode_json_document(response.content)
-    except ValueError as exc:
-        raise ProviderResponseError(str(exc)) from exc
+    except (ValueError, RecursionError) as exc:
+        # RecursionError: a pathologically nested body is a refused response like any other, and
+        # must reach the caller as one (with its bytes), not escape as an unrelated crash.
+        raise ProviderResponseError(str(exc) or type(exc).__name__) from exc
 
 
 #: QuantForge price basis -> Massive's ``adjusted`` query value. The only place

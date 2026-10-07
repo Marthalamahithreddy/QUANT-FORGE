@@ -36,6 +36,7 @@ before the block (e.g. an unknown listing) write nothing and leave no run.
 from __future__ import annotations
 
 import logging
+import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
@@ -58,7 +59,13 @@ from quantforge.ingestion.reference import (
     ReferenceResolutionError,
     ReferenceResolver,
 )
-from quantforge.ingestion.runs import FAILED_RUN_RECORDED, RunOutcome, RunRecorder
+from quantforge.ingestion.runs import (
+    FAILED_RUN_ID,
+    FAILED_RUN_RECORDED,
+    RecordFailure,
+    RunOutcome,
+    RunRecorder,
+)
 from quantforge.ingestion.sources import get_or_create_data_source
 from quantforge.models.enums import PriceBasis
 from quantforge.models.security import Exchange, Listing
@@ -144,57 +151,17 @@ class IngestionService:
                 base_url=None,
             )
             resolver = ReferenceResolver(self._session)
-            captures: list[RawCapture] = []
+            failures: list[RecordFailure] = []
 
             for ticker in tickers:
-                try:
-                    result = await self._provider.get_ticker_details(ticker)
-                except ReferenceResolutionError:
-                    raise
-                except Exception as exc:
-                    # One symbol's failure must not abandon the other 499. It is
-                    # counted, logged with the symbol, and the run finishes
-                    # `partial` so the shortfall is visible on the run row.
+                item = await self._reference_one(run, resolver, source.id, ticker)
+                if isinstance(item, RecordFailure):
                     failed += 1
-                    logger.warning("reference lookup failed for %s: %s", ticker, exc)
-                    continue
-
-                captures.extend(result.captures)
-                if result.reference is None:
-                    logger.info("provider has no ticker %s", ticker)
-                    continue
-
-                try:
-                    reference = self._to_canonical(result.reference, ticker)
-                except Exception as exc:
-                    failed += 1
-                    logger.warning("reference payload unusable for %s: %s", ticker, exc)
-                    continue
-
-                try:
-                    resolution = resolver.resolve(
-                        reference,
-                        source_id=source.id,
-                        as_of=self._today(),
-                    )
-                except ReferenceResolutionError as exc:
-                    failed += 1
-                    logger.warning("cannot resolve %s safely: %s", ticker, exc)
-                    continue
-
-                resolved += 1
-                if resolution.created:
-                    written += 1
-                outcomes.append(
-                    ReferenceOutcome(
-                        ticker=reference.ticker,
-                        created=resolution.created,
-                        matched_on=resolution.matched_on,
-                        company_id=str(resolution.company_id),
-                        security_id=str(resolution.security_id),
-                        listing_id=str(resolution.listing_id),
-                    )
-                )
+                    failures.append(item)
+                elif item is not None:
+                    resolved += 1
+                    written += int(item.created)
+                    outcomes.append(item)
 
             run.count_received(len(tickers))
             # Only rows actually inserted count as written. A symbol that
@@ -205,10 +172,67 @@ class IngestionService:
             run.count_written(written)
             run.count_skipped((resolved - written) + (len(tickers) - resolved - failed))
             run.count_failed(failed)
-            self._record(run, captures)
 
-            outcome = run.partial(self._now) if failed else run.succeed(self._now)
+            outcome = run.partial(self._now, failures) if failed else run.succeed(self._now)
         return outcome, outcomes
+
+    async def _reference_one(
+        self, run: RunRecorder, resolver: ReferenceResolver, source_id: uuid.UUID, ticker: str
+    ) -> ReferenceOutcome | RecordFailure | None:
+        """One ticker's reference lookup, resolution and evidence retention.
+
+        Returns the outcome when it resolved, a :class:`RecordFailure` when this ticker (and only
+        this ticker) failed, and ``None`` when the provider simply has no such symbol. A response
+        that reached us always ends as evidence: accepted when it was ingested (or was a legitimate
+        "unknown"), rejected when we refused it, in either case made durable before the next ticker.
+        """
+        try:
+            result = await self._provider.get_ticker_details(ticker)
+        except ReferenceResolutionError:
+            raise
+        except Exception as exc:
+            # One symbol's failure must not abandon the other 499. It is counted, logged with the
+            # symbol, and the run finishes `partial` so the shortfall is visible on the run row. A
+            # response that arrived but was refused still leaves its bytes behind.
+            logger.warning("reference lookup failed for %s: %s", ticker, exc)
+            self._record_rejected(run, getattr(exc, "captures", ()))
+            return RecordFailure.of(ticker, exc)
+
+        if result.reference is None:
+            logger.info("provider has no ticker %s", ticker)
+            self._retain(run, result.captures)
+            return None
+
+        try:
+            reference = self._to_canonical(result.reference, ticker)
+        except Exception as exc:
+            logger.warning("reference payload unusable for %s: %s", ticker, exc)
+            self._record_rejected(run, result.captures)
+            return RecordFailure.of(ticker, exc)
+
+        try:
+            resolution = resolver.resolve(reference, source_id=source_id, as_of=self._today())
+        except ReferenceResolutionError as exc:
+            logger.warning("cannot resolve %s safely: %s", ticker, exc)
+            self._record_rejected(run, result.captures)
+            return RecordFailure.of(ticker, exc)
+        except BaseException:
+            # An unexpected failure aborts the whole run, but the response we were holding is
+            # evidence of what the provider sent: keep it, then re-raise.
+            self._record_rejected(run, result.captures)
+            raise
+
+        # This ticker's outcome is known: its evidence is durable now, not after the rest of the
+        # batch, so a later failure cannot discard it.
+        self._retain(run, result.captures)
+        return ReferenceOutcome(
+            ticker=reference.ticker,
+            created=resolution.created,
+            matched_on=resolution.matched_on,
+            company_id=str(resolution.company_id),
+            security_id=str(resolution.security_id),
+            listing_id=str(resolution.listing_id),
+        )
 
     def _to_canonical(self, view: Any, ticker: str) -> CanonicalEquityReference:
         """Map a provider reference view to the canonical form.
@@ -472,6 +496,10 @@ class IngestionService:
     def _record_rejected(self, run: RunRecorder, captures: Sequence[RawCapture]) -> None:
         store_rejected_captures(run, self._store, captures)
 
+    def _retain(self, run: RunRecorder, captures: Sequence[RawCapture]) -> None:
+        """Make accepted evidence durable now; the run's manifest is written when it ends."""
+        retain_captures(run, self._store, captures)
+
     def _today(self) -> date:
         return self._now.astimezone(UTC).date()
 
@@ -479,6 +507,7 @@ class IngestionService:
 def _begin_attempt(session: Session) -> None:
     """Forget any failed-run marker an earlier attempt left on a reused session."""
     session.info.pop(FAILED_RUN_RECORDED, None)
+    session.info.pop(FAILED_RUN_ID, None)
 
 
 def store_rejected_captures(
@@ -492,13 +521,27 @@ def store_rejected_captures(
     caller is about to re-raise. Shared by every ingestion path that keeps
     rejected evidence, so the policy lives in one place.
     """
-    rejected = [replace(capture, dataset=f"{capture.dataset}-rejected") for capture in captures]
-    if not rejected:
-        return
     try:
-        run.record_captures(store.store_all(rejected))
+        rejected = [replace(capture, dataset=f"{capture.dataset}-rejected") for capture in captures]
+        if not rejected:
+            return
+        run.add_artifacts(store.store_all(rejected))
     except Exception:
         logger.exception("could not store the rejected provider response as evidence")
+
+
+def retain_captures(
+    run: RunRecorder, store: RawResponseStore, captures: Sequence[RawCapture]
+) -> None:
+    """Write accepted raw responses now and keep them for the run's manifest.
+
+    The incremental counterpart of :func:`_record_captures` for a batch: each item's bytes are on
+    disk as soon as its outcome is known, and the manifest (written however the run ends) lists
+    them in the order kept. Unlike the rejected path this is not best effort: failing to preserve
+    accepted evidence fails the run, exactly as before.
+    """
+    if captures:
+        run.add_artifacts(store.store_all(captures))
 
 
 def _record_captures(
@@ -539,6 +582,9 @@ class EarningsIngestionService:
         self._store = store
         self._now = now
 
+    def _record_rejected(self, run: RunRecorder, captures: Sequence[RawCapture]) -> None:
+        store_rejected_captures(run, self._store, captures)
+
     async def ingest_earnings(self, ticker: str, start: date, end: date) -> RunOutcome:
         """Fetch and store earnings observations for one ticker over a range.
 
@@ -570,7 +616,13 @@ class EarningsIngestionService:
             now=self._now,
         ) as run:
             source = get_or_create_data_source(self._session, name=self._provider.name)
-            result = await self._provider.get_earnings(ticker, start, end)
+            try:
+                result = await self._provider.get_earnings(ticker, start, end)
+            except ProviderError as exc:
+                # The run fails (nothing is stored), but a response that arrived and was refused --
+                # undecodable, invalid, or unmappable -- keeps its exact bytes as rejected evidence.
+                self._record_rejected(run, exc.captures)
+                raise
             _record_captures(run, self._store, result.captures)
 
             ingestor = EarningsIngestor(self._session, now=self._now, run=run.row)
@@ -579,6 +631,10 @@ class EarningsIngestionService:
                 source_id=source.id,
             )
 
-            outcome = run.partial(self._now) if counts.failed else run.succeed(self._now)
+            outcome = (
+                run.partial(self._now, ingestor.failures)
+                if counts.failed
+                else run.succeed(self._now)
+            )
             logger.info("earnings for %s: %s", ticker.upper(), outcome)
             return outcome

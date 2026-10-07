@@ -1208,12 +1208,48 @@ async def test_an_undecodable_page_two_carries_both_pages() -> None:
 
 
 @pytest.mark.anyio
-async def test_an_undecodable_200_on_other_endpoints_still_fails_without_captures() -> None:
-    """Only the daily-bars path keeps undecodable bytes; reference behaviour is unchanged."""
-    client = _client(lambda _r: httpx.Response(200, content=b"not json at all"))
+async def test_an_undecodable_ticker_details_200_carries_its_exact_bytes() -> None:
+    """Step 12C: a reference response that arrived but cannot be decoded keeps its bytes."""
+    body = b"not json at all"
+    client = _client(lambda _r: httpx.Response(200, content=body))
 
     with pytest.raises(ProviderResponseError) as caught:
         await client.get_ticker_details("AAPL")
+
+    (capture,) = caught.value.captures
+    assert capture.body == body, "the bytes the provider sent, never rebuilt"
+    assert (capture.dataset, capture.endpoint) == ("reference", "/v3/reference/tickers/{ticker}")
+    assert capture.request_parameters == {"ticker": "AAPL"}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "body",
+    [
+        b'{"status":"OK"}',
+        b'{"status":"OK","results":[1]}',
+        b'{"status":"OK","results":{"ticker":7}}',
+    ],
+)
+async def test_a_ticker_details_response_that_fails_validation_carries_its_exact_bytes(
+    body: bytes,
+) -> None:
+    client = _client(lambda _r: httpx.Response(200, content=body))
+
+    with pytest.raises(ProviderResponseError) as caught:
+        await client.get_ticker_details("AAPL")
+
+    (capture,) = caught.value.captures
+    assert capture.body == body
+
+
+@pytest.mark.anyio
+async def test_an_undecodable_200_on_the_unchanged_endpoints_still_fails_without_captures() -> None:
+    """Scope pin: 12C changed ticker details only; the splits endpoint is untouched."""
+    client = _client(lambda _r: httpx.Response(200, content=b"not json at all"))
+
+    with pytest.raises(ProviderResponseError) as caught:
+        await client.get_stock_splits("AAPL")
 
     assert caught.value.captures == ()
 
@@ -1260,3 +1296,18 @@ async def test_a_transport_failure_on_bars_carries_no_captures() -> None:
         )
 
     assert caught.value.captures == ()
+
+
+@pytest.mark.anyio
+async def test_a_pathologically_nested_ticker_details_200_is_a_refused_response_with_its_bytes() -> (
+    None
+):
+    """Step 12C review: a RecursionError while decoding is not a crash, it is a refused response."""
+    body = b"[" * 100_000 + b"]" * 100_000
+    client = _client(lambda _r: httpx.Response(200, content=body))
+
+    with pytest.raises(ProviderResponseError) as caught:
+        await client.get_ticker_details("AAPL")
+
+    (capture,) = caught.value.captures
+    assert capture.body == body

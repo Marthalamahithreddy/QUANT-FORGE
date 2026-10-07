@@ -37,6 +37,7 @@ import logging
 import re
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final
 
@@ -46,7 +47,7 @@ from quantforge.ingestion.raw_store import RawArtifact, RawResponseStore, Stored
 from quantforge.models.enums import IngestionStatus
 from quantforge.models.ingestion import IngestionRun
 
-__all__ = ["RunOutcome", "RunRecorder"]
+__all__ = ["FAILED_RUN_ID", "RecordFailure", "RunOutcome", "RunRecorder"]
 
 #: Error messages are truncated to fit ``ingestion_run.error_message``. The same
 #: bound as the column, named once so the two cannot drift.
@@ -67,6 +68,20 @@ _SECRET_ASSIGNMENT = re.compile(
 #: A bare bearer/basic token, with no ``name=`` to key off.
 _BEARER = re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}")
 
+#: Credentials embedded in a URL's authority (``postgresql://user:pass@host``): a database DSN or a
+#: proxy URL can appear in a driver's error text.
+_URL_USERINFO = re.compile(r"(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*://)[^/\s]*@")
+
+#: An e-mail address: the SEC contact identity travels in a User-Agent and must never be persisted.
+_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+")
+
+#: Absolute filesystem paths under the usual roots (the raw-store root, a home directory): they
+#: reveal the machine's layout and are of no use to the reader of a run row.
+_ABSOLUTE_PATH = re.compile(
+    r"(?<![\w/.-])(?:file://)?/(?:Users|home|var|tmp|private|opt|srv|mnt|root|etc|data|Volumes"
+    r"|Library|usr|app|workspace|work)/[^\s,;\"'<>)\]}]+"
+)
+
 _REDACTED = "[redacted]"
 
 
@@ -84,7 +99,16 @@ def _safe_error_text(exc: BaseException) -> str:
     redaction applied; storing the unredacted copy in the database to save them one
     log line would defeat the point of the exercise.
     """
-    text = _QUERY_STRING.sub(f"?{_REDACTED}", str(exc).strip())
+    return _redact(str(exc).strip())
+
+
+def _redact(raw: str) -> str:
+    """The redaction rules, applied to any text about to be persisted."""
+    # Userinfo first: a password may itself contain '?', which the query rule would otherwise cut at.
+    text = _URL_USERINFO.sub(lambda m: f"{m.group('scheme')}{_REDACTED}@", raw)
+    text = _QUERY_STRING.sub(f"?{_REDACTED}", text)
+    text = _EMAIL.sub(_REDACTED, text)
+    text = _ABSOLUTE_PATH.sub("[path]", text)
     # Bearer/basic first. Running the assignment rule first would consume the bare
     # word "Bearer" as the *value* of "Authorization=", orphaning the token that
     # follows it into a message that then looks redacted and is not.
@@ -132,6 +156,45 @@ class RunOutcome:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class RecordFailure:
+    """One record that failed inside an otherwise finished run, already redacted.
+
+    A ``partial`` run says only *how many* records failed; this carries *why* for the first of them, so
+    an operator reading the run row can tell a typo from an outage. The text is redacted when the
+    failure is created, so nothing downstream can persist an unredacted copy. This is deliberately not
+    a rejection table: a short summary on the existing ``error_message`` column is the whole feature.
+    """
+
+    label: str
+    error_type: str
+    reason: str
+
+    @classmethod
+    def of(cls, label: str, exc: BaseException) -> RecordFailure:
+        return cls(label=label, error_type=type(exc).__name__[:64], reason=_safe_error_text(exc))
+
+
+def partial_error_summary(failures: Sequence[RecordFailure], failed_count: int) -> str | None:
+    """``"N record(s) failed; first: <label>: <reason>"``, redacted and capped, or ``None``.
+
+    ``failed_count`` is the run's own tally (it can exceed ``len(failures)``). The first failure is the
+    first in the service's deterministic processing order, never a set's iteration order, and the text
+    is capped to the ``error_message`` column exactly like a failed run's.
+    """
+    if failed_count < 1 or not failures:
+        return None
+    first = failures[0]
+    text = _redact(f"{failed_count} record(s) failed; first: {first.label}: {first.reason}")
+    if len(text) > _MAX_ERROR_MESSAGE:
+        text = text[: _MAX_ERROR_MESSAGE - 3] + "..."
+    return text
+
+
+#: ``Session.info`` key holding the id of the failed run recorded in the session (set with
+#: :data:`FAILED_RUN_RECORDED`), so the CLI can tell the operator which run failed.
+FAILED_RUN_ID: Final = "quantforge.ingestion.failed_run_id"
+
 #: ``Session.info`` key set when a failed run has been recorded in the session. A
 #: caller that wants the failure to be durable commits only when this is set, so
 #: it never commits arbitrary pending state on the strength of "an exception
@@ -165,7 +228,7 @@ class RunRecorder:
     *inside* the block, not before it.
     """
 
-    __slots__ = ("_now", "_run", "_savepoint", "_session", "_store")
+    __slots__ = ("_now", "_pending", "_run", "_savepoint", "_session", "_store", "_stored")
 
     def __init__(  # noqa: PLR0913 - every collaborator is a distinct dependency
         self,
@@ -192,6 +255,11 @@ class RunRecorder:
         self._store = store
         self._now = now
         self._savepoint: SessionTransaction | None = None
+        #: Every artifact kept for this run so far (accepted and rejected), in the order kept. The
+        #: manifest always lists all of them: a later call never replaces an earlier one's entries.
+        self._stored: list[StoredCapture] = []
+        #: Artifacts kept since the manifest was last written.
+        self._pending = False
         self._run = IngestionRun(
             provider=provider,
             dataset=dataset,
@@ -206,6 +274,7 @@ class RunRecorder:
         # A marker left by an earlier failed run on this session must not be read
         # as describing this one.
         session.info.pop(FAILED_RUN_RECORDED, None)
+        session.info.pop(FAILED_RUN_ID, None)
         session.add(self._run)
         # Flushed immediately so ``run_id`` and the manifest key segment are real
         # values rather than None. Both are used while the run is still open --
@@ -249,6 +318,7 @@ class RunRecorder:
         self._savepoint = None
         if exc is None:
             try:
+                self._write_pending_manifest()
                 self._session.flush()
             except BaseException as flush_error:
                 self._roll_back_and_record_failure(savepoint, flush_error)
@@ -256,6 +326,12 @@ class RunRecorder:
             if savepoint is not None:
                 savepoint.commit()
             return
+        # The failure path: the bytes already kept (accepted and rejected) must still be reachable
+        # from the failed row. Best effort -- it must never replace the error being reported.
+        try:
+            self._write_pending_manifest()
+        except Exception:
+            logger.exception("could not write the manifest of the evidence kept by a failing run")
         self._roll_back_and_record_failure(savepoint, exc)
 
     def _roll_back_and_record_failure(
@@ -306,11 +382,12 @@ class RunRecorder:
         self.fail(exc)
         self._session.flush()
         self._session.info[FAILED_RUN_RECORDED] = True
+        self._session.info[FAILED_RUN_ID] = self._run.id
 
     # ── Artifacts ──────────────────────────────────────────────────────────
 
     def record_captures(self, stored: Sequence[StoredCapture]) -> None:
-        """Persist a manifest of the captured responses and point the run at it.
+        """Keep these artifacts and write the run's manifest now.
 
         A single-capture run still gets a manifest rather than pointing straight
         at the payload file. One code path means the run row is never
@@ -318,8 +395,27 @@ class RunRecorder:
         is the kind of inconsistency that is cheap to introduce and expensive to
         read back a year later.
         """
+        self.add_artifacts(stored)
+        self._write_pending_manifest()
+
+    def add_artifacts(self, stored: Sequence[StoredCapture]) -> None:
+        """Keep artifacts whose bytes are already durable; the manifest is written at exit.
+
+        The bytes were written (content-addressed, atomically) before this is called, so they are
+        durable the moment the caller has them. Only the manifest -- the run's pointer to them -- is
+        deferred, and it is written however the block ends (success, partial or failure), covering
+        every artifact kept so far in the order kept. That is what lets a service retain a batch's
+        evidence one item at a time without a manifest write per item.
+        """
         if not stored:
             return
+        self._stored.extend(stored)
+        self._pending = True
+
+    def _write_pending_manifest(self) -> None:
+        if not self._pending or not self._stored:
+            return
+        stored = self._stored
         manifest = {
             "run_id": str(self._run.id),
             "provider": self._run.provider,
@@ -353,6 +449,7 @@ class RunRecorder:
         self._run.raw_artifact_path = written.relative_path
         self._run.raw_content_sha256 = written.sha256
         self._run.raw_artifact_bytes = written.byte_length
+        self._pending = False
 
     def record_file_artifacts(self, artifacts: Sequence[tuple[str, RawArtifact]]) -> None:
         """Manifest of locally supplied files (bulk packages), keyed by an endpoint-like label.
@@ -413,9 +510,19 @@ class RunRecorder:
     def succeed(self, completed_at: datetime) -> RunOutcome:
         return self._finish(IngestionStatus.SUCCEEDED, completed_at)
 
-    def partial(self, completed_at: datetime) -> RunOutcome:
-        """Finish with some records written and some rejected."""
-        return self._finish(IngestionStatus.PARTIAL, completed_at)
+    def partial(self, completed_at: datetime, failures: Sequence[RecordFailure] = ()) -> RunOutcome:
+        """Finish with some records written and some rejected.
+
+        With ``failures`` the row also records *why*: ``error_message`` becomes ``"N record(s)
+        failed; first: <reason>"`` (redacted, capped) and ``error_type`` the first failure's class.
+        Without them the row is exactly what it was before this existed.
+        """
+        outcome = self._finish(IngestionStatus.PARTIAL, completed_at)
+        summary = partial_error_summary(failures, self._run.records_failed)
+        if summary is not None:
+            self._run.error_type = failures[0].error_type
+            self._run.error_message = summary
+        return outcome
 
     def fail(self, exc: BaseException) -> RunOutcome:
         """Finish as ``failed``, recording the exception type and a safe message.

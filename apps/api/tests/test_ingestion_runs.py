@@ -17,7 +17,9 @@ import pytest
 
 from quantforge.ingestion.runs import (
     _MAX_ERROR_MESSAGE,
+    RecordFailure,
     _safe_error_text,
+    partial_error_summary,
 )
 from quantforge.ingestion.runs import (
     _REDACTED as _REDACTED_MARKER,
@@ -111,3 +113,116 @@ def test_a_non_string_exception_is_handled() -> None:
 def test_the_column_limit_is_the_documented_bound() -> None:
     """Guard the constant, so a future column change has to be deliberate."""
     assert _MAX_ERROR_MESSAGE == 1000
+
+
+# ── Step 12C: more of what must never reach a persisted reason ───────────────
+
+_IDENTITY_CASES = [
+    ("could not connect to postgresql://quantforge:Hunter2pw@db.internal:5432/qf", "Hunter2pw"),
+    ("postgresql+psycopg://admin:s3cr3tPASS@10.0.0.4/quantforge refused", "s3cr3tPASS"),
+    ("User-Agent: QuantForge research jane.doe@example.org rejected", "jane.doe@example.org"),
+    ("raw store failed at /Users/someone/Desktop/raw/finnhub/earnings/x.json", "/Users/someone"),
+    ("cannot write /var/lib/quantforge/raw/massive/reference/x.json", "/var/lib/quantforge"),
+    ("disk error at /home/ops/quantforge/raw", "/home/ops"),
+]
+
+
+@pytest.mark.parametrize(("message", "secret"), _IDENTITY_CASES)
+def test_database_credentials_contact_identity_and_absolute_paths_are_redacted(
+    message: str, secret: str
+) -> None:
+    assert secret not in _safe_error_text(RuntimeError(message))
+
+
+def test_an_ordinary_message_survives_redaction_unchanged() -> None:
+    message = "AAPL had no listing covering 2026-09-14 (the ticker may have been reused)"
+    assert _safe_error_text(RuntimeError(message)) == message
+
+
+def _failure(label: str, message: str) -> RecordFailure:
+    return RecordFailure.of(label, ValueError(message))
+
+
+def test_a_single_failure_summary_names_the_count_and_the_reason() -> None:
+    summary = partial_error_summary([_failure("MSFT", "locale 'global' is not 'us'")], 1)
+    assert summary == "1 record(s) failed; first: MSFT: locale 'global' is not 'us'"
+
+
+def test_several_failures_report_the_total_and_the_first_in_processing_order() -> None:
+    failures = [_failure("AAPL", "boom one"), _failure("MSFT", "boom two"), _failure("ZZZZ", "x")]
+    summary = partial_error_summary(failures, 3)
+    assert summary == "3 record(s) failed; first: AAPL: boom one"
+    assert partial_error_summary(list(failures), 3) == summary, "deterministic"
+
+
+def test_the_total_is_the_runs_own_count_even_when_fewer_reasons_were_kept() -> None:
+    assert partial_error_summary([_failure("AAPL", "boom")], 4) == (
+        "4 record(s) failed; first: AAPL: boom"
+    )
+
+
+def test_no_failure_means_no_summary() -> None:
+    assert partial_error_summary([], 0) is None
+    assert partial_error_summary([], 2) is None
+    assert partial_error_summary([_failure("AAPL", "x")], 0) is None
+
+
+def test_a_secret_in_a_failure_never_reaches_the_summary() -> None:
+    failures = [_failure("AAPL", "refused https://x/y?apiKey=SUPERSECRET and token=abc123DEF")]
+    summary = partial_error_summary(failures, 1)
+    assert summary is not None
+    assert "SUPERSECRET" not in summary and "abc123DEF" not in summary
+
+
+def test_the_summary_is_capped_to_the_error_message_column() -> None:
+    summary = partial_error_summary([_failure("AAPL", "x" * 5000)], 1)
+    assert summary is not None
+    assert len(summary) == _MAX_ERROR_MESSAGE
+    assert summary.endswith("...")
+    assert summary.startswith("1 record(s) failed; first: AAPL: xxx")
+
+
+def test_a_failure_is_redacted_when_it_is_created() -> None:
+    failure = _failure("AAPL", "password=hunter2hunter2 rejected")
+    assert "hunter2hunter2" not in failure.reason
+    assert failure.error_type == "ValueError"
+
+
+# ── Step 12C review: DSN passwords with awkward characters, more path roots ──────
+
+# A raw "/" in a password cannot be told from the start of the URL path (a URL's authority ends at
+# the first "/"); real DSNs percent-encode it, so that case is a documented limit, not a rule.
+_AWKWARD_DSNS = [
+    ("postgresql://user:p@ss@host/db", "ss@host", "p@ss"),
+    ("postgresql://user:pa?ss@host/db failed", "pa?ss", "user:pa"),
+]
+
+
+@pytest.mark.parametrize(("message", "leak_a", "leak_b"), _AWKWARD_DSNS)
+def test_a_dsn_password_with_an_awkward_character_does_not_survive(
+    message: str, leak_a: str, leak_b: str
+) -> None:
+    out = _safe_error_text(RuntimeError(message))
+    assert "postgresql" in out, "the scheme stays so the reader can tell what failed"
+    assert leak_b not in out and "ss@host" not in out.replace("[redacted]@host", "")
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "raw root /Volumes/External/quantforge/raw is full",
+        "cannot read file:///Users/me/raw/x.json",
+        "missing /app/data/raw/massive/x.json",
+        "see /Library/Application Support/quantforge",
+    ],
+)
+def test_more_absolute_path_roots_are_redacted(message: str) -> None:
+    out = _safe_error_text(RuntimeError(message))
+    assert "[path]" in out
+    for leaked in ("External", "/Users/me", "/app/data", "Application"):
+        assert leaked not in out.replace("[path]", "") or leaked == "Application"
+
+
+def test_a_path_in_an_endpoint_template_is_not_mistaken_for_a_filesystem_path() -> None:
+    message = "GET /v3/reference/tickers/{ticker} and /api/v1/earnings-events failed"
+    assert _safe_error_text(RuntimeError(message)) == message
