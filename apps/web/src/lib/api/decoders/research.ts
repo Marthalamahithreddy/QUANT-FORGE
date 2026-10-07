@@ -75,11 +75,11 @@ import {
 } from "@/lib/api/schema";
 import { REFUSAL_CODE_STATE } from "@/lib/state-map";
 
-const exact = nullable(decimalString);
-const date = nullable(isoDate);
-const maybeUuid = nullable(uuid);
-const accession = matching(ACCESSION_PATTERN, "a dashed accession (0000000000-00-000000)");
-const cik = matching(CIK_PATTERN, "a ten-digit CIK");
+export const exact = nullable(decimalString);
+export const date = nullable(isoDate);
+export const maybeUuid = nullable(uuid);
+export const accession = matching(ACCESSION_PATTERN, "a dashed accession (0000000000-00-000000)");
+export const cik = matching(CIK_PATTERN, "a ten-digit CIK");
 const form = oneOf(FILING_FORMS, "filing form");
 
 // ── benchmarks ───────────────────────────────────────────────────────────────────────────
@@ -107,7 +107,7 @@ export const decodeBenchmarkPage: Decoder<BenchmarkPage> = refine(
 
 // ── observation parts ────────────────────────────────────────────────────────────────────
 
-const listingResolution = object<ListingResolution>({
+export const listingResolution = object<ListingResolution>({
   status: oneOf(LISTING_RESOLUTION_STATUSES, "listing resolution status"),
   listing_id: maybeUuid,
   security_id: maybeUuid,
@@ -125,7 +125,7 @@ const identity = object<ObservationIdentity>({
   filing_accession: nullable(accession),
 });
 
-const horizonList = refine(arrayOf(integer(1, HORIZON_MAX_VALUE)), (horizons, path) => {
+export const horizonList = refine(arrayOf(integer(1, HORIZON_MAX_VALUE)), (horizons, path) => {
   if (horizons.length < 1 || horizons.length > HORIZON_MAX_COUNT) reject(path, `from 1 to ${HORIZON_MAX_COUNT} horizons`);
   for (let index = 1; index < horizons.length; index += 1) {
     if ((horizons[index] ?? 0) <= (horizons[index - 1] ?? 0)) reject(path, "horizons ascending and without duplicates");
@@ -142,7 +142,7 @@ const parameters = object<ObservationParameters>({
   eps_kind: nullable(oneOf(EPS_KINDS, "EPS kind")),
 });
 
-const event = object<ObservationEvent>({
+export const event = object<ObservationEvent>({
   event_id: uuid,
   fingerprint: nonEmptyString,
   fiscal_year: integer(),
@@ -156,7 +156,7 @@ const event = object<ObservationEvent>({
   observed_at_basis: nullable(oneOf(AVAILABILITY_BASES, "availability basis")),
 });
 
-const filingLink = object<FilingLink>({
+export const filingLink = object<FilingLink>({
   status: oneOf(FILING_LINK_STATUSES, "filing-link status"),
   period_verification: oneOf(PERIOD_VERIFICATIONS, "period verification"),
   accession_number: nullable(accession),
@@ -165,7 +165,7 @@ const filingLink = object<FilingLink>({
   reason: nonEmptyString,
 });
 
-const disclosure = object<DisclosureEvidence>({
+export const disclosure = object<DisclosureEvidence>({
   level: oneOf(DISCLOSURE_LEVELS, "disclosure-evidence level"),
   accession_number: nullable(accession),
   form: nullable(form),
@@ -185,7 +185,7 @@ const accounting: Decoder<AccountingSection> = refine(
   },
 );
 
-const forwardReturn = object<ForwardReturn>({
+export const forwardReturn = object<ForwardReturn>({
   horizon: integer(1, HORIZON_MAX_VALUE),
   status: oneOf(FORWARD_RETURN_STATUSES, "forward-return status"),
   anchor_session: date,
@@ -196,14 +196,14 @@ const forwardReturn = object<ForwardReturn>({
   reason: nonEmptyString,
 });
 
-const stockReturns = object<StockReturns>({
+export const stockReturns = object<StockReturns>({
   listing_id: maybeUuid,
   price_source_id: maybeUuid,
   anchor_session: date,
   forward_returns: arrayOf(forwardReturn),
 });
 
-const benchmarkReturn = object<BenchmarkReturn>({
+export const benchmarkReturn = object<BenchmarkReturn>({
   horizon: integer(1, HORIZON_MAX_VALUE),
   status: oneOf(BENCHMARK_RETURN_STATUSES, "benchmark-return status"),
   anchor_session: date,
@@ -219,27 +219,27 @@ const benchmark = object<BenchmarkSection>({
   returns: arrayOf(benchmarkReturn),
 });
 
-const abnormalReturn = object<AbnormalReturn>({
+export const abnormalReturn = object<AbnormalReturn>({
   horizon: integer(1, HORIZON_MAX_VALUE),
   status: oneOf(ABNORMAL_RETURN_STATUSES, "abnormal-return status"),
   abnormal_return: exact,
   reason: nonEmptyString,
 });
 
-const sessionAlignment = object<SessionAlignment>({
+export const sessionAlignment = object<SessionAlignment>({
   status: oneOf(ALIGNMENT_STATUSES, "alignment status"),
   event_session: date,
   first_post_event_session: date,
   reason: nonEmptyString,
 });
 
-const alignment = object<Alignment>({
+export const alignment = object<Alignment>({
   event_date: isoDate,
   timing: oneOf(EARNINGS_TIMINGS, "earnings timing"),
   session_alignment: nullable(sessionAlignment),
 });
 
-const epsSurprise = object<ObservationEpsSurprise>({
+export const epsSurprise = object<ObservationEpsSurprise>({
   status: oneOf(EPS_SURPRISE_STATUSES, "EPS surprise status"),
   reported_eps: exact,
   estimated_eps: exact,
@@ -247,6 +247,43 @@ const epsSurprise = object<ObservationEpsSurprise>({
   surprise_ratio: exact,
   reason: nonEmptyString,
 });
+
+/**
+ * The per-horizon coherence every study must have, live or stored: each list covers the same
+ * horizons in the same order (the page pairs them by position), and a computed figure exists
+ * exactly when its status is AVAILABLE. Shared so a stored study is held to the live standard.
+ */
+export function checkStudyCoherence(
+  parts: {
+    readonly stock: readonly ForwardReturn[];
+    readonly benchmark: readonly BenchmarkReturn[];
+    readonly abnormal: readonly AbnormalReturn[];
+  },
+  path: string,
+  names: { readonly benchmark: string; readonly abnormal: string; readonly stock: string },
+): void {
+  const horizons = parts.stock.map((entry) => entry.horizon);
+  const same = (other: readonly { horizon: number }[]) =>
+    other.length === horizons.length && other.every((entry, index) => entry.horizon === horizons[index]);
+  if (!same(parts.benchmark)) reject(`${path}.${names.benchmark}`, "the same horizons as the stock returns");
+  if (!same(parts.abnormal)) reject(`${path}.${names.abnormal}`, "the same horizons as the stock returns");
+  // A computed figure exists exactly when its status is AVAILABLE.
+  for (const entry of parts.stock) {
+    if ((entry.status === "AVAILABLE") !== (entry.return_value !== null)) {
+      reject(`${path}.${names.stock}`, "a return value exactly when the status is AVAILABLE");
+    }
+  }
+  for (const entry of parts.benchmark) {
+    if ((entry.status === "AVAILABLE") !== (entry.benchmark_return !== null)) {
+      reject(`${path}.${names.benchmark}`, "a benchmark return exactly when the status is AVAILABLE");
+    }
+  }
+  for (const entry of parts.abnormal) {
+    if ((entry.status === "AVAILABLE") !== (entry.abnormal_return !== null)) {
+      reject(`${path}.${names.abnormal}`, "an abnormal return exactly when the status is AVAILABLE");
+    }
+  }
+}
 
 const study: Decoder<Study> = refine(
   object<Study>({
@@ -259,31 +296,14 @@ const study: Decoder<Study> = refine(
     abnormal_returns: arrayOf(abnormalReturn),
     price_basis_note: nonEmptyString,
   }),
-  (value, path) => {
+  (value, path) =>
     // Every horizon appears once in each per-horizon list, in the same order: the page pairs them
     // by position, so a mismatch would silently show one horizon's figure under another.
-    const horizons = value.stock_returns.forward_returns.map((entry) => entry.horizon);
-    const same = (other: readonly { horizon: number }[]) =>
-      other.length === horizons.length && other.every((entry, index) => entry.horizon === horizons[index]);
-    if (!same(value.benchmark.returns)) reject(`${path}.benchmark.returns`, "the same horizons as the stock returns");
-    if (!same(value.abnormal_returns)) reject(`${path}.abnormal_returns`, "the same horizons as the stock returns");
-    // A computed figure exists exactly when its status is AVAILABLE.
-    for (const entry of value.stock_returns.forward_returns) {
-      if ((entry.status === "AVAILABLE") !== (entry.return_value !== null)) {
-        reject(`${path}.stock_returns.forward_returns`, "a return value exactly when the status is AVAILABLE");
-      }
-    }
-    for (const entry of value.benchmark.returns) {
-      if ((entry.status === "AVAILABLE") !== (entry.benchmark_return !== null)) {
-        reject(`${path}.benchmark.returns`, "a benchmark return exactly when the status is AVAILABLE");
-      }
-    }
-    for (const entry of value.abnormal_returns) {
-      if ((entry.status === "AVAILABLE") !== (entry.abnormal_return !== null)) {
-        reject(`${path}.abnormal_returns`, "an abnormal return exactly when the status is AVAILABLE");
-      }
-    }
-  },
+    checkStudyCoherence(
+      { stock: value.stock_returns.forward_returns, benchmark: value.benchmark.returns, abnormal: value.abnormal_returns },
+      path,
+      { stock: "stock_returns.forward_returns", benchmark: "benchmark.returns", abnormal: "abnormal_returns" },
+    ),
 );
 
 const descriptive = object<DescriptiveSection>({

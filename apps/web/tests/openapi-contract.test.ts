@@ -20,6 +20,11 @@ import { decodeEarningsEvent, decodeEarningsPage } from "@/lib/api/decoders/earn
 import { decodeFilingEps, decodeFilingIndexPage } from "@/lib/api/decoders/filings";
 import { decodeHealth, decodeReadiness } from "@/lib/api/decoders/health";
 import { decodeBenchmarkPage, decodeObservation } from "@/lib/api/decoders/research";
+import { decodeRecordDetail, decodeRecordPage, decodeVerification } from "@/lib/api/decoders/records";
+import { EVIDENCE_STATES } from "@/lib/api/record-types";
+import { EVIDENCE_STATE_LABEL, EVIDENCE_STATE_SENTENCE, GAP_LABEL, GAP_SENTENCE, SECTION_LABEL, VERIFICATION_LABEL, VERIFICATION_SENTENCE } from "@/lib/record-wording";
+import { REPRODUCIBILITY_LEVELS, REPRODUCIBILITY_META } from "@/lib/state";
+import { RECORDS, clone as cloneRecord, recordDetail, recordVerify } from "./records-fixtures";
 import * as schema from "@/lib/api/schema";
 import { BASIS_LABEL, PIT_PRESENTATION, TIMING_LABEL } from "@/lib/availability";
 import {
@@ -446,6 +451,114 @@ describe("observation decoders require every key the snapshot marks required", (
     ["RefusalOut", { scope: "MARKET", code: "UNKNOWN_TIMING", reason: "r", horizon: null }, (v) => { const root = base(); root.refusals = [v]; return decodeObservation(root, "$"); }],
     ["BenchmarkIndexPage", clone(captured("benchmark_selected")) && { items: [], total: 0, limit: 200, offset: 0 }, (v) => decodeBenchmarkPage(v, "$")],
     ["BenchmarkIndexItem", { id: "11111111-1111-4111-8111-111111111111", name: "n", symbol: null, currency: null, is_active: true }, (v) => decodeBenchmarkPage({ items: [v], total: 1, limit: 200, offset: 0 }, "$")],
+  ];
+
+  it.each(CASES)("%s: the fixture satisfies the schema's required list, and dropping any required key is rejected", (name, value, decode) => {
+    const required = (schemas[name] as { required?: string[] }).required ?? [];
+    expect(required.length).toBeGreaterThan(0);
+    expect(() => decode(value)).not.toThrow();
+    for (const key of required) {
+      expect(Object.keys(value as Record<string, unknown>), `${name} fixture is missing ${key}`).toContain(key);
+      const without = Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([k]) => k !== key));
+      expect(() => decode(without), `${name}.${key} absent`).toThrow();
+    }
+  });
+});
+
+
+describe("saved research record contract parity", () => {
+  const RECORDS_PATH = "/api/v1/research/records";
+  const params = (path: string) => snapshot.paths[path]!.get.parameters ?? [];
+  const statusEnum = (schemas.RecordVerificationResponse as { properties: { status: { enum: string[] } } }).properties.status.enum;
+  const baselineEnum = (schemas.RecordVerificationResponse as { properties: { baseline: { enum: string[] } } }).properties.baseline.enum;
+  const sectionEnum = (schemas.RecordVerificationResponse as { properties: { changed_sections: { items: { enum: string[] } } } }).properties.changed_sections.items.enum;
+
+  it("the reproducibility levels and gaps equal the snapshot's, with no fallback member", () => {
+    expect(sorted(REPRODUCIBILITY_LEVELS)).toEqual(sorted(enumOf("ReproducibilityLevel")));
+    expect(sorted(REPRODUCIBILITY_LEVELS)).toEqual(["COMPLETE", "PARTIAL"]);
+    expect(sorted(schema.REPRODUCIBILITY_GAPS)).toEqual(sorted(enumOf("ReproducibilityGap")));
+    expect(Object.keys(REPRODUCIBILITY_META).sort()).toEqual(sorted(enumOf("ReproducibilityLevel")));
+  });
+
+  it("the verification statuses, baselines and sections equal the snapshot's, with no fallback member", () => {
+    expect(sorted(schema.VERIFICATION_STATUSES)).toEqual(sorted(statusEnum));
+    expect(sorted(schema.VERIFICATION_STATUSES)).toEqual(["EVIDENCE_INCOMPLETE", "MANIFEST_CHANGED", "MATCH", "RESULT_CHANGED"]);
+    expect(sorted(schema.VERIFICATION_BASELINES)).toEqual(sorted(baselineEnum));
+    expect(sorted(schema.MANIFEST_SECTIONS)).toEqual(sorted(sectionEnum));
+  });
+
+  it("every gap, status and section has wording, and nothing extra (exhaustive tables)", () => {
+    expect(Object.keys(GAP_LABEL).sort()).toEqual(sorted(enumOf("ReproducibilityGap")));
+    expect(Object.keys(GAP_SENTENCE).sort()).toEqual(sorted(enumOf("ReproducibilityGap")));
+    expect(Object.keys(VERIFICATION_LABEL).sort()).toEqual(sorted(statusEnum));
+    expect(Object.keys(VERIFICATION_SENTENCE).sort()).toEqual(sorted(statusEnum));
+    expect(Object.keys(SECTION_LABEL).sort()).toEqual(sorted(sectionEnum));
+    expect(Object.keys(EVIDENCE_STATE_LABEL).sort()).toEqual(sorted(EVIDENCE_STATES));
+    expect(Object.keys(EVIDENCE_STATE_SENTENCE).sort()).toEqual(sorted(EVIDENCE_STATES));
+  });
+
+  it("the evidence-state list is not in the snapshot (the manifest is an open object), so it is pinned by the captured manifests", () => {
+    expect((schemas.ResearchRecordDetail as { properties: { manifest: { additionalProperties: boolean } } }).properties.manifest.additionalProperties).toBe(true);
+    expect((schemas.ResearchRecordDetail as { properties: { result: { additionalProperties: boolean } } }).properties.result.additionalProperties).toBe(true);
+    const seen = new Set<string>();
+    for (const entry of RECORDS.records.filter((r) => r.detail.status === 200)) {
+      const evidence = entry.detail.body!.manifest.evidence;
+      for (const part of ["stock", "benchmark", "filing", "accounting"]) seen.add(evidence[part].state);
+    }
+    expect([...seen].sort()).toEqual(sorted(EVIDENCE_STATES).filter((state) => state !== "NOT_READ"));
+    expect(EVIDENCE_STATES).toContain("NOT_READ");
+  });
+
+  it("the list defines exactly limit and offset, with the shared bounds and a page size the API accepts", () => {
+    expect(params(RECORDS_PATH).map((p) => p.name).sort()).toEqual(["limit", "offset"]);
+    const { limit, offset } = Object.fromEntries(params(RECORDS_PATH).map((p) => [p.name, p]));
+    expect(limit?.schema).toMatchObject({ default: schema.PAGE_SIZE, maximum: schema.PAGE_LIMIT_MAX, minimum: 1 });
+    expect(offset?.schema).toMatchObject({ default: 0, maximum: schema.PAGE_OFFSET_MAX, minimum: 0 });
+    expect(schema.RECORD_PAGE_SIZE).toBeGreaterThanOrEqual(1);
+    expect(schema.RECORD_PAGE_SIZE).toBeLessThanOrEqual(schema.PAGE_LIMIT_MAX);
+  });
+
+  it("documents the status codes the unified result maps (404, 409, 422, 500, 503) and nothing that writes", () => {
+    expect(Object.keys(snapshot.paths[RECORDS_PATH]!.get.responses).sort()).toEqual(["200", "422", "500", "503"]);
+    expect(Object.keys(snapshot.paths[`${RECORDS_PATH}/{record_id}`]!.get.responses).sort()).toEqual(["200", "404", "422", "500", "503"]);
+    expect(Object.keys(snapshot.paths[`${RECORDS_PATH}/{record_id}/verify`]!.get.responses).sort()).toEqual(["200", "404", "409", "422", "500", "503"]);
+    for (const path of Object.keys(snapshot.paths).filter((p) => p.startsWith(RECORDS_PATH))) {
+      expect(Object.keys(snapshot.paths[path]!), path).toEqual(["get"]);
+    }
+  });
+
+  it("the configured path is the snapshot's", () => {
+    expect(snapshot.paths[env.apiRecordsPath]).toBeDefined();
+    expect(snapshot.paths[`${env.apiRecordsPath}/{record_id}/verify`]).toBeDefined();
+  });
+
+  it("the fingerprint pattern and algorithm are the API's", () => {
+    const fp = (schemas.RecordFingerprints as { properties: Record<string, { pattern: string }> }).properties;
+    for (const key of ["request", "methodology", "evidence", "manifest", "result"]) expect(fp[key]!.pattern).toBe("^[0-9a-f]{64}$");
+    expect((schemas.ResearchRecordSummary as { properties: { hash_algorithm: { const: string } } }).properties.hash_algorithm.const).toBe(schema.HASH_ALGORITHM);
+  });
+});
+
+describe("record decoders require every key the snapshot marks required", () => {
+  const detail = () => cloneRecord(recordDetail("complete_filing_accounting")) as Record<string, any>;
+  const verify = () => cloneRecord(recordVerify("manifest_changed")) as Record<string, any>;
+  const list = () => cloneRecord(RECORDS.lists.limit_3_offset_0!.body) as Record<string, any>;
+  const inVerify = (path: string) => (value: unknown) => {
+    const root = verify();
+    const parts = path.split(".");
+    const parent = parts.slice(0, -1).reduce((node: Record<string, any>, part) => node[part], root);
+    parent[parts[parts.length - 1]!] = value;
+    return decodeVerification(root, "$");
+  };
+
+  const CASES: [string, unknown, (value: unknown) => unknown][] = [
+    ["ResearchRecordPage", list(), (v) => decodeRecordPage(v, "$")],
+    ["ResearchRecordSummary", list().items[0], (v) => decodeRecordPage({ ...list(), items: [v] }, "$")],
+    ["RecordRequestSummary", list().items[0].request, (v) => { const root = list(); root.items[0].request = v; return decodeRecordPage(root, "$"); }],
+    ["ResearchRecordDetail", detail(), (v) => decodeRecordDetail(v, "$")],
+    ["RecordVerificationResponse", verify(), (v) => decodeVerification(v, "$")],
+    ["RecordVerificationSide", verify().expected, inVerify("expected")],
+    ["RecordFingerprints", verify().expected.fingerprints, inVerify("expected.fingerprints")],
   ];
 
   it.each(CASES)("%s: the fixture satisfies the schema's required list, and dropping any required key is rejected", (name, value, decode) => {

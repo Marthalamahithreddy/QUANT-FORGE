@@ -6,12 +6,12 @@ Next.js research workspace for the QuantForge platform (read-only; it displays w
 ## What exists
 
 Frontend V2 is being built incrementally (design: `docs/frontend-v2-design.md`). 11.1B delivered the foundations;
-11.1C delivered the API contract layer and migrated Earnings and Filings.
+11.1C delivered the API contract layer and migrated Earnings and Filings; 11.1D the research workspace; 11.1E the
+read-only Saved Research viewer.
 
 - **Routes** — Overview `/`, Earnings `/earnings` and `/earnings/[id]`, Filings `/filings` and
   `/filings/[accession]`, Research `/research` (an event finder) and the research workspace
-  `/research/events/[eventId]` (11.1D). `/research/saved` is still a placeholder (nothing can be saved or listed
-  from the interface yet): it says so, shows nothing and makes no API request.
+  `/research/events/[eventId]` (11.1D), Saved Research `/research/saved` and `/research/saved/[recordId]` (11.1E).
 - **Shell** (`src/components/layout`) — rendered ONCE by the root layout, so navigation never remounts it. A
   12.5rem rail, a 44px header strip (current section, theme control, API status) and the main region. The status
   chip streams behind `Suspense` ("Checking API" first), so a slow or failed health read never delays the page or
@@ -64,6 +64,36 @@ Real observation responses are pinned in `tests/contract/observation.json`, capt
 `scripts/capture_observation_fixtures.py` (see its header; it uses the backend's own integration scenario builders
 and changes no backend file).
 
+## Saved research (`/research/saved`, `/research/saved/[recordId]`)
+
+A read-only viewer of immutable research records that already exist. There is no save, edit, delete, rename,
+ownership or authentication anywhere in the interface (a future save workflow is to be designed together with
+authentication and authorization). Four things are kept apart on screen and in code: the **stored baseline**, its
+**reproducibility level**, an optional **verification** (a re-run against today's stored evidence), and a **live**
+Research study.
+
+- **List** — `GET /research/records?limit=20&offset=…`, page in the URL (`?page=`, defaults omitted, no `limit`
+  parameter), a `DataTable` of stored fields (record id, saved time in UTC, reproducibility level with its gaps,
+  stored request, manifest fingerprint, result fingerprint; fingerprints are shortened for display and whole in the
+  document, and they are different identities). The one extra column is the CURRENT event record (company, ticker,
+  date), looked up once per distinct event on the page, labelled as current, and tolerant of a 404.
+- **Record** — a `STORED BASELINE` banner, identity (full, copyable fingerprints), the stored request, the
+  reproducibility section (COMPLETE/PARTIAL with each gap's sentence; PARTIAL is a statement about the evidence trail,
+  never styled as a failure), the stored result rendered with the same study components as the live workspace (via
+  pure adapters in `src/lib/stored-result.ts`; never through the live endpoint, nothing current merged in), the
+  consumed evidence (shared `EvidenceDrawer`, stored identifiers), then verification and a re-run link.
+- **Verification** is explicit: `?verify=1` runs ONE `GET …/verify` (10 s computed class) inside its own keyed
+  `Suspense`, so the baseline never waits for it. The status (MATCH, EVIDENCE_INCOMPLETE, MANIFEST_CHANGED,
+  RESULT_CHANGED) is the API's and is only ever read; changed paths come from the API and are grouped for reading;
+  no value is diffed in React. 404, 409 (the record's event is no longer stored), 500 (a stored record failed its own
+  integrity validation), 503, network and contract failures are failures, never statuses.
+- **Re-run live** is a link built from the stored request (event, horizons, benchmark, filing accession and its two
+  selectors only). It issues nothing; the workspace it opens is a new live study.
+- Real record responses are pinned in `tests/contract/records.json`, captured by
+  `scripts/capture_record_fixtures.py` (the backend's own scenario builders and save service over PostgreSQL; no
+  backend file changed). The stored manifest and result are open objects in the OpenAPI schema, so the decoders in
+  `src/lib/api/decoders/records.ts` and those fixtures are what pin them.
+
 ## API contract layer
 
 All API access is server-side (`src/lib/api`); the browser never calls the API, and a structural test proves no
@@ -89,7 +119,7 @@ client component can reach the client, the decoders or the config.
   status inside a 200 (REFUSED, AMBIGUOUS, MISSING, PARTIAL, NOT_REQUESTED) is `ok` data, never an error.
   Failure wording lives in `src/lib/api/messages.ts`: no address, host, stack, SQL or raw exception.
 - **Timeouts** — `READ` (4 s) for health, readiness, list pages, benchmarks, one event and one filing EPS;
-  `OBSERVATION` (10 s) for the research observation only (record verification will share it).
+  `OBSERVATION` (10 s) for the research observation and the record verification only.
 - **No `server-only` package** — the import-graph test gives the same guarantee without a dependency.
 
 There is no authentication, no realtime connection and no browser-side data fetching: every API read happens

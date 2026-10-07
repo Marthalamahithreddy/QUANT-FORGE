@@ -47,7 +47,8 @@ export function parsePage(raw: RawSearchParams): { page: number; error: ListErro
   return { page: Number(param.text), error: null };
 }
 
-export const offsetOfPage = (page: number): number => (page - 1) * PAGE_SIZE;
+/** The API offset of a 1-based page; `size` is the page size the list requests (default: the API default). */
+export const offsetOfPage = (page: number, size: number = PAGE_SIZE): number => (page - 1) * size;
 
 
 /** A canonical path: `path` plus the given parameters in a fixed order, omitting empty ones. */

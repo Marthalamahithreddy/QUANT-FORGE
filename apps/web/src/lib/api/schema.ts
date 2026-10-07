@@ -61,6 +61,17 @@ export type CurrentEps = Schemas["CurrentEpsSection"];
 export type ComparativeEps = Schemas["ComparativeEpsSection"];
 export type EpsChange = Schemas["EpsChangeSection"];
 
+/** The stored request. The API types the two selectors as plain strings; they are the enums below. */
+export type RecordRequest = Omit<Schemas["RecordRequestSummary"], "eps_kind" | "eps_period_class"> & {
+  readonly eps_kind: Schemas["EpsKind"] | null;
+  readonly eps_period_class: Schemas["EpsPeriodClass"] | null;
+};
+export type RecordSummary = Omit<Schemas["ResearchRecordSummary"], "request"> & { readonly request: RecordRequest };
+export type RecordPage = Omit<Schemas["ResearchRecordPage"], "items"> & { readonly items: RecordSummary[] };
+export type RecordFingerprints = Schemas["RecordFingerprints"];
+export type Verification = Schemas["RecordVerificationResponse"];
+export type VerificationSide = Schemas["RecordVerificationSide"];
+
 // ── enums (exhaustive at compile time, equal to the snapshot at test time) ──────────────
 
 /**
@@ -291,6 +302,33 @@ export const LISTING_EVIDENCE = enumList<Schemas["Evidence"]>()(["PROVISIONAL_FI
 
 export const ARTIFACT_ROLES = ["current", "comparative"] as const;
 
+// ── saved research records ────────────────────────────────────────────────────────────────
+
+export const REPRODUCIBILITY_GAPS = enumList<Schemas["ReproducibilityGap"]>()([
+  "EVENT_WITHOUT_INGESTION_RUN",
+  "STOCK_BAR_WITHOUT_INGESTION_RUN",
+  "BENCHMARK_BARS_WITHOUT_INGESTION_RUN",
+  "FILING_WITHOUT_INGESTION_RUN",
+  "ACCOUNTING_NOT_INGESTED",
+]);
+export type ReproducibilityGap = Schemas["ReproducibilityGap"];
+
+export const VERIFICATION_STATUSES = enumList<Verification["status"]>()([
+  "MATCH",
+  "MANIFEST_CHANGED",
+  "RESULT_CHANGED",
+  "EVIDENCE_INCOMPLETE",
+]);
+export type VerificationStatus = Verification["status"];
+
+export const VERIFICATION_BASELINES = enumList<Verification["baseline"]>()(["SUPPLIED", "RERUN"]);
+
+export const MANIFEST_SECTIONS = enumList<Verification["changed_sections"][number]>()(["request", "methodology", "evidence"]);
+export type ManifestSection = Verification["changed_sections"][number];
+
+/** The one fingerprint algorithm the record contract defines. */
+export const HASH_ALGORITHM = "sha256";
+
 // ── research request bounds (parity-tested against the observation parameters) ───────────
 
 /** The observation endpoint's horizon rules: at most 10 horizons, each from 1 to 252 sessions. */
@@ -307,6 +345,8 @@ export const DEPENDENCY_STATES = ["ok", "unavailable"] as const;
 /** `limit` default and maximum of every paginated endpoint. */
 export const PAGE_SIZE = 50;
 export const PAGE_LIMIT_MAX = 200;
+/** Rows per page of the saved-research list (the API default is 50; a page of 20 keeps rows scannable). */
+export const RECORD_PAGE_SIZE = 20;
 /** `offset` maximum of every paginated endpoint. */
 export const PAGE_OFFSET_MAX = 1_000_000;
 

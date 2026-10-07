@@ -36,7 +36,7 @@ function EventMarker({ date, timing }: { readonly date: string; readonly timing:
  * session shows its state instead of a date. A refused alignment replaces the ladder with the
  * backend's reason.
  */
-export function SessionLadder({ study }: { readonly study: Study }) {
+export function SessionLadder({ study, label }: { readonly study: Study; readonly label?: string }) {
   const alignment = study.alignment;
   const session = alignment.session_alignment;
   if (session === null || session.status !== "ALIGNED") {
@@ -58,7 +58,7 @@ export function SessionLadder({ study }: { readonly study: Study }) {
     <div className="flex flex-col gap-1.5">
       <div
         role="region"
-        aria-label="Session ladder, scrollable"
+        aria-label={label ? `${label} session ladder, scrollable` : "Session ladder, scrollable"}
         tabIndex={0}
         // `relative`: the ladder scrolls sideways, and the visually-hidden state names inside its slots are
         // absolutely positioned: without a positioned ancestor they escape the scroll box and widen the page.

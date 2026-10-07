@@ -145,7 +145,7 @@ describe("no automatic benchmark or filing, no recommendation", () => {
 });
 
 describe("server bias and dependencies", () => {
-  it("the only client components are the existing ones plus the evidence drawer", () => {
+  it("the only client components are the existing ones plus the evidence drawer and the copy action", () => {
     const clients = files.filter((f) => /^["']use client["']/m.test(read(f))).map(rel).sort();
     expect(clients).toEqual([
       "app/error.tsx",
@@ -153,6 +153,7 @@ describe("server bias and dependencies", () => {
       "components/layout/mobile-nav.tsx",
       "components/layout/nav-link.tsx",
       "components/layout/theme-control.tsx",
+      "components/ui/copy-value.tsx",
       "components/ui/evidence-drawer.tsx",
     ]);
   });
@@ -170,9 +171,9 @@ describe("server bias and dependencies", () => {
     expect(dev).toEqual([]);
   });
 
-  it("the observation uses the long timeout class and nothing else does", () => {
+  it("the long (computed) timeout class is used by the observation and the verification, and nothing else", () => {
     const users = files.filter((f) => /OBSERVATION_TIMEOUT_MS/.test(read(f))).map(rel).sort();
-    expect(users).toEqual(["lib/api/client.ts", "lib/api/research.ts"]);
+    expect(users).toEqual(["lib/api/client.ts", "lib/api/records.ts", "lib/api/research.ts"]);
   });
 
   it("makes no write, save or verification request", () => {

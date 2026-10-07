@@ -9,16 +9,16 @@ const MODE = {
   POINT_IN_TIME: { label: "POINT-IN-TIME", rule: "[border-left-style:dashed] border-l-mode-pit", text: "text-mode-pit", hue: "pit" as const },
 };
 
-export interface ModeFrameProps {
+/** The badge is both parts or neither: a state without its text (or the reverse) is a type error. */
+type ModeBadge = { readonly state: StateKind; readonly stateText: string } | { readonly state?: undefined; readonly stateText?: undefined };
+
+export type ModeFrameProps = ModeBadge & {
   readonly mode: ResearchMode;
   readonly id: string;
   /** The question this mode answers, in one line. */
   readonly question: string;
-  /** The mode's state as the backend states it (AVAILABLE, REFUSED...), with its mapped look. */
-  readonly state: StateKind;
-  readonly stateText: string;
   readonly children: ReactNode;
-}
+};
 
 /**
  * One of the two analytical modes, unmistakable and distinguishable in greyscale: the label
@@ -42,9 +42,11 @@ export function ModeFrame({ mode, id, question, state, stateText, children }: Mo
           </h2>
           <p className="type-meta">{question}</p>
         </div>
-        <StatusBadge kind={state} mode={meta.hue}>
-          {stateText}
-        </StatusBadge>
+        {state !== undefined && stateText !== undefined ? (
+          <StatusBadge kind={state} mode={meta.hue}>
+            {stateText}
+          </StatusBadge>
+        ) : null}
       </header>
       <div className="flex flex-col gap-4 p-3">{children}</div>
     </section>

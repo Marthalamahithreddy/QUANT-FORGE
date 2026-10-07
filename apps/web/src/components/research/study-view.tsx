@@ -18,8 +18,8 @@ export interface StudyViewProps {
   readonly study: Study;
   /** Scopes the table/chart names ("Descriptive", "Point-in-time"). */
   readonly label: string;
-  /** Where "select a benchmark" leads: the configuration controls. */
-  readonly configHref: string;
+  /** Where "select a benchmark" leads: the configuration controls. Absent for a stored study, which has none. */
+  readonly configHref?: string;
   /** How the selected benchmark is named (streamed separately: the study never waits for it). */
   readonly benchmarkLabel?: ReactNode;
 }
@@ -40,22 +40,27 @@ export function StudyView({ study, label, configHref, benchmarkLabel }: StudyVie
     <>
       <div className="flex flex-col gap-2">
         <SubHeading>Session alignment</SubHeading>
-        <SessionLadder study={study} />
+        <SessionLadder study={study} label={label} />
       </div>
 
       <div className="flex flex-col gap-2">
         <SubHeading>Return by horizon</SubHeading>
         {requested ? (
           <p className="type-meta">
-            Benchmark: {benchmarkLabel ?? <span className="type-id">{study.benchmark.benchmark_id}</span>}. Selected by you; the abnormal return
-            is the backend&rsquo;s stock-minus-benchmark figure.
+            Benchmark: {benchmarkLabel ?? <span className="type-id">{study.benchmark.benchmark_id}</span>}.{" "}
+            {configHref ? "Selected by you" : "Selected in this request"}; the abnormal return is the backend&rsquo;s stock-minus-benchmark figure.
           </p>
         ) : (
           <RefusalNotice kind="NOT_REQUESTED" title="Benchmark-relative and abnormal returns" reason="No benchmark was selected. Nothing is chosen for you.">
-            Stock returns are valid without one.{" "}
-            <a href={configHref} className="text-accent hover:underline">
-              Select a benchmark
-            </a>
+            Stock returns are valid without one.
+            {configHref ? (
+              <>
+                {" "}
+                <a href={configHref} className="text-accent hover:underline">
+                  Select a benchmark
+                </a>
+              </>
+            ) : null}
           </RefusalNotice>
         )}
         {anyStock ? (

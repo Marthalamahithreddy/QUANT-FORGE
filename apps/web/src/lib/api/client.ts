@@ -10,10 +10,10 @@
  *
  * Timeout classes (the API serves bounded, indexed reads; see README "API contract"):
  *
- * - `READ` (4 s, the default): health, readiness, list pages, one event, one filing EPS;
- * - a longer class is reserved for the computed endpoints (research observation, record
- *   verification) and arrives with their clients; no endpoint used today needs it, so none is
- *   given more than 4 s merely for uniformity.
+ * - `READ` (4 s, the default): health, readiness, list pages, one event, one filing EPS, one saved record;
+ * - `OBSERVATION` (10 s) is the computed class, used by the research observation and the record
+ *   verification only (both re-assemble a study from stored evidence); no other endpoint is given
+ *   more than 4 s merely for uniformity.
  */
 
 import { decode, type Decoder } from "@/lib/api/decode";
@@ -24,8 +24,9 @@ import { redactUrls } from "@/lib/safe-text";
 export const READ_TIMEOUT_MS = 4000;
 
 /**
- * The computed class: one research observation assembles about a dozen stored reads on a possibly
- * cold database. Only that endpoint uses it; ordinary list and detail reads keep `READ`.
+ * The computed class: one research observation (and one record verification, which re-runs it)
+ * assembles about a dozen stored reads on a possibly cold database. Only those two endpoints use
+ * it; ordinary list and detail reads keep `READ`.
  */
 export const OBSERVATION_TIMEOUT_MS = 10_000;
 

@@ -485,7 +485,7 @@ describe("source guards for the foundation", () => {
     }
   });
 
-  it("limits `use client` to the five components that need browser state", () => {
+  it("limits `use client` to the components that need browser state", () => {
     const clients = files.filter((f) => /^["']use client["']/m.test(read(f))).map((f) => relative(SRC, f)).sort();
     expect(clients).toEqual(
       [
@@ -494,6 +494,7 @@ describe("source guards for the foundation", () => {
         "components/layout/mobile-nav.tsx", // opens/closes a native <dialog>
         "components/layout/nav-link.tsx", // usePathname for the current section
         "components/layout/theme-control.tsx", // writes the theme cookie and root attribute
+        "components/ui/copy-value.tsx", // the clipboard (copy one exact fingerprint)
         "components/ui/evidence-drawer.tsx", // opens/closes a native <dialog> (provenance drawer)
       ].sort(),
     );
@@ -502,7 +503,7 @@ describe("source guards for the foundation", () => {
   it("keeps the shell, primitives, state and financial components server-compatible", () => {
     for (const dir of ["ui", "state", "financial"]) {
       for (const name of readdirSync(join(SRC, "components", dir))) {
-        if (!name.endsWith(".tsx") || name === "evidence-drawer.tsx") continue; // the drawer is the one client primitive
+        if (!name.endsWith(".tsx") || name === "evidence-drawer.tsx" || name === "copy-value.tsx") continue; // the drawer and the copy action are the client primitives
         expect(read(join(SRC, "components", dir, name)), `${dir}/${name}`).not.toMatch(/use client|useState|useEffect|useRef/);
       }
     }

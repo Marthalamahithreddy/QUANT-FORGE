@@ -1489,6 +1489,34 @@ OpenAPI win):
 8. **Ticker** on the research context comes from the earnings event record (`resolved_tickers`); the observation
    carries no ticker.
 
+## Implementation notes: Step 11.1E
+
+Where the shipped Saved Research differs from, or settles, this document (the repository and the generated OpenAPI
+win):
+
+1. **Read-only, by decision (D1).** No save, no save-shaped affordance and no disabled placeholder exists; a future
+   save workflow is designed together with authentication, ownership and authorization.
+2. **The list carries no event identity** (only the request's `event_id`). The event column is therefore the CURRENT
+   event record, one read per distinct event on the page (at most 20), labelled "Event (current record)" and
+   explained under the table. A 404 or failure shows in that cell only.
+3. **The stored result is the backend's canonical serialisation, not the live response.** The OpenAPI schema types
+   `manifest` and `result` as open objects; their shape (nested per-horizon items, no presenter fields, no section
+   state, no refusal ledger) differs from the live observation. Decoders pin the shape; adapters restructure it for
+   the shared study components; no state or ledger is invented for a stored result.
+4. **No residual-assumptions list.** The API does not supply one for a record, so none is shown or invented.
+5. **No raw result inspector.** The semantic sections cover every decoded field; a pretty-printed dump would add
+   tens of kilobytes to every document for fields the page does not interpret.
+6. **Verification entry is a link** (`?verify=1#verification`), not a button, so it is shareable and survives
+   refresh and back/forward. The verification decoder refuses a report whose parts contradict its status; it never
+   assigns one.
+7. **Fingerprints** are shortened in the list (full value in the document and the hover title) and shown whole, with
+   a copy action, on the record. The record detail supplies only the manifest and result fingerprints; the other
+   three (request, methodology, evidence) appear in a verification report, side by side, with no sameness mark.
+8. **Re-run live** carries only parameters the workspace accepts and says when the stored request pinned something
+   it cannot carry (a security or a price source).
+
+---
+
 ---
 
 ## Appendix A. Endpoint contracts (generated from the OpenAPI at the base commit)

@@ -23,6 +23,9 @@ export const API_FILINGS_PATH = "/api/v1/filings";
 /** Path of the read-only research observation; one event is `{path}/{event_id}`. */
 export const API_OBSERVATIONS_PATH = "/api/v1/research/observations";
 
+/** Path of the read-only saved research records; one is `{path}/{record_id}`, its verification `{path}/{record_id}/verify`. */
+export const API_RECORDS_PATH = "/api/v1/research/records";
+
 /** Path of the benchmark index (identity fields only). */
 export const API_BENCHMARKS_PATH = "/api/v1/benchmarks";
 
@@ -57,6 +60,7 @@ export interface AppEnv {
   readonly apiFilingsPath: string;
   readonly apiObservationsPath: string;
   readonly apiBenchmarksPath: string;
+  readonly apiRecordsPath: string;
 }
 
 export const env: AppEnv = Object.freeze({
@@ -67,4 +71,5 @@ export const env: AppEnv = Object.freeze({
   apiFilingsPath: API_FILINGS_PATH,
   apiObservationsPath: API_OBSERVATIONS_PATH,
   apiBenchmarksPath: API_BENCHMARKS_PATH,
+  apiRecordsPath: API_RECORDS_PATH,
 });

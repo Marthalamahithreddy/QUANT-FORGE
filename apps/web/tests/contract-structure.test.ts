@@ -140,6 +140,7 @@ describe("the server boundary: the browser never reaches the API", () => {
       "components/layout/mobile-nav.tsx",
       "components/layout/nav-link.tsx",
       "components/layout/theme-control.tsx",
+      "components/ui/copy-value.tsx",
       "components/ui/evidence-drawer.tsx",
     ]);
   });
@@ -152,7 +153,7 @@ describe("the server boundary: the browser never reaches the API", () => {
 
   it("only modules under lib/api import the HTTP client", () => {
     const importers = files.filter((f) => /@\/lib\/api\/client/.test(read(f))).map(rel).sort();
-    expect(importers).toEqual(["lib/api/earnings.ts", "lib/api/filings.ts", "lib/api/health.ts", "lib/api/research.ts"]);
+    expect(importers).toEqual(["lib/api/earnings.ts", "lib/api/filings.ts", "lib/api/health.ts", "lib/api/records.ts", "lib/api/research.ts"]);
   });
 
   it("fetch is called in exactly one place", () => {

@@ -6,10 +6,73 @@ import { StatusBadge } from "@/components/state/status-badge";
 import { Callout } from "@/components/ui/callout";
 import { Frame } from "@/components/ui/frame";
 import { KeyValue, KeyValueList } from "@/components/ui/key-value";
-import type { Observation } from "@/lib/api/schema";
+import type { DisclosureEvidence, FilingLink, Observation, Refusal } from "@/lib/api/schema";
 import type { NonValueState } from "@/lib/state";
 import { ACCOUNTING_STATE_LABEL, DISCLOSURE_CAVEAT, DISCLOSURE_WORDING, FILING_LINK_LABEL, PERIOD_VERIFICATION_NOTE } from "@/lib/research-wording";
 import { FILING_LINK_STATE } from "@/lib/state-map";
+
+/**
+ * The filing link and its disclosure evidence. Shared by the live workspace and a saved baseline
+ * (both carry exactly these two sections), so the link states, `PERIOD_UNVERIFIED` and the D0/D1
+ * wording are identical in both. `refusals` (live only) adds the pointer to the refusal ledger.
+ */
+export function FilingLinkFrame({
+  link,
+  disclosure,
+  refusals,
+}: {
+  readonly link: FilingLink;
+  readonly disclosure: DisclosureEvidence;
+  readonly refusals?: readonly Refusal[];
+}) {
+  const linkState = FILING_LINK_STATE[link.status];
+  const verification = PERIOD_VERIFICATION_NOTE[link.period_verification];
+  return (
+    <Frame
+      title="Filing link and disclosure evidence"
+      actions={<StatusBadge kind={linkState}>{FILING_LINK_LABEL[link.status]}</StatusBadge>}
+    >
+      <KeyValueList>
+        <KeyValue label="Filing link">
+          <span className="inline-flex flex-wrap items-center gap-x-2">
+            {linkState === "VALUE" ? null : <DomainState kind={linkState as NonValueState} reason={link.reason} />}
+            <span>{FILING_LINK_LABEL[link.status]}</span>
+            <span className="type-id text-text-3">{link.status}</span>
+          </span>
+        </KeyValue>
+        <KeyValue label="Reason">
+          <span className="text-text-2">{link.reason}</span>
+        </KeyValue>
+        {link.accession_number ? (
+          <KeyValue label="Accession">
+            <span className="type-id">{link.accession_number}</span>
+          </KeyValue>
+        ) : null}
+        {link.form ? <KeyValue label="Form">{link.form}</KeyValue> : null}
+        {link.company_cik ? (
+          <KeyValue label="Registrant (CIK)">
+            <span className="type-id">{link.company_cik}</span>
+          </KeyValue>
+        ) : null}
+        <KeyValue label="Period verification">
+          <span className="type-id">{link.period_verification}</span>
+          {verification ? <div className="type-meta mt-0.5">{verification}</div> : null}
+        </KeyValue>
+        <KeyValue label="Disclosure evidence">
+          <span>{DISCLOSURE_WORDING[disclosure.level].label}</span>
+          <div className="type-meta mt-0.5">{DISCLOSURE_WORDING[disclosure.level].sentence}</div>
+          {disclosure.items !== null ? (
+            <div className="type-meta">
+              Stored 8-K items: <span className="type-id">{disclosure.items === "" ? "(none stated)" : disclosure.items}</span>
+            </div>
+          ) : null}
+          <div className="type-meta">{DISCLOSURE_CAVEAT}</div>
+        </KeyValue>
+      </KeyValueList>
+      {refusals ? <RefusalReference scopes={["FILING_LINK"]} refusals={refusals} /> : null}
+    </Frame>
+  );
+}
 
 /**
  * The filing link, its disclosure evidence and the accounting it enabled.
@@ -21,54 +84,10 @@ import { FILING_LINK_STATE } from "@/lib/state-map";
  */
 export function AccountingSection({ observation, configHref }: { readonly observation: Observation; readonly configHref: string }) {
   const { filing_link: link, disclosure_evidence: disclosure, accounting, refusals } = observation;
-  const linkState = FILING_LINK_STATE[link.status];
-  const verification = PERIOD_VERIFICATION_NOTE[link.period_verification];
 
   return (
     <div className="flex flex-col gap-4">
-      <Frame
-        title="Filing link and disclosure evidence"
-        actions={<StatusBadge kind={linkState}>{FILING_LINK_LABEL[link.status]}</StatusBadge>}
-      >
-        <KeyValueList>
-          <KeyValue label="Filing link">
-            <span className="inline-flex flex-wrap items-center gap-x-2">
-              {linkState === "VALUE" ? null : <DomainState kind={linkState as NonValueState} reason={link.reason} />}
-              <span>{FILING_LINK_LABEL[link.status]}</span>
-              <span className="type-id text-text-3">{link.status}</span>
-            </span>
-          </KeyValue>
-          <KeyValue label="Reason">
-            <span className="text-text-2">{link.reason}</span>
-          </KeyValue>
-          {link.accession_number ? (
-            <KeyValue label="Accession">
-              <span className="type-id">{link.accession_number}</span>
-            </KeyValue>
-          ) : null}
-          {link.form ? <KeyValue label="Form">{link.form}</KeyValue> : null}
-          {link.company_cik ? (
-            <KeyValue label="Registrant (CIK)">
-              <span className="type-id">{link.company_cik}</span>
-            </KeyValue>
-          ) : null}
-          <KeyValue label="Period verification">
-            <span className="type-id">{link.period_verification}</span>
-            {verification ? <div className="type-meta mt-0.5">{verification}</div> : null}
-          </KeyValue>
-          <KeyValue label="Disclosure evidence">
-            <span>{DISCLOSURE_WORDING[disclosure.level].label}</span>
-            <div className="type-meta mt-0.5">{DISCLOSURE_WORDING[disclosure.level].sentence}</div>
-            {disclosure.items !== null ? (
-              <div className="type-meta">
-                Stored 8-K items: <span className="type-id">{disclosure.items === "" ? "(none stated)" : disclosure.items}</span>
-              </div>
-            ) : null}
-            <div className="type-meta">{DISCLOSURE_CAVEAT}</div>
-          </KeyValue>
-        </KeyValueList>
-        <RefusalReference scopes={["FILING_LINK"]} refusals={refusals} />
-      </Frame>
+      <FilingLinkFrame link={link} disclosure={disclosure} refusals={refusals} />
 
       {accounting.state === "NOT_REQUESTED" ? (
         <RefusalNotice
