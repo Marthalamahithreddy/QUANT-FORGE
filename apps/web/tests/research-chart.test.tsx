@@ -97,14 +97,14 @@ describe("what is drawn and what is not", () => {
   });
 
   it("a horizon that could not be computed has NO mark: an empty slot names its state instead", () => {
-    const s = study("default_no_benchmark"); // +1 available, +5 and +20 beyond the stored sessions
+    const s = study("default_no_benchmark"); // +1 available, +5 and +20 beyond the calendar's proven horizon
     const { container } = chart(s);
     expect(plot(container).querySelectorAll("circle.fill-chart-stock")).toHaveLength(1);
     const groups = screen.getAllByRole("group");
     expect(groups).toHaveLength(3);
-    expect(groups[1]).toHaveAccessibleName("+5 sessions: stock return too few stored sessions");
+    expect(groups[1]).toHaveAccessibleName("+5 sessions: stock return beyond the calendar's proven horizon");
     expect(groups[1]!.querySelector("circle.fill-chart-stock")).toBeNull(); // (the state glyph is a hollow ring, not a data mark)
-    expect(groups[1]!.textContent).toContain("Too few stored sessions");
+    expect(groups[1]!.textContent).toContain("Beyond the calendar's proven horizon");
     expect(groups[1]!.querySelector("svg[data-glyph]")).not.toBeNull(); // the state's glyph, not a zero
     expect(groups[1]!.textContent).not.toMatch(/0\.00%|\+0%/);
   });

@@ -641,7 +641,7 @@ def test_each_refusal_scope_is_reported_from_the_originating_status(
     )  # 10 sessions are not stored
     codes = {(r.scope, r.code, r.horizon) for r in observation.refusals}
     assert (RefusalScope.EVENT, "MISSING_ESTIMATED_EPS", None) in codes
-    assert (RefusalScope.MARKET, "INSUFFICIENT_FORWARD_SESSIONS", 10) in codes
+    assert (RefusalScope.MARKET, "MISSING_TARGET_PRICE", 10) in codes
     assert observation.descriptive.state is SectionState.UNAVAILABLE
 
     ghost = Company(legal_name="No Listing Co", display_name="No Listing Co")
@@ -679,8 +679,8 @@ def test_pit_study_horizon_refusals_and_a_zero_comparative_percentage_are_report
 
     codes = {(r.scope, r.code) for r in observation.refusals}
     assert observation.point_in_time.state is PointInTimeState.EVIDENCE_ELIGIBLE
-    assert (RefusalScope.POINT_IN_TIME, "INSUFFICIENT_FORWARD_SESSIONS") in codes
-    assert (RefusalScope.MARKET, "INSUFFICIENT_FORWARD_SESSIONS") in codes
+    assert (RefusalScope.POINT_IN_TIME, "MISSING_TARGET_PRICE") in codes
+    assert (RefusalScope.MARKET, "MISSING_TARGET_PRICE") in codes
     assert (RefusalScope.ACCOUNTING, "ZERO_COMPARATIVE") in codes
     assert observation.accounting.change is not None
     assert observation.accounting.change.eps_change == Decimal("1.5300")

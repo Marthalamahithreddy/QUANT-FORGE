@@ -119,10 +119,10 @@ describe("no benchmark (the default study)", () => {
     expect(descriptive()).toHaveTextContent("No benchmark selected: stock returns only.");
   });
 
-  it("states the stock-only partial study honestly when horizons exceed the stored sessions", async () => {
+  it("states the stock-only partial study honestly when horizons exceed the calendar's proven horizon", async () => {
     await open("default_no_benchmark");
     const table = within(descriptive()).getByRole("table", { name: "Descriptive returns by horizon" });
-    expect(within(table).getAllByText(/Too few stored sessions/)).toHaveLength(2);
+    expect(within(table).getAllByText(/Beyond the calendar's proven horizon/)).toHaveLength(2);
     expect(within(descriptive()).getByText("Partial")).toBeInTheDocument();
     expect(descriptive().querySelector('[data-state="MISSING"]')).not.toBeNull();
   });

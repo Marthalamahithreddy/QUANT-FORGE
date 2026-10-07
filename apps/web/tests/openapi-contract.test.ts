@@ -301,7 +301,8 @@ describe("request parity: parameters, bounds and requirements", () => {
   });
 
   it("documents the status codes the unified result maps (404, 422, 503)", () => {
-    expect(Object.keys(snapshot.paths["/api/v1/earnings-events/{event_id}"]!.get.responses).sort()).toEqual(["200", "404", "422"]);
+    expect(Object.keys(snapshot.paths["/api/v1/earnings-events/{event_id}"]!.get.responses).sort()).toEqual(["200", "404", "422", "503"]);
+    expect(Object.keys(snapshot.paths["/api/v1/earnings-events"]!.get.responses).sort()).toEqual(["200", "422", "503"]);
     expect(Object.keys(snapshot.paths["/api/v1/filings"]!.get.responses).sort()).toEqual(["200", "422", "503"]);
     expect(Object.keys(snapshot.paths["/api/v1/health/ready"]!.get.responses).sort()).toEqual(["200", "503"]);
   });

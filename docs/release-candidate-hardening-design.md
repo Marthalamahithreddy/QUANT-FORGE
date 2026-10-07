@@ -431,3 +431,44 @@ golden (0.3500 / 0.5400 / -0.1900 / -0.3518 / POSITIVE_DECREASED, identical with
   only after the session has completed and the provider has published it. Not run in 12A; no provider request was made. If either
   disagrees with the tested calendar semantics, treat it as new evidence and reopen the affected component; otherwise record it as
   additional golden evidence.
+
+## 15. Step 12B result (semantic and API consistency; appended, sections 0-14 are the unchanged 12A audit)
+
+12A was committed as `551ec6c`. 12B implements five bounded changes on top of it. No migration (head stays `0014`), no ingestion,
+readiness or configuration change, and no provider request (Massive 0, Finnhub 0, SEC 0; the validation ceiling was set to 0).
+
+| change | result |
+|---|---|
+| Missing-target status (finding 1) | `ForwardReturnStatus.MISSING_TARGET_PRICE`: the calendar proves the N-th session, no price is stored for it; the proven `target_session` is reported with no close and is never moved. `INSUFFICIENT_FORWARD_SESSIONS` now means only that the calendar cannot prove the N-th session (`target_session` is `None`). The two statuses are told apart by a structural invariant that a test asserts. No wall-clock branch, no "future" status. |
+| Methodology | `forward_returns` `close-to-close-proven-session-returns/1` -> `/2` (one place, pinned by `test_methodology_table_is_pinned_so_a_semantic_edit_is_deliberate`). |
+| Earnings API (finding 2) | Repeated scalar parameters are 422 on the list and the detail; the detail rejects every query parameter (422, existing `NoQuery`); both operations document the generic 503 (body unchanged). |
+| Listing label | "Valid from" -> "First observed" plus one note that it does not date the listing, ticker or exchange relationship. Wording only. |
+| Sidebar | `NavLink` renders through `AppLink`; only `app-link.tsx` imports `next/link` (structure test). |
+| Favicon | `src/app/icon.svg` (Next file convention, no package). |
+
+**Downstream.** Every consumer already branched on `is AVAILABLE` (abnormal, benchmark leg, signals, manifest bar pinning, observation
+refusals, event study), so a missing stock target price produces no return, abnormal return, signal or bar pin, and the refusal code
+(`status.value`) carries the new status into the MARKET and POINT_IN_TIME scopes with no new taxonomy. The benchmark leg's own
+`MISSING_TARGET_PRICE` is untouched.
+
+**Golden regression (validation DB, offline).** The saved record `e880eaf9-...` now verifies `MANIFEST_CHANGED` with the single changed path
+`methodology.components[7][1]` (forward_returns); its row digest is unchanged and the table forbids UPDATE/DELETE. The reassembled
+observation is arithmetically identical to the frozen golden (anchor 2026-10-02; stock +1 0.0026572, +2 0.0218482; abnormal +1
+-0.0040862, +2 0.0095698; PIT `INELIGIBLE_NO_AVAILABILITY_EVIDENCE`); `+5` is now `MISSING_TARGET_PRICE` with the proven target 2026-10-09.
+One new record `ed7a3a9b-c467-4e10-b537-0504b722ece3` was saved through the production save path and verifies `MATCH`; both records
+coexist. The accounting golden is unchanged (0.3500 / 0.5400 / -0.1900 / ratio -0.3518 displayed / `POSITIVE_DECREASED`, `accepted_at` set).
+
+**Gates.** Backend 3434 passed (2423 unit + 1011 integration), 95.54 % coverage; ruff, format, mypy clean; `alembic check` clean at `0014`.
+Frontend 1410 unit tests, lint, typecheck, production build and `contract:check` green; fixture E2E 205 passed (frozen request budgets
+unchanged: 5 / 2 / 3 / 2 / 2 / 4 / 2 / 3), plus an added sidebar hover/focus test (no request) and a favicon test.
+
+**Fixtures.** The six `INSUFFICIENT_FORWARD_SESSIONS` entries in `tests/contract/{observation,records}.json` all have `target_session: null`
+(the calendar-short shape) and are correctly unchanged; the new status is covered by decoder tests that mutate a captured record.
+Observation: those captures predate 11.2E (their reason text is the old "fewer than N available trading sessions" wording); a recapture is
+a P3 follow-up outside 12B.
+
+**Review.** One high-effort review: no P0/P1/P2. Two stale test names/comments fixed. Out of scope, recorded: `docs/frontend-v2-design.md`
+(lines ~1780, 1818) still lists the old enum and wording (frozen design document); "First observed" now sits beside "Valid to" (the
+note covers it; `valid_to` is a separate concept).
+
+Next planned slice remains 12C (ingestion provenance hardening: findings 4-8).

@@ -12,12 +12,20 @@ and the full wiring in ``tests/integration/test_research_event_returns.py``.
 
 from __future__ import annotations
 
+import inspect
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
 
+from quantforge.research import returns
+from quantforge.research.abnormal_returns import AbnormalReturnStatus, compute_abnormal_return
+from quantforge.research.benchmark_returns import (
+    BenchmarkReturn,
+    BenchmarkReturnStatus,
+    compute_benchmark_return_for_stock_return,
+)
 from quantforge.research.returns import (
     ForwardReturn,
     ForwardReturnStatus,
@@ -168,7 +176,7 @@ def test_a_missing_bar_on_a_real_session_is_not_a_closed_day() -> None:
     )
     assert by_horizon[1].status is ForwardReturnStatus.AVAILABLE
     assert by_horizon[1].target_session == date(2026, 2, 3)
-    assert by_horizon[2].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    assert by_horizon[2].status is ForwardReturnStatus.MISSING_TARGET_PRICE
     assert by_horizon[2].target_session == date(2026, 2, 4)  # the PROVEN date, never moved
     assert by_horizon[2].target_close is None
     assert by_horizon[2].return_value is None
@@ -392,7 +400,7 @@ def test_missing_interior_session_never_shifts_the_target() -> None:
         horizons=[1, 2, 3, 4, 5],
         forward_sessions=_PROVEN,
     )
-    assert by_horizon[3].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    assert by_horizon[3].status is ForwardReturnStatus.MISSING_TARGET_PRICE
     assert by_horizon[3].target_session == date(2026, 10, 6)  # the proven 3rd session, not 10-07
     assert by_horizon[4].target_session == date(2026, 10, 7)
     assert by_horizon[4].status is ForwardReturnStatus.AVAILABLE
@@ -404,7 +412,7 @@ def test_missing_target_is_unavailable_and_later_bars_are_not_substituted() -> N
     by_horizon = _returns_by_horizon(
         anchor_session=_ANCHOR, price_series=stored, horizons=[2], forward_sessions=_PROVEN
     )
-    assert by_horizon[2].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    assert by_horizon[2].status is ForwardReturnStatus.MISSING_TARGET_PRICE
     assert by_horizon[2].target_session == date(2026, 10, 5)
     assert by_horizon[2].return_value is None
 
@@ -431,7 +439,7 @@ def test_plus_one_missing_but_later_bars_present() -> None:
     by_horizon = _returns_by_horizon(
         anchor_session=_ANCHOR, price_series=stored, horizons=[1, 2], forward_sessions=_PROVEN
     )
-    assert by_horizon[1].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    assert by_horizon[1].status is ForwardReturnStatus.MISSING_TARGET_PRICE
     assert by_horizon[1].target_session == date(2026, 10, 2)
     assert by_horizon[2].status is ForwardReturnStatus.AVAILABLE
     assert by_horizon[2].target_session == date(2026, 10, 5)
@@ -443,7 +451,7 @@ def test_horizon_independence_plus_one_valid_plus_five_missing_plus_twenty_unpro
         anchor_session=_ANCHOR, price_series=stored, horizons=[1, 5, 20], forward_sessions=_PROVEN
     )
     assert by_horizon[1].status is ForwardReturnStatus.AVAILABLE
-    assert by_horizon[5].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    assert by_horizon[5].status is ForwardReturnStatus.MISSING_TARGET_PRICE
     assert by_horizon[5].target_session == date(2026, 10, 8)
     assert by_horizon[20].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
     assert by_horizon[20].target_session is None  # the calendar proved only 5 sessions
@@ -486,3 +494,89 @@ def test_the_price_series_never_supplies_sessions() -> None:
         anchor_session=_ANCHOR, price_series=stored, horizons=[1], forward_sessions=_PROVEN
     )
     assert by_horizon[1].target_session == _PROVEN[0]
+
+
+# ── Step 12B: a PROVEN target without a stored price is its own status ───────
+
+
+def test_proven_target_without_price_is_missing_target_price_not_insufficient() -> None:
+    """The calendar proves the 2nd session; no price is stored for it."""
+    stored = _prices([_ANCHOR, _PROVEN[0]])
+    result = _returns_by_horizon(
+        anchor_session=_ANCHOR, price_series=stored, horizons=[2], forward_sessions=_PROVEN
+    )[2]
+    assert result.status is ForwardReturnStatus.MISSING_TARGET_PRICE
+    assert result.target_session == _PROVEN[1]  # exactly the proven session, never moved
+    assert result.target_close is None
+    assert result.anchor_close == Decimal(100)
+    assert result.return_value is None
+    assert "no price observation is stored" in result.reason
+
+
+def test_insufficient_forward_sessions_means_only_that_the_calendar_cannot_prove_the_target() -> (
+    None
+):
+    stored = _prices([_ANCHOR, _PROVEN[0], _PROVEN[4]])
+    by_horizon = _returns_by_horizon(
+        anchor_session=_ANCHOR, price_series=stored, horizons=[2, 6], forward_sessions=_PROVEN
+    )
+    unpriced, beyond = by_horizon[2], by_horizon[6]
+    assert unpriced.status is ForwardReturnStatus.MISSING_TARGET_PRICE
+    assert beyond.status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    assert beyond.target_session is None  # the target could not even be identified
+    assert beyond.target_close is None
+    assert "calendar proves fewer than 6" in beyond.reason
+    # structural invariant: INSUFFICIENT never names a target; MISSING_TARGET_PRICE always does
+    for result in by_horizon.values():
+        assert (result.status is ForwardReturnStatus.MISSING_TARGET_PRICE) == (
+            result.target_session is not None and result.target_close is None
+        )
+
+
+def test_missing_anchor_price_is_unchanged_and_wins_over_target_status() -> None:
+    stored = _prices([_PROVEN[0]])  # no anchor bar, and no target bars either
+    by_horizon = _returns_by_horizon(
+        anchor_session=_ANCHOR, price_series=stored, horizons=[1, 2], forward_sessions=_PROVEN
+    )
+    assert {r.status for r in by_horizon.values()} == {ForwardReturnStatus.MISSING_ANCHOR_PRICE}
+
+
+@pytest.mark.parametrize("year", [2001, 2099])
+def test_missing_target_status_does_not_depend_on_the_wall_clock(year: int) -> None:
+    """A far-future and a long-past proven-but-unpriced target are the same stored-evidence state."""
+    anchor = date(year, 10, 1)
+    sessions = [date(year, 10, 2), date(year, 10, 5)]
+    result = _returns_by_horizon(
+        anchor_session=anchor,
+        price_series=[(anchor, Decimal(100)), (sessions[0], Decimal(101))],
+        horizons=[2],
+        forward_sessions=sessions,
+    )[2]
+    assert result.status is ForwardReturnStatus.MISSING_TARGET_PRICE
+    assert result.target_session == sessions[1]
+
+
+def test_return_semantics_never_read_the_wall_clock() -> None:
+    source = inspect.getsource(returns)
+    for forbidden in ("datetime.now", "date.today", ".today(", "utcnow", "time.time"):
+        assert forbidden not in source
+
+
+def test_missing_target_price_feeds_no_arithmetic_downstream() -> None:
+    """Abnormal return and the benchmark leg refuse; nothing is computed from absent evidence."""
+    stored = _prices([_ANCHOR, _PROVEN[0]])
+    stock = _returns_by_horizon(
+        anchor_session=_ANCHOR, price_series=stored, horizons=[2], forward_sessions=_PROVEN
+    )[2]
+    assert stock.status is ForwardReturnStatus.MISSING_TARGET_PRICE
+    benchmark = compute_benchmark_return_for_stock_return(
+        benchmark_id=uuid.uuid4(),
+        stock_return=stock,
+        prices={_ANCHOR: Decimal(200), _PROVEN[1]: Decimal(210)},  # benchmark HAS the bars
+    )
+    assert isinstance(benchmark, BenchmarkReturn)
+    assert benchmark.status is BenchmarkReturnStatus.NO_STOCK_RETURN
+    assert benchmark.benchmark_return is None
+    abnormal = compute_abnormal_return(stock_return=stock, benchmark_return=benchmark)
+    assert abnormal.status is AbnormalReturnStatus.STOCK_RETURN_UNAVAILABLE
+    assert abnormal.abnormal_return is None

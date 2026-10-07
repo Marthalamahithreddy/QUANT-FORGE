@@ -24,6 +24,22 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+describe("Step 12B: saved records and the proven-target-without-price status", () => {
+  const stockReturns = (stored: Json): Json[] => stored.result.descriptive.study.stock_returns.forward_returns;
+
+  it("decodes a stored result whose horizon has a proven target session and no stored price", () => {
+    const stored = ok("complete_plain");
+    Object.assign(stockReturns(stored)[1]!, { status: "MISSING_TARGET_PRICE", target_session: "2026-03-09", target_close: null, return_value: null });
+    expect(() => detail(stored)).not.toThrow();
+  });
+
+  it("still fails loudly on a status the contract does not know", () => {
+    const stored = ok("complete_plain");
+    stockReturns(stored)[1]!.status = "TARGET_NOT_YET_OBSERVABLE";
+    expect(() => detail(stored)).toThrow();
+  });
+});
+
 describe("pinned backend records", () => {
   const detailCases = RECORDS.records.filter((entry) => entry.detail.status === 200);
   const verifyCases = RECORDS.records.filter((entry) => entry.verify?.status === 200);

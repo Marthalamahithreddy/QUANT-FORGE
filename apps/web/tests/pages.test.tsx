@@ -335,6 +335,17 @@ describe("Earnings detail page", () => {
     expect(screen.getByRole("status")).toHaveTextContent("No listings are stored for this company");
   });
 
+  it("labels the listing start date as first observed, never as when the listing became valid", async () => {
+    route({ earnings: jsonResponse(makeEvent()) });
+    await renderServer(await EarningsDetailPage(detailProps()));
+    const table = screen.getByRole("table", { name: "Listings of this company" });
+    expect(within(table).getByRole("columnheader", { name: "First observed" })).toBeInTheDocument();
+    expect(within(table).queryByRole("columnheader", { name: "Valid from" })).toBeNull();
+    expect(screen.getByText(/first observed this listing evidence/)).toHaveTextContent(
+      /does not say when the listing, the ticker or the exchange relationship began/,
+    );
+  });
+
   it("exposes breadcrumbs and one h1 with sections as h2", async () => {
     route({ earnings: jsonResponse(makeEvent()) });
     await renderServer(await EarningsDetailPage(detailProps()));

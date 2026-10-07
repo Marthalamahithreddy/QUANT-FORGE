@@ -201,9 +201,10 @@ describe("the shell lives in the layout, once", () => {
 });
 
 describe("navigation never makes the API read on its own", () => {
-  it("only the primary navigation uses next/link directly; every other link is an AppLink that does not prefetch", () => {
+  it("only AppLink imports next/link; every link, the primary navigation included, does not prefetch", () => {
     const importers = files.filter((f) => /from "next\/link"/.test(read(f))).map(rel).sort();
-    expect(importers).toEqual(["components/layout/nav-link.tsx", "components/ui/app-link.tsx"]);
+    expect(importers).toEqual(["components/ui/app-link.tsx"]);
+    expect(code(read(join(SRC, "components/layout/nav-link.tsx")))).toMatch(/<AppLink\b/);
     // No hand-written internal anchor either: a plain <a href="/..."> would bypass the policy.
     for (const file of files) expect(code(read(file)), rel(file)).not.toMatch(/<a\s[^>]*href=\{?["'`]\//);
     expect(code(read(join(SRC, "components/ui/app-link.tsx")))).toMatch(/<Link \{\.\.\.props\} prefetch=\{false\} \/>/);

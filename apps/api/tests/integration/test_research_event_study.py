@@ -530,7 +530,7 @@ def test_partial_horizon_availability(
     assert by_horizon_abn[1].status is AbnormalReturnStatus.AVAILABLE
 
     for horizon in (5, 20):
-        assert by_horizon_stock[horizon].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+        assert by_horizon_stock[horizon].status is ForwardReturnStatus.MISSING_TARGET_PRICE
         assert by_horizon_bench[horizon].status is BenchmarkReturnStatus.NO_STOCK_RETURN
         assert by_horizon_abn[horizon].status is AbnormalReturnStatus.STOCK_RETURN_UNAVAILABLE
 
@@ -797,7 +797,7 @@ def test_a_session_present_only_as_traded_is_not_a_research_session(
     )
 
     assert result.stock_returns.forward_returns[0].status is (
-        ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+        ForwardReturnStatus.MISSING_TARGET_PRICE
     )
 
 

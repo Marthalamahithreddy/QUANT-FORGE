@@ -30,12 +30,17 @@ from datetime import date, datetime
 from typing import Annotated
 
 import sqlalchemy as sa
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import InterfaceError, OperationalError
 from sqlalchemy.orm import Session
 
-from quantforge.api.v1.dependencies import SessionDep, database_unavailable
+from quantforge.api.v1.dependencies import (
+    DATABASE_UNAVAILABLE,
+    SessionDep,
+    database_unavailable,
+    reject_repeated_query_params,
+)
 from quantforge.identity.listing_history import SecurityHistory
 from quantforge.identity.resolver import HistoricalListingResolver
 from quantforge.models.earnings import EarningsEvent
@@ -48,6 +53,7 @@ from quantforge.research.availability import (
 )
 from quantforge.research.eps_surprise import EpsSurpriseStatus, compute_eps_surprise
 from quantforge.schemas.common import DecimalText
+from quantforge.schemas.research_record import NoQuery
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +287,8 @@ def _unavailable(exc: OperationalError | InterfaceError) -> HTTPException:
 @router.get(
     "",
     response_model=EarningsEventPage,
+    responses=DATABASE_UNAVAILABLE,
+    dependencies=[Depends(reject_repeated_query_params)],
     summary="List earnings events",
     description=(
         "Newest event date first. EPS and revenue are decimal strings. "
@@ -348,9 +356,15 @@ def list_earnings_events(
     "/{event_id}",
     response_model=EarningsEventItem,
     summary="Get one earnings event",
-    responses={status.HTTP_404_NOT_FOUND: {"description": "No such event."}},
+    responses={
+        **DATABASE_UNAVAILABLE,
+        status.HTTP_404_NOT_FOUND: {"description": "No such event."},
+    },
+    dependencies=[Depends(reject_repeated_query_params)],
 )
-def get_earnings_event(event_id: uuid.UUID, session: SessionDep) -> EarningsEventItem:
+def get_earnings_event(
+    event_id: uuid.UUID, session: SessionDep, _params: Annotated[NoQuery, Query()]
+) -> EarningsEventItem:
     try:
         event = session.get(EarningsEvent, event_id)
         if event is None:

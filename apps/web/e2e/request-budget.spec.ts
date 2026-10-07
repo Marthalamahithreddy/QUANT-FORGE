@@ -93,3 +93,19 @@ test("a stored baseline is never verified by merely being on screen", async ({ p
   await untilQuiet(fixture);
   expect(await fixture.served("/verify")).toHaveLength(0);
 });
+
+test("the sidebar never reads the API: hovering and focusing every navigation link adds no request", async ({ page, fixture }) => {
+  await page.goto("/earnings");
+  await settled(page);
+  await untilQuiet(fixture);
+  const before = (await fixture.log()).length;
+  const links = page.getByRole("navigation").getByRole("link");
+  const count = await links.count();
+  expect(count).toBeGreaterThan(3);
+  for (let index = 0; index < count; index += 1) {
+    await links.nth(index).hover();
+    await links.nth(index).focus();
+  }
+  await untilQuiet(fixture);
+  expect((await fixture.log()).length, "navigation links started API reads").toBe(before);
+});

@@ -238,7 +238,7 @@ def test_missing_interior_session_does_not_shift_later_targets(
     _bars(db_session, listing, source, [d for d in _SESSIONS if d != _P2])
     by_h = _by_h(_study(db_session, _event(db_session, company, source)))
     assert by_h[1].status is ForwardReturnStatus.AVAILABLE
-    assert by_h[2].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    assert by_h[2].status is ForwardReturnStatus.MISSING_TARGET_PRICE
     assert by_h[2].target_session == _P2
     assert by_h[2].return_value is None
     assert by_h[3].target_session == _P3
@@ -251,7 +251,7 @@ def test_missing_target_is_unavailable_and_not_replaced_by_a_later_bar(
 ) -> None:
     _bars(db_session, listing, source, [d for d in _SESSIONS if d != _P5])  # 03-13 present
     by_h = _by_h(_study(db_session, _event(db_session, company, source)))
-    assert by_h[5].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    assert by_h[5].status is ForwardReturnStatus.MISSING_TARGET_PRICE
     assert by_h[5].target_session == _P5
     assert by_h[5].target_close is None
 
@@ -261,9 +261,9 @@ def test_plus_one_missing_but_later_bars_present_and_horizon_independence(
 ) -> None:
     _bars(db_session, listing, source, [d for d in _SESSIONS if d != _P1])
     by_h = _by_h(_study(db_session, _event(db_session, company, source), horizons=(1, 2, 20)))
-    assert by_h[1].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    assert by_h[1].status is ForwardReturnStatus.MISSING_TARGET_PRICE
     assert by_h[2].status is ForwardReturnStatus.AVAILABLE
-    assert by_h[20].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    assert by_h[20].status is ForwardReturnStatus.MISSING_TARGET_PRICE
     assert by_h[20].target_session == date(
         2026, 4, 2
     )  # the 20th real session (Good Friday skipped)

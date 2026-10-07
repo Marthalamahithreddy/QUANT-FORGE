@@ -32,7 +32,7 @@ const LISTING_COLUMNS: readonly DataTableColumn<ListingRef>[] = [
       </>
     ),
   },
-  { id: "from", header: "Valid from", cell: (listing) => <span className="num">{formatDate(listing.valid_from)}</span> },
+  { id: "from", header: "First observed", cell: (listing) => <span className="num">{formatDate(listing.valid_from)}</span> },
   {
     id: "to",
     header: "Valid to",
@@ -200,6 +200,10 @@ export function EventDetail({ event }: { readonly event: EarningsEvent }) {
         rowKey={(listing) => `${listing.mic}-${listing.ticker}-${listing.valid_from}`}
         empty={<EmptyState title="No listings are stored for this company" />}
       />
+      <p className="type-meta">
+        First observed is the date QuantForge first observed this listing evidence. It does not say
+        when the listing, the ticker or the exchange relationship began.
+      </p>
 
       <Frame title="Provenance">
         <KeyValueList>

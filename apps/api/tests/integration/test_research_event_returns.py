@@ -275,10 +275,10 @@ def test_point_in_time_ineligible_observation_produces_no_fabricated_return(
         assert forward_return.status is ForwardReturnStatus.NO_ALIGNMENT
 
 
-# ── insufficient history end-to-end ─────────────────────────────────────────
+# ── proven sessions without stored prices, end-to-end ───────────────────────
 
 
-def test_insufficient_forward_history_end_to_end(
+def test_proven_forward_sessions_without_stored_prices_end_to_end(
     company: Company, source: DataSource, listing: Listing, db_session: Session
 ) -> None:
     sessions = _weekday_sessions(date(2026, 3, 2), 4)  # anchor + only 2 forward sessions
@@ -292,8 +292,8 @@ def test_insufficient_forward_history_end_to_end(
 
     by_horizon = {fr.horizon: fr for fr in result.forward_returns}
     assert by_horizon[1].status is ForwardReturnStatus.AVAILABLE
-    assert by_horizon[5].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
-    assert by_horizon[20].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    assert by_horizon[5].status is ForwardReturnStatus.MISSING_TARGET_PRICE
+    assert by_horizon[20].status is ForwardReturnStatus.MISSING_TARGET_PRICE
 
 
 # ── missing anchor price ─────────────────────────────────────────────────────
@@ -410,8 +410,8 @@ def test_a_ticker_change_mid_horizon_does_not_silently_cross_listings(
     deliberately stored under a *new* ``Listing`` row (the real-world shape
     of a ticker change), never under the old ``listing_id``. The old
     listing's own price series therefore legitimately runs out early, and the
-    horizons that would need those later sessions must report
-    ``INSUFFICIENT_FORWARD_SESSIONS`` -- not silently succeed using the new
+    horizons that would need those later sessions are proven by the calendar
+    but unpriced under the old listing, so they report ``MISSING_TARGET_PRICE`` -- not silently succeed using the new
     listing's bars.
     """
     sessions = _weekday_sessions(date(2026, 3, 2), 10)
@@ -463,8 +463,8 @@ def test_a_ticker_change_mid_horizon_does_not_silently_cross_listings(
     assert by_horizon[1].status is ForwardReturnStatus.AVAILABLE
     assert by_horizon[1].target_close == Decimal("11.00")
     # ...but a horizon that would require crossing into the new listing's
-    # bars is reported as insufficient, never satisfied from the new listing.
-    assert by_horizon[5].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    # bars is reported as a missing target price, never satisfied from the new listing.
+    assert by_horizon[5].status is ForwardReturnStatus.MISSING_TARGET_PRICE
     for forward_return in result.forward_returns:
         if forward_return.target_close is not None:
             assert forward_return.target_close < Decimal("999.00")

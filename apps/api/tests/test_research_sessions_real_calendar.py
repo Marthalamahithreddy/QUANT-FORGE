@@ -112,7 +112,7 @@ def test_holiday_versus_missing_bar_is_the_distinction_the_old_model_could_not_m
         )
     }
     assert gap[1].status is ForwardReturnStatus.AVAILABLE
-    assert gap[2].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    assert gap[2].status is ForwardReturnStatus.MISSING_TARGET_PRICE
     assert gap[2].target_session == _MON_AFTER
     assert gap[3].status is ForwardReturnStatus.AVAILABLE
     assert gap[3].target_session == date(2025, 12, 2)
@@ -202,3 +202,27 @@ def test_the_shared_default_calendar_refuses_a_different_library_release(
 
 def test_the_default_calendar_is_shared_within_a_day() -> None:
     assert default_session_calendar() is default_session_calendar()
+
+
+def test_a_horizon_beyond_the_real_calendar_is_insufficient_not_a_missing_price() -> None:
+    """Step 12B control: when the calendar cannot prove the N-th session there is no target at all.
+
+    The anchor is far outside any calendar range, so no forward session can be proven; the
+    status stays INSUFFICIENT_FORWARD_SESSIONS and names no target. A proven session with no
+    stored price is the distinct MISSING_TARGET_PRICE (covered in test_research_returns).
+    """
+    anchor = date(2099, 6, 1)
+    proven = proven_sessions_after(calendar=_CAL, mic="XNYS", anchor_session=anchor, count=2)
+    assert proven.complete is False
+    results = compute_forward_returns(
+        anchor_session=anchor,
+        price_series=[(anchor, Decimal("100"))],
+        horizons=[1, 2],
+        forward_sessions=proven.sessions,
+        forward_sessions_reason=proven.reason,
+    )
+    for result in results:
+        assert result.status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+        assert result.target_session is None
+        assert result.target_close is None
+        assert "OUT_OF_CALENDAR_RANGE" in result.reason

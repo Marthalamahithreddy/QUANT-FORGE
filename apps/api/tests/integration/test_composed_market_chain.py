@@ -288,7 +288,7 @@ def test_listing_resolves_from_the_dated_fact_and_the_calendar_anchors_the_event
     assert by_h[2].status is ForwardReturnStatus.AVAILABLE and by_h[2].target_session == date(
         2026, 10, 6
     )
-    assert by_h[5].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    assert by_h[5].status is ForwardReturnStatus.MISSING_TARGET_PRICE
     assert by_h[5].target_session == date(2026, 10, 9)  # proven by the calendar, never moved
     # the benchmark uses the stock's own dates
     for stock, bench in zip(
@@ -354,7 +354,7 @@ def test_a_missing_required_stock_session_makes_the_horizon_unavailable_through_
         db_session, event.id, horizons=(1, 2), benchmark_id=chain["benchmark"].id
     )
     by_h = {r.horizon: r for r in observation.descriptive.study.stock_returns.forward_returns}
-    assert by_h[1].status is ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS
+    assert by_h[1].status is ForwardReturnStatus.MISSING_TARGET_PRICE
     assert by_h[1].target_session == date(2026, 10, 5)
     assert by_h[2].status is ForwardReturnStatus.AVAILABLE
     assert by_h[2].target_session == date(2026, 10, 6)  # not shifted, not borrowed

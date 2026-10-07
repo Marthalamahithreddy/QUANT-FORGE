@@ -847,7 +847,7 @@ export interface components {
          * @description Why a forward return could, or honestly could not, be computed.
          * @enum {string}
          */
-        ForwardReturnStatus: "AVAILABLE" | "NO_ALIGNMENT" | "MISSING_ANCHOR_PRICE" | "INSUFFICIENT_FORWARD_SESSIONS" | "INVALID_PRICE" | "AMBIGUOUS_PRICE_SOURCE";
+        ForwardReturnStatus: "AVAILABLE" | "NO_ALIGNMENT" | "MISSING_ANCHOR_PRICE" | "INSUFFICIENT_FORWARD_SESSIONS" | "MISSING_TARGET_PRICE" | "INVALID_PRICE" | "AMBIGUOUS_PRICE_SOURCE";
         /**
          * HealthResponse
          * @description Liveness payload for the API process itself.
@@ -1491,6 +1491,13 @@ export interface operations {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
+            /** @description The database is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     get_earnings_event_api_v1_earnings_events__event_id__get: {
@@ -1528,6 +1535,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+            /** @description The database is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

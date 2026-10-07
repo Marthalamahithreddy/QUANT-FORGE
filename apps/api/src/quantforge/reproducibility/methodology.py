@@ -44,7 +44,7 @@ COMPONENT_VERSIONS: Final[dict[str, str]] = {
     "event_study": "event-study/1",
     "session_alignment": "exchange-calendar-sessions/1",
     "price_series": "coherent-single-source-series/1",
-    "forward_returns": "close-to-close-proven-session-returns/1",
+    "forward_returns": "close-to-close-proven-session-returns/2",
     "benchmark_returns": "matched-endpoint-benchmark/1",
     "abnormal_returns": "market-adjusted-simple/1",
     "listing_resolution": "listing-resolution/1",

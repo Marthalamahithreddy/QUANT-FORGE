@@ -1587,6 +1587,7 @@
           "NO_ALIGNMENT",
           "MISSING_ANCHOR_PRICE",
           "INSUFFICIENT_FORWARD_SESSIONS",
+          "MISSING_TARGET_PRICE",
           "INVALID_PRICE",
           "AMBIGUOUS_PRICE_SOURCE"
         ],
@@ -3086,6 +3087,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "The database is unavailable."
           }
         },
         "summary": "List earnings events",
@@ -3132,6 +3136,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "The database is unavailable."
           }
         },
         "summary": "Get one earnings event",

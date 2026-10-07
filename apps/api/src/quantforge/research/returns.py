@@ -92,13 +92,20 @@ class ForwardReturnStatus(StrEnum):
     #: no ``P0`` to divide by.
     MISSING_ANCHOR_PRICE = "MISSING_ANCHOR_PRICE"
 
-    #: The horizon's target cannot be priced: either the exchange calendar
-    #: proves fewer than ``horizon`` sessions after the anchor (calendar range
-    #: or venue limit), or the PROVEN target session has no stored price
-    #: observation (not ingested yet, or genuinely absent). The target is
-    #: never moved to a later stored bar. When the target session is proven
-    #: its date is still reported, with no close; the ``reason`` says which.
+    #: The exchange calendar cannot prove ``horizon`` sessions after the anchor
+    #: (calendar range or venue limit), so the N-th target session cannot even
+    #: be identified. ``target_session`` is ``None``. This status says nothing
+    #: about stored prices; a proven target with no stored price is
+    #: :attr:`MISSING_TARGET_PRICE`.
     INSUFFICIENT_FORWARD_SESSIONS = "INSUFFICIENT_FORWARD_SESSIONS"
+
+    #: The N-th target session IS proven by the exchange calendar, but no price
+    #: observation is stored for it (not ingested yet, or genuinely absent --
+    #: the stored evidence cannot tell a future session from an un-ingested old
+    #: one, and this module never reads the clock). The exact proven session is
+    #: reported in ``target_session`` with no close; the target is never moved
+    #: to a later stored bar.
+    MISSING_TARGET_PRICE = "MISSING_TARGET_PRICE"
 
     #: The anchor close, or the resolved target close, is not a positive
     #: price (``<= 0``). Zero and negative prices are data corruption, not
@@ -319,7 +326,7 @@ def compute_forward_returns(
                     target_session=target_session,
                     target_close=None,
                     return_value=None,
-                    status=ForwardReturnStatus.INSUFFICIENT_FORWARD_SESSIONS,
+                    status=ForwardReturnStatus.MISSING_TARGET_PRICE,
                     reason=(
                         f"{target_session} is the {horizon}-th exchange session after the anchor "
                         f"{anchor_session}, but no price observation is stored for it; the "

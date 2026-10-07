@@ -6,6 +6,8 @@ import { ContractError } from "@/lib/api/decode";
 import { decodeBenchmarkPage, decodeObservation } from "@/lib/api/decoders/research";
 import { buildObservationPath, effectiveHorizons, getBenchmarks, getObservation } from "@/lib/api/research";
 import { failureCopy } from "@/lib/api/messages";
+import { FORWARD_RETURN_LABEL } from "@/lib/research-wording";
+import { FORWARD_RETURN_STATE } from "@/lib/state-map";
 import { CAPTURE, EMPTY_BENCHMARK_ID, BENCHMARK_ID, captured, clone } from "./research-fixtures";
 import { jsonResponse } from "./fixtures";
 
@@ -150,6 +152,40 @@ describe("exact decimals and enums", () => {
   });
 });
 
+describe("Step 12B: a proven target without a stored price", () => {
+  const withTargetStatus = (status: string) => {
+    const copy = base().response;
+    Object.assign(copy.descriptive.study.stock_returns.forward_returns[1], {
+      status,
+      target_session: "2026-03-09",
+      target_close: null,
+      return_value: null,
+    });
+    return copy;
+  };
+
+  it("decodes MISSING_TARGET_PRICE and keeps the proven target session with no close", () => {
+    const decoded = decodeOne(withTargetStatus("MISSING_TARGET_PRICE")) as unknown as Json;
+    const forward = decoded.descriptive.study.stock_returns.forward_returns[1];
+    expect(forward.status).toBe("MISSING_TARGET_PRICE");
+    expect(forward.target_session).toBe("2026-03-09");
+    expect(forward.target_close).toBeNull();
+    expect(forward.return_value).toBeNull();
+  });
+
+  it("still rejects a status the generated contract does not know (no permissive fallback)", () => {
+    expect(() => decodeOne(withTargetStatus("TARGET_NOT_YET_OBSERVABLE"))).toThrow(ContractError);
+  });
+
+  it("maps each status to its own plain wording and state", () => {
+    expect(FORWARD_RETURN_LABEL.MISSING_TARGET_PRICE).toBe("Price not stored for target session");
+    expect(FORWARD_RETURN_LABEL.INSUFFICIENT_FORWARD_SESSIONS).toBe("Beyond the calendar's proven horizon");
+    expect(FORWARD_RETURN_LABEL.INSUFFICIENT_FORWARD_SESSIONS).not.toMatch(/stor/i); // no price-storage claim
+    expect(FORWARD_RETURN_STATE.MISSING_TARGET_PRICE).toBe("MISSING");
+    for (const label of Object.values(FORWARD_RETURN_LABEL)) expect(label).not.toMatch(/future|pending|not yet/i);
+  });
+});
+
 describe("refusals: codes belong to their scope's vocabulary", () => {
   const withRefusal = (scope: string, code: string) => {
     const copy = base().response;
@@ -162,7 +198,8 @@ describe("refusals: codes belong to their scope's vocabulary", () => {
       ["EVENT", "MISSING_REPORTED_EPS"], ["MARKET", "INSUFFICIENT_FORWARD_SESSIONS"], ["MARKET", "UNKNOWN_TIMING"], ["MARKET", "AMBIGUOUS_LISTING"],
       ["BENCHMARK", "MISSING_ANCHOR_PRICE"], ["FILING_LINK", "CIK_MISMATCH_REFUSED"], ["ACCOUNTING", "COMPARATIVE_MISSING"],
       ["ACCOUNTING", "UNSUPPORTED_FORM_PERIOD"], ["ACCOUNTING", "ZERO_COMPARATIVE"], ["POINT_IN_TIME", "INELIGIBLE_NO_AVAILABILITY_EVIDENCE"],
-      ["POINT_IN_TIME", "MISSING_ANCHOR_PRICE"],
+      ["POINT_IN_TIME", "MISSING_ANCHOR_PRICE"], ["MARKET", "MISSING_TARGET_PRICE"], ["POINT_IN_TIME", "MISSING_TARGET_PRICE"],
+      ["BENCHMARK", "MISSING_TARGET_PRICE"],
     ] as const) {
       expect(() => decodeOne(withRefusal(scope, code)), `${scope}/${code}`).not.toThrow();
     }

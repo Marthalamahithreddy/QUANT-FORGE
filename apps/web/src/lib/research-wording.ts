@@ -43,7 +43,8 @@ export const FORWARD_RETURN_LABEL: Record<ForwardReturnStatus, string> = {
   AVAILABLE: "Available",
   NO_ALIGNMENT: "No alignment",
   MISSING_ANCHOR_PRICE: "Missing anchor price",
-  INSUFFICIENT_FORWARD_SESSIONS: "Too few stored sessions",
+  INSUFFICIENT_FORWARD_SESSIONS: "Beyond the calendar's proven horizon",
+  MISSING_TARGET_PRICE: "Price not stored for target session",
   INVALID_PRICE: "Invalid price",
   AMBIGUOUS_PRICE_SOURCE: "Ambiguous price source",
 };
