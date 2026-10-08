@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
 from quantforge.core.config import CORS_ALLOW_HEADERS, CORS_ALLOW_METHODS, Settings
+
+#: Everything a production process must be told (see ``Settings._require_explicit_production_serving_settings``).
+_PRODUCTION: dict[str, Any] = {
+    "environment": "production",
+    "database_url": "postgresql+psycopg://qf_app:prod-secret-not-real@db.internal:5432/quantforge",
+    "cors_origins": ["https://app.example.test"],
+}
 
 
 def test_local_development_defaults(settings: Settings) -> None:
@@ -17,7 +25,7 @@ def test_local_development_defaults(settings: Settings) -> None:
     assert settings.app_name == "quantforge-api"
     assert settings.api_v1_prefix == "/api/v1"
     assert settings.cors_origins == ["http://localhost:3000"]
-    assert settings.cors_allow_credentials is True
+    assert settings.cors_allow_credentials is False
     assert settings.log_level == "INFO"
 
 
@@ -119,13 +127,14 @@ def test_wildcard_rejected_when_credentials_enabled(
     make_settings: Callable[..., Settings],
 ) -> None:
     with pytest.raises(ValidationError, match="must not contain"):
-        make_settings(cors_origins=["*"])
+        make_settings(cors_origins=["*"], cors_allow_credentials=True)
 
 
 def test_wildcard_rejected_from_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("QF_CORS_ORIGINS", "*")
+    monkeypatch.setenv("QF_CORS_ALLOW_CREDENTIALS", "true")
 
     with pytest.raises(ValidationError, match="must not contain"):
         Settings(_env_file=None)
@@ -135,7 +144,7 @@ def test_wildcard_rejected_when_embedded_in_a_list(
     make_settings: Callable[..., Settings],
 ) -> None:
     with pytest.raises(ValidationError, match="must not contain"):
-        make_settings(cors_origins=["https://a.test", "*"])
+        make_settings(cors_origins=["https://a.test", "*"], cors_allow_credentials=True)
 
 
 def test_wildcard_allowed_when_credentials_disabled(
@@ -178,7 +187,8 @@ def test_api_v1_prefix_is_normalised(
 
 
 def test_cors_policy_constants_are_explicit() -> None:
-    assert CORS_ALLOW_METHODS == ("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+    # The API is read-only: only reads are ever advertised.
+    assert CORS_ALLOW_METHODS == ("GET", "OPTIONS")
     assert "Content-Type" in CORS_ALLOW_HEADERS
     assert "Authorization" in CORS_ALLOW_HEADERS
     assert "*" not in CORS_ALLOW_METHODS
@@ -300,10 +310,10 @@ def test_no_personal_contact_is_hard_coded_in_the_sec_adapter_source() -> None:
 
 def test_debug_is_rejected_in_production_but_allowed_elsewhere() -> None:
     with pytest.raises(ValidationError, match="QF_DEBUG must be false"):
-        Settings(_env_file=None, environment="production", debug=True)
+        Settings(_env_file=None, **_PRODUCTION, debug=True)
     for environment in ("local", "development", "staging"):
         assert Settings(_env_file=None, environment=environment, debug=True).debug is True
-    assert Settings(_env_file=None, environment="production", debug=False).debug is False
+    assert Settings(_env_file=None, **_PRODUCTION, debug=False).debug is False
 
 
 def test_the_settings_repr_never_prints_a_datastore_password_or_a_provider_secret() -> None:
@@ -336,3 +346,60 @@ def test_a_validation_error_never_echoes_the_raw_input_with_its_datastore_urls()
             redis_url="redis://:redispw-7c1@cache.internal:6379/0",
         )
     assert "redispw-7c1" not in str(wildcard.value)
+
+
+# ── Step 12D: .env.example documents exactly the settings that exist ───────────────────────────
+
+_ENV_EXAMPLE = Path(__file__).resolve().parents[3] / ".env.example"
+
+
+def _documented_qf_variables() -> set[str]:
+    names: set[str] = set()
+    for line in _ENV_EXAMPLE.read_text().splitlines():
+        stripped = line.lstrip("# ").strip()
+        if stripped.startswith("QF_") and "=" in stripped:
+            names.add(stripped.split("=", 1)[0])
+    return names
+
+
+def test_every_documented_qf_variable_is_a_real_setting() -> None:
+    fields = {f"QF_{name}".upper() for name in Settings.model_fields}
+    unknown = _documented_qf_variables() - fields
+    assert not unknown, f".env.example documents settings that do not exist: {sorted(unknown)}"
+
+
+def test_the_operationally_important_settings_are_documented() -> None:
+    documented = _documented_qf_variables()
+    for required in (
+        "QF_ENVIRONMENT",
+        "QF_DATABASE_URL",
+        "QF_CORS_ORIGINS",
+        "QF_REDIS_URL",
+        "QF_DB_CONNECT_TIMEOUT_SECONDS",
+        "QF_DB_STATEMENT_TIMEOUT_SECONDS",
+        "QF_MASSIVE_API_KEY",
+        "QF_FINNHUB_API_KEY",
+        "QF_SEC_USER_AGENT",
+        "QF_INGESTION_RAW_ROOT",
+    ):
+        assert required in documented, required
+
+
+def test_the_example_file_holds_no_real_looking_secret() -> None:
+    text = _ENV_EXAMPLE.read_text()
+    for line in text.splitlines():
+        if line.startswith(("QF_MASSIVE_API_KEY=", "QF_FINNHUB_API_KEY=", "QF_SEC_USER_AGENT=")):
+            assert line.split("=", 1)[1] == "", f"a credential placeholder must be blank: {line}"
+    assert "@example" not in text.lower() or "your contact" in text.lower()
+
+
+def test_the_example_file_is_loadable_as_a_development_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Copying .env.example to .env must produce valid settings (development defaults)."""
+    for line in _ENV_EXAMPLE.read_text().splitlines():
+        if line.startswith("QF_") and "=" in line:
+            key, value = line.split("=", 1)
+            monkeypatch.setenv(key, value)
+    resolved = Settings(_env_file=None)
+    assert resolved.environment == "local"

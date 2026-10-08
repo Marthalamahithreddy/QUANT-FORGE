@@ -14,6 +14,8 @@ from typing import Annotated, Literal, Self
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 Environment = Literal["local", "development", "staging", "production"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -21,7 +23,10 @@ LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 #: Origin served by the Next.js dev server. Local development only.
 DEFAULT_CORS_ORIGINS: tuple[str, ...] = ("http://localhost:3000",)
 
-CORS_ALLOW_METHODS: tuple[str, ...] = ("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
+#: The public API is read-only and serves exactly `GET` (there are no HEAD routes either), so a browser
+#: is only ever allowed to read. A write method is deliberately not advertised: no route would answer
+#: it, and listing one only widens what a cross-origin page may attempt.
+CORS_ALLOW_METHODS: tuple[str, ...] = ("GET", "OPTIONS")
 CORS_ALLOW_HEADERS: tuple[str, ...] = (
     "Accept",
     "Authorization",
@@ -33,6 +38,12 @@ CORS_ALLOW_HEADERS: tuple[str, ...] = (
 #: environment via ``QF_DATABASE_URL`` and keep real secrets out of version control.
 DEFAULT_DATABASE_URL = "postgresql+psycopg://quantforge:quantforge@localhost:5432/quantforge"
 DEFAULT_REDIS_URL = "redis://localhost:6379/0"
+
+#: The development-only database logins this repository documents (the compiled default and the
+#: docker-compose / ``.env.example`` pair). A production process that still uses one is misconfigured.
+KNOWN_DEVELOPMENT_DATABASE_LOGINS: frozenset[tuple[str, str]] = frozenset(
+    {("quantforge", "quantforge"), ("quantforge", "local-dev-only-not-a-secret")}
+)
 
 #: Massive (formerly Polygon.io) REST base. Overridable so a test, a mirror or a
 #: future regional host can be pointed at without code changes.
@@ -65,6 +76,28 @@ _REPO_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_INGESTION_RAW_ROOT = _REPO_ROOT / "data" / "raw"
 
 
+def _is_development_login(database_url: str) -> bool:
+    """Whether the URL logs in as the documented development role without a real password.
+
+    Parsed and percent-decoded by SQLAlchemy, so ``quantf%6Frge`` is ``quantforge``. The development
+    role with a development password, with NO password (it would then rely on PGPASSWORD or trust
+    authentication) or with the password given as a query parameter is all the same misconfiguration.
+    Nothing from the URL is ever put in the error.
+    """
+    try:
+        url = make_url(database_url)
+    except ArgumentError as exc:
+        message = "QF_DATABASE_URL is not a valid database URL."
+        raise ValueError(message) from exc
+    password = url.password or url.query.get("password") or ""
+    if isinstance(password, tuple):  # a repeated query parameter
+        password = password[0] if password else ""
+    if (url.username or "", password) in KNOWN_DEVELOPMENT_DATABASE_LOGINS:
+        return True
+    development_users = {user for user, _ in KNOWN_DEVELOPMENT_DATABASE_LOGINS}
+    return (url.username or "") in development_users and password == ""
+
+
 class Settings(BaseSettings):
     """Runtime configuration for the QuantForge API."""
 
@@ -88,13 +121,24 @@ class Settings(BaseSettings):
     # ── Datastores ──────────────────────────────────────────────────────────
     # ``repr=False``: both URLs can embed a password, and ``repr(settings)`` must never print one.
     database_url: str = Field(default=DEFAULT_DATABASE_URL, repr=False)
-    redis_url: str = Field(default=DEFAULT_REDIS_URL, repr=False)
+    #: A blank value means Redis is deliberately not configured (reported as ``not_configured``).
+    #: Redis is optional: no validated serving path uses it today (see the readiness contract).
+    redis_url: str | None = Field(default=DEFAULT_REDIS_URL, repr=False)
+    #: Seconds libpq waits to establish a connection before giving up.
+    db_connect_timeout_seconds: int = Field(default=5, ge=1, le=60)
+    #: Server-side cap on any one statement, applied to every connection the API and the CLIs open
+    #: (migrations use their own engine and are unaffected). Generous for the validated operations --
+    #: research reads answer in milliseconds, bulk ingestion writes in small batches -- and still
+    #: bounded: a hung query frees its connection instead of holding a request forever.
+    db_statement_timeout_seconds: int = Field(default=60, ge=1, le=3600)
 
     # ── CORS ────────────────────────────────────────────────────────────────
     # NoDecode keeps the raw environment string intact so it can be parsed as
     # either a comma-separated list or a JSON array.
     cors_origins: Annotated[list[str], NoDecode] = list(DEFAULT_CORS_ORIGINS)
-    cors_allow_credentials: bool = True
+    #: Off by default: the product has no cookie or session authentication, so a cross-origin page has
+    #: nothing to send credentials for. Opt in explicitly (with explicit origins) if that ever changes.
+    cors_allow_credentials: bool = False
 
     # ── Observability ───────────────────────────────────────────────────────
     log_level: LogLevel = "INFO"
@@ -209,6 +253,14 @@ class Settings(BaseSettings):
             raise ValueError(message)
         return value
 
+    @field_validator("redis_url", mode="before")
+    @classmethod
+    def _blank_redis_url_is_not_configured(cls, value: object) -> object:
+        """``QF_REDIS_URL=`` says "no Redis", which is a state of its own, not a malformed URL."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _coerce_cors_origins(cls, value: object) -> object:
@@ -242,6 +294,33 @@ class Settings(BaseSettings):
         """Debug mode serves tracebacks (and so SQL, paths and values) in 500 responses."""
         if self.debug and self.environment == "production":
             message = "QF_DEBUG must be false when QF_ENVIRONMENT=production."
+            raise ValueError(message)
+        return self
+
+    @model_validator(mode="after")
+    def _require_explicit_production_serving_settings(self) -> Self:
+        """A production process must be told its database and its browser origins.
+
+        Only what *serving the persisted read-only product* needs is required here. Provider keys, the
+        SEC identity, the raw-evidence root and Redis are ingestion-side or optional and are checked
+        where they are used, never at startup. The messages name the setting and never echo a value.
+        """
+        if self.environment != "production":
+            return self
+        if self.database_url == DEFAULT_DATABASE_URL or _is_development_login(self.database_url):
+            message = (
+                "QF_DATABASE_URL still uses a development database login; set a production "
+                "database URL when QF_ENVIRONMENT=production."
+            )
+            raise ValueError(message)
+        if "cors_origins" not in self.model_fields_set or not self.cors_origins:
+            message = (
+                "QF_CORS_ORIGINS must be set explicitly (the browser origins allowed to read the API) "
+                "when QF_ENVIRONMENT=production; the localhost development default is not inherited."
+            )
+            raise ValueError(message)
+        if "*" in self.cors_origins:
+            message = "QF_CORS_ORIGINS must list explicit origins, not '*', in production."
             raise ValueError(message)
         return self
 

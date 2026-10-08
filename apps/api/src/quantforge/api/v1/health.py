@@ -1,9 +1,11 @@
-"""Health endpoints.
+"""Liveness endpoints.
 
-The health payload reports only what this process can actually attest to.
-PostgreSQL and Redis status fields are deliberately absent: neither service is
-configured or running at the foundation milestone, and reporting a fabricated
-dependency status would be worse than reporting nothing.
+Liveness answers exactly one question -- "is this process alive enough to answer HTTP?" -- and so
+touches nothing else: no PostgreSQL, no Redis, no Alembic, no provider, no filesystem evidence. If
+the process can serve this request, the answer is yes, whatever state its dependencies are in. Whether
+the service can do useful work is the readiness probe's question (:mod:`quantforge.api.v1.ready`).
+The payload reports only what this process itself can attest to; a structural test pins that this
+module imports no datastore, cache, provider or migration code.
 """
 
 from __future__ import annotations
@@ -32,8 +34,8 @@ class HealthResponse(BaseModel):
     response_model=HealthResponse,
     summary="Liveness probe",
     description=(
-        "Reports that the API process is serving requests. Does not assert the "
-        "health of any backing datastore."
+        "Reports that the API process is answering HTTP. Queries nothing: it asserts "
+        "nothing about any backing service (see the readiness probe)."
     ),
 )
 def health(settings: Annotated[Settings, Depends(get_settings)]) -> HealthResponse:

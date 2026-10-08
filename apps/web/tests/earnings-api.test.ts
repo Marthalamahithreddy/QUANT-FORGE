@@ -126,7 +126,8 @@ describe("getReadiness", () => {
         {
           status: "not_ready",
           service: "quantforge-api",
-          dependencies: { database: "unavailable", redis: "ok" },
+          dependencies: { database: { state: "unavailable", gating: true }, redis: { state: "ok", gating: false } },
+          schema: { state: "unknown", expected: "0014", current: null, gating: true },
           detail: { database: "OperationalError" },
         },
         503,
@@ -134,13 +135,18 @@ describe("getReadiness", () => {
     );
     expect(await getReadiness()).toMatchObject({
       kind: "ok",
-      data: { status: "not_ready", dependencies: { database: "unavailable" } },
+      data: { status: "not_ready", dependencies: { database: { state: "unavailable" } } },
     });
   });
 
   it("accepts a readiness body without the optional detail", async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ status: "ready", service: "quantforge-api", dependencies: { database: "ok", redis: "ok" } }),
+      jsonResponse({
+        status: "ready",
+        service: "quantforge-api",
+        dependencies: { database: { state: "ok", gating: true }, redis: { state: "ok", gating: false } },
+        schema: { state: "compatible", expected: "0014", current: "0014", gating: true },
+      }),
     );
     expect((await getReadiness()).kind).toBe("ok");
   });

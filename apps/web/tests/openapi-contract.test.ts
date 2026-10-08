@@ -195,8 +195,10 @@ describe("enum parity: runtime lists equal the snapshot", () => {
   it("matches the readiness and dependency vocabularies", () => {
     const readiness = (schemas.ReadinessResponse as { properties: { status: { enum: string[] } } }).properties.status.enum;
     expect(sorted(schema.READINESS_STATUSES)).toEqual(sorted(readiness));
-    const dependency = (schemas.DependencyReadiness as { properties: { database: { enum: string[] } } }).properties.database.enum;
-    expect(sorted(schema.DEPENDENCY_STATES)).toEqual(sorted(dependency));
+    const stateOf = (name: string) => (schemas[name] as { properties: { state: { enum: string[] } } }).properties.state.enum;
+    expect(sorted(schema.DATABASE_STATES)).toEqual(sorted(stateOf("DatabaseReadiness")));
+    expect(sorted(schema.REDIS_STATES)).toEqual(sorted(stateOf("RedisReadiness")));
+    expect(sorted(schema.SCHEMA_STATES)).toEqual(sorted(stateOf("SchemaReadiness")));
   });
 
   it("covers every status enum the migrated pages consume with a state mapping (exhaustive)", () => {
@@ -321,7 +323,16 @@ describe("decoders require every key the snapshot marks required", () => {
     ["EpsSurprise", event.eps_surprise, (v) => decodeEarningsEvent({ ...event, eps_surprise: v }, "$")],
     ["EarningsEventPage", { items: [event], total: 1, limit: 50, offset: 0 }, (v) => decodeEarningsPage(v, "$")],
     ["HealthResponse", { status: "ok", service: "s", version: "1", environment: "e" }, (v) => decodeHealth(v, "$")],
-    ["ReadinessResponse", { status: "ready", service: "s", dependencies: { database: "ok", redis: "ok" } }, (v) => decodeReadiness(v, "$")],
+    [
+      "ReadinessResponse",
+      {
+        status: "ready",
+        service: "s",
+        dependencies: { database: { state: "ok", gating: true }, redis: { state: "ok", gating: false } },
+        schema: { state: "compatible", expected: "0014", current: "0014", gating: true },
+      },
+      (v) => decodeReadiness(v, "$"),
+    ],
     ["FilingIndexItem", makeFiling(), (v) => decodeFilingIndexPage({ items: [v], total: 1, limit: 50, offset: 0 }, "$")],
     ["FilingIndexPage", { items: [makeFiling()], total: 1, limit: 50, offset: 0 }, (v) => decodeFilingIndexPage(v, "$")],
     ["FilingEpsResponse", eps, (v) => decodeFilingEps(v, "$")],

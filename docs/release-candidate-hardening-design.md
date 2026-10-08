@@ -529,3 +529,50 @@ Frontend untouched (1410 tests, lint, typecheck, build, contract check green). G
 - A per-artifact `disposition` field in the manifest was considered and left out (it would change the manifest format).
 
 Next planned slice: 12D operational readiness (schema check, Redis tolerance, DB timeouts, production guards, README/runbook, backup).
+
+## 17. Step 12D result (operational readiness and release operations; appended, sections 0-16 are history)
+
+12C was committed as `42f48cf`. 12D implements findings 9-15 of the register and the readiness decision (schema check and
+non-gating Redis are in the machine-readable response, not a runbook-only check). No migration (head stays `0014`), no research,
+ingestion, accounting or provider change, no provider request (Massive 0, Finnhub 0, SEC 0).
+
+**Before (audit + proof tests, run on the unchanged code).** Liveness already touched nothing. Readiness gated on Redis (a Redis
+outage made it 503), checked only `SELECT 1` (an empty database with no `alembic_version` was "ready"), logged a full traceback on
+every expected failure, and its docstring claimed a redaction that did not exist. The frontend's Overview read the flat
+`{database, redis}` shape and rendered a Redis outage as an error.
+
+| area | result |
+|---|---|
+| Liveness | unchanged behaviour, now pinned: runtime explode-on-touch test over every datastore/migration symbol, an AST import allow-list for `api/v1/health.py`, and a test that no raw-root path is created |
+| Readiness | `200` only if PostgreSQL answers a bounded query **and** the Alembic revision equals the binary's single head exactly; behind, ahead, no table, empty, several rows, several heads, unreadable scripts all `503`. Response: `status`, `service`, `dependencies.{database,redis}.{state,gating}`, `schema.{state,expected,current,gating}`, `detail` |
+| Head derivation | one mechanism: `ScriptDirectory` over `apps/api/alembic` (`db/schema.py`), cached; nothing hand-maintained. A real `alembic upgrade head` is proven to stamp the same value |
+| Redis | `ok / unavailable / not_configured`, `gating: false`; a blank `QF_REDIS_URL` means not configured; a malformed URL is `unavailable`, never a 500 (review finding) |
+| Providers | never probed; asserted at runtime (no real network transport may be used) and structurally (no provider/ingestion import) |
+| Timeouts | libpq `connect_timeout` (default 5 s, 1-60) and server-side `statement_timeout` (default 60 s, 1-3600) as driver arguments; `pool_timeout` follows the connect timeout; URL-supplied `options`/`connect_timeout` are respected; readiness caps its own statements at 5 s; migrations use their own engine |
+| Production guards | refuse the development database logins (also percent-encoded, passwordless, or `?password=`), require explicit non-wildcard `QF_CORS_ORIGINS`, keep refusing `QF_DEBUG`; provider keys, SEC identity, Redis and raw root are never required to serve |
+| CORS | methods `GET, OPTIONS` (the API is read-only; no HEAD routes exist), credentials default off |
+| Logging | expected outages are one concise warning with class names only; unexpected defects keep their traceback; the docstring now promises only class names |
+| Frontend | strict decoder (gating flags are literals); Overview: Redis down = "Unavailable · not required" and "Ready"; schema mismatch = generic "Not ready", no revision text; no new request |
+| Docs / ops | `.env.example` classified (serve / ingest / dev), README refreshed (head `0014`), `docs/operations-runbook.md`, `scripts/release-smoke.mjs` over `real_smoke.mjs` (which now exits non-zero on any failed criterion) |
+
+**Consequence to know.** The development database `quantforge` is deliberately still at revision `0013`; under this contract an API
+pointed at it reports `503 schema: mismatch` until `alembic upgrade head` is run on it. That is the check working.
+
+**Gates.** Backend 3613 passed (2532 unit + 1081 integration), 95.93 %; ruff, format, mypy clean; `alembic check` clean at `0014`.
+Frontend 1444 unit tests, lint, typecheck, build, contract check green; fixture e2e 207 passed with the request budgets unchanged.
+Release smoke against the real stack (validation database, production build): liveness, readiness, web, 9 pages x 2 viewports,
+unchanged-state check all pass; stopping the backend fails it with `FAIL liveness` and exit 1. Goldens unchanged.
+
+**Review.** One high-effort review: no P0/P1; one P2 (a malformed Redis URL made readiness 500) fixed with a test. Fixed P3s:
+production-guard bypasses (percent-encoding, no password, `?password=`), connect args overriding URL options, a stale session factory,
+an unbounded pool wait, `fullmatch` for revision ids, HEAD advertised but unserved, a vacuous test clause, smoke-wrapper edges (browser
+timeout, stale-port detection, build pointed at the API under test, process-group shutdown), and runbook gaps (serving role needs
+SELECT on `alembic_version`, guards apply to alembic/CLI shells, stop the API before replacing the tree, source/editable install only,
+blank Redis URL, macOS `shasum`).
+
+**Carried (not fixed in 12D).** The smoke passes a page that renders an error state with HTTP 200 (SSR errors are soft; soft-404
+conversion is deferred); its `unchanged` phase compares four totals; poolers that reject the `options` startup parameter need
+`ignore_startup_parameters=options` or a direct connection; the ingestion CLI inherits the 60 s statement timeout (raise
+`QF_DB_STATEMENT_TIMEOUT_SECONDS` for a deliberately long bulk run); a wheel install cannot establish its head and stays not ready.
+
+Next planned slice: 12E (regression, performance and security cleanup; frontend fixture recapture; dependency and secret audits).

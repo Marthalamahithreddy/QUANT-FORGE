@@ -19,6 +19,7 @@ from quantforge.core.config import Settings
 from quantforge.core.dependencies import DependencyCheck, DependencyName, DependencyState
 from quantforge.db import session as session_module
 from quantforge.db.base import Base
+from quantforge.db.schema import expected_head
 from quantforge.db.session import (
     dispose_engines,
     get_engine,
@@ -127,14 +128,30 @@ def test_ping_database_detail_hides_the_dsn() -> None:
     assert secret not in (result.detail or "")
 
 
+class _StubResult:
+    def __init__(self, rows: list[str | None]) -> None:
+        self._rows = rows
+
+    def scalars(self) -> _StubResult:
+        return self
+
+    def all(self) -> list[str | None]:
+        return self._rows
+
+
 class _StubConnection:
     """Records the statements a probe executes, without a real database."""
 
-    def __init__(self) -> None:
+    def __init__(self, revisions: list[str | None] | None = None) -> None:
         self.statements: list[str] = []
+        self.revisions = [expected_head()] if revisions is None else revisions
 
-    def execute(self, statement: object) -> None:
+    def execute(self, statement: object) -> _StubResult:
         self.statements.append(str(statement))
+        return _StubResult(self.revisions)
+
+    def rollback(self) -> None:
+        return None
 
     def __enter__(self) -> _StubConnection:
         return self
@@ -167,7 +184,7 @@ def test_ping_database_reports_ok_when_the_query_succeeds(
     assert result.state is DependencyState.OK
     assert result.name is DependencyName.DATABASE
     assert result.detail is None
-    assert "SELECT 1" in engine.connection.statements[0]
+    assert any("SELECT 1" in statement for statement in engine.connection.statements)
 
 
 def test_ping_database_never_raises() -> None:

@@ -20,7 +20,8 @@ const HEALTH = { status: "ok", service: "quantforge-api", version: "0.1.0", envi
 const READY = {
   status: "ready",
   service: "quantforge-api",
-  dependencies: { database: "ok", redis: "ok" },
+  dependencies: { database: { state: "ok", gating: true }, redis: { state: "ok", gating: false } },
+  schema: { state: "compatible", expected: "0014", current: "0014", gating: true },
 };
 const ID = "11111111-1111-4111-8111-111111111111";
 

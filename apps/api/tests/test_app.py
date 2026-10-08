@@ -14,6 +14,13 @@ from quantforge.core.config import Settings
 from quantforge.main import app as module_level_app
 from quantforge.main import create_app
 
+#: Everything a production process must be told (see the production guards in ``Settings``).
+_PRODUCTION: dict[str, Any] = {
+    "environment": "production",
+    "database_url": "postgresql+psycopg://qf_app:prod-secret-not-real@db.internal:5432/quantforge",
+    "cors_origins": ["https://app.example.test"],
+}
+
 
 def test_create_app_returns_fastapi(make_settings: Callable[..., Settings]) -> None:
     assert isinstance(create_app(make_settings()), FastAPI)
@@ -42,7 +49,7 @@ def test_docs_disabled_in_production(
     client_factory: Callable[..., TestClient],
     make_settings: Callable[..., Settings],
 ) -> None:
-    with client_factory(make_settings(environment="production")) as client:
+    with client_factory(make_settings(**_PRODUCTION)) as client:
         assert client.get("/docs").status_code == 404
         assert client.get("/redoc").status_code == 404
         assert client.get("/openapi.json").status_code == 404
@@ -52,7 +59,7 @@ def test_health_still_serves_in_production(
     client_factory: Callable[..., TestClient],
     make_settings: Callable[..., Settings],
 ) -> None:
-    with client_factory(make_settings(environment="production")) as client:
+    with client_factory(make_settings(**_PRODUCTION)) as client:
         assert client.get("/health").status_code == 200
 
 

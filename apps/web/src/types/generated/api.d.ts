@@ -113,7 +113,7 @@ export interface paths {
         };
         /**
          * Liveness probe
-         * @description Reports that the API process is serving requests. Does not assert the health of any backing datastore.
+         * @description Reports that the API process is answering HTTP. Queries nothing: it asserts nothing about any backing service (see the readiness probe).
          */
         get: operations["health_api_v1_health_get"];
         put?: never;
@@ -133,7 +133,7 @@ export interface paths {
         };
         /**
          * Readiness probe
-         * @description Reports whether PostgreSQL and Redis are reachable. Returns 200 when both are available and 503 otherwise, always with a typed body naming the failing dependency.
+         * @description Reports whether this binary can serve its application contract: PostgreSQL reachable and its schema exactly the expected migration head. Redis is reported but does not gate. Returns 200 when ready and 503 otherwise, always with a typed body.
          */
         get: operations["readiness_api_v1_health_ready_get"];
         put?: never;
@@ -233,7 +233,7 @@ export interface paths {
         };
         /**
          * Liveness probe
-         * @description Reports that the API process is serving requests. Does not assert the health of any backing datastore.
+         * @description Reports that the API process is answering HTTP. Queries nothing: it asserts nothing about any backing service (see the readiness probe).
          */
         get: operations["health_health_get"];
         put?: never;
@@ -452,22 +452,31 @@ export interface components {
             status: components["schemas"]["EpsStatus"];
         };
         /**
+         * DatabaseReadiness
+         * @description PostgreSQL connectivity. Gates readiness.
+         */
+        DatabaseReadiness: {
+            /**
+             * Gating
+             * @description An unavailable database makes the service not ready.
+             * @default true
+             * @constant
+             */
+            gating: true;
+            /**
+             * State
+             * @description PostgreSQL connectivity.
+             * @enum {string}
+             */
+            state: "ok" | "unavailable";
+        };
+        /**
          * DependencyReadiness
          * @description Per-dependency readiness, reported for every dependency on every call.
          */
         DependencyReadiness: {
-            /**
-             * Database
-             * @description PostgreSQL connectivity.
-             * @enum {string}
-             */
-            database: "ok" | "unavailable";
-            /**
-             * Redis
-             * @description Redis connectivity.
-             * @enum {string}
-             */
-            redis: "ok" | "unavailable";
+            database: components["schemas"]["DatabaseReadiness"];
+            redis: components["schemas"]["RedisReadiness"];
         };
         /** DescriptiveOut */
         DescriptiveOut: {
@@ -1053,10 +1062,10 @@ export interface components {
         ProviderType: "REGULATORY_FILING" | "EXCHANGE_FEED" | "MARKET_DATA_VENDOR" | "BROKER_API" | "MANUAL" | "OTHER";
         /**
          * ReadinessResponse
-         * @description Readiness payload including the outcome for each backing service.
+         * @description Readiness payload: the verdict, and the state of everything that was looked at.
          */
         ReadinessResponse: {
-            /** @description State of each dependency. */
+            /** @description State of each backing service. */
             dependencies: components["schemas"]["DependencyReadiness"];
             /**
              * Detail
@@ -1065,6 +1074,8 @@ export interface components {
             detail?: {
                 [key: string]: string;
             } | null;
+            /** @description Migration-head compatibility of the database. */
+            schema: components["schemas"]["SchemaReadiness"];
             /**
              * Service
              * @description Logical service name.
@@ -1072,7 +1083,7 @@ export interface components {
             service: string;
             /**
              * Status
-             * @description 'ready' only when every dependency is reachable.
+             * @description 'ready' only when the database is reachable AND the schema is compatible.
              * @enum {string}
              */
             status: "ready" | "not_ready";
@@ -1160,6 +1171,25 @@ export interface components {
             /** Reproducibility Gaps */
             reproducibility_gaps: components["schemas"]["ReproducibilityGap"][];
             reproducibility_level: components["schemas"]["ReproducibilityLevel"];
+        };
+        /**
+         * RedisReadiness
+         * @description Redis state. Reported for operators; never gates readiness.
+         */
+        RedisReadiness: {
+            /**
+             * Gating
+             * @description Redis does not affect readiness: no serving path requires it.
+             * @default false
+             * @constant
+             */
+            gating: false;
+            /**
+             * State
+             * @description Redis connectivity, or that it is not configured.
+             * @enum {string}
+             */
+            state: "ok" | "unavailable" | "not_configured";
         };
         /**
          * RefusalOut
@@ -1321,6 +1351,35 @@ export interface components {
              * @description Identity of the produced observation.
              */
             result_fingerprint: string;
+        };
+        /**
+         * SchemaReadiness
+         * @description Whether the database schema is the migration head this binary expects. Gates readiness.
+         */
+        SchemaReadiness: {
+            /**
+             * Current
+             * @description The database's single Alembic revision; null when it cannot be read.
+             */
+            current: string | null;
+            /**
+             * Expected
+             * @description The single Alembic head of this binary; null when it cannot be established.
+             */
+            expected: string | null;
+            /**
+             * Gating
+             * @description Any state other than 'compatible' makes the service not ready.
+             * @default true
+             * @constant
+             */
+            gating: true;
+            /**
+             * State
+             * @description 'compatible' only when the database revision equals the expected head exactly.
+             * @enum {string}
+             */
+            state: "compatible" | "mismatch" | "unknown";
         };
         /**
          * SecFormType

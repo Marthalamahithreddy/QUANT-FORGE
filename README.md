@@ -24,7 +24,7 @@ and cross-event research analytics (`quantforge.signals`); and an **execution
 eligibility gate** that decides, from a real exchange session clock
 (`quantforge.market`, backed by `exchange_calendars`), whether a signal was
 provably known strictly before a candidate session open
-(`quantforge.backtest`, not yet committed — see [Current state](#current-state)).
+(`quantforge.backtest`; see [Current state](#current-state)).
 
 There is still **no trading strategy, no order/position model, and no P&L** —
 direction is never mapped to buy/sell, and an execution-eligibility result is
@@ -40,22 +40,23 @@ apps/
 
 ## Current state
 
-| Layer | Status | Commit |
-|---|---|---|
-| Infrastructure + financial domain schema | Done | `b20e4b1` (pushed) |
-| Market-data + earnings ingestion (Massive, Finnhub, SPY benchmark) | Done, live-verified | `b20e4b1` (pushed) |
-| Research engine: event alignment, EPS surprise, returns, event study | Done | `0fc912f` (pushed) |
-| Signal engine: EPS-surprise signal, evaluation, cross-event analytics | Done | `5599172` (pushed) |
-| Market-session clock, execution eligibility, explicit price basis (`0006`) | Done, **uncommitted** | working tree |
+A read-only research product over a persisted, provenance-tracked fact layer. Everything below is
+committed; the validation steps are frozen.
 
-The market-session clock (`quantforge/market/`) and the backtest layer
-(`quantforge/backtest/`) and their tests are intentionally uncommitted as of
-this writing, together with the explicit price-basis schema (migration `0006`).
-Execution eligibility is decided against real session opens, and as-traded
-prices can now be stored next to the split-adjusted research bars. What does not
-exist is a numeric fill: no fill lookup, order, position or P&L, and no
-corporate-action (split share-count) handling. See `NEXT_SESSION_PROMPT.md` / `HANDOFF.md`
-(gitignored, local only) for exactly where to resume.
+| Layer | Status |
+|---|---|
+| Infrastructure, financial domain schema, migrations `0001`-`0014` (current head `0014`) | Done |
+| Market-data and earnings ingestion (Massive, Finnhub, SPY benchmark), SEC filing identity and header-corroborated acceptance, FSDS facts | Done; validated against real data (Step 11.2, frozen) |
+| Research engine on exchange-calendar sessions: alignment, EPS surprise, forward/abnormal returns, event study | Done |
+| Reproducibility records (saved, immutable, verifiable) and the read-only API | Done |
+| Web research terminal (Next.js): Overview, Earnings, Research, Filings, Saved research | Done (Frontend V2, frozen) |
+| Release-candidate hardening (Step 12): return semantics (12B), ingestion provenance (12C), operational readiness (12D) | 12B and 12C done; 12D in review |
+
+What does **not** exist: a trading strategy, a fill, an order or position model, P&L, corporate-action
+share-count handling, authentication, or write access through the API (every route is a `GET`). The
+API therefore belongs on a private network or behind a reverse proxy that provides access control.
+See `docs/release-candidate-hardening-design.md` for the release-candidate plan and findings, and
+[`docs/operations-runbook.md`](docs/operations-runbook.md) for running it.
 
 ## Prerequisites
 
@@ -69,15 +70,15 @@ corporate-action (split share-count) handling. See `NEXT_SESSION_PROMPT.md` / `H
 ## Quick start
 
 ```bash
-# 1. Infrastructure
+# 1. Infrastructure (PostgreSQL + Redis, loopback only)
 cp .env.example .env
 docker compose up -d
 docker compose ps
 
-# 2. Backend dependencies and schema
+# 2. Backend dependencies and schema (an explicit step: nothing migrates on its own)
 cd apps/api
 uv sync --all-groups
-uv run alembic upgrade head
+uv run alembic upgrade head          # the current head is 0014
 
 # 3. Backend
 uv run uvicorn quantforge.main:app --reload
@@ -88,8 +89,18 @@ npm install
 npm run dev
 ```
 
-Then open <http://localhost:3000>. The Overview page reports live backend
-connectivity.
+Then open <http://localhost:3000>. Check the backend with:
+
+```bash
+curl -s localhost:8000/health              # liveness: the process answers HTTP (touches nothing else)
+curl -s localhost:8000/api/v1/health/ready # readiness: database reachable AND schema exactly at head
+```
+
+An empty database is served honestly (every page states that nothing is stored); load data with the
+ingestion commands below. Configuration is `QF_*` environment variables; `.env.example` tags each as
+needed to serve, needed only to ingest, or development-only. Provider keys, the SEC identity and Redis
+are never needed to serve the product. Production deployment, backup and rollback are in
+[`docs/operations-runbook.md`](docs/operations-runbook.md).
 
 ## Financial domain
 
@@ -139,6 +150,17 @@ uv run quantforge ingestion runs --status partial # only runs that fell short (s
 A failed run prints its run id, where its raw evidence is (`raw evidence: none` when nothing was kept),
 how many rows it wrote and `safe to retry: yes`: a failed run rolls its writes back and every write is
 idempotent. A `partial` run records the first failure on its row (`N record(s) failed; first: ...`).
+
+| Command | Needs | What it stores |
+|---|---|---|
+| `ingestion reference TICKER...` | `QF_MASSIVE_API_KEY` | issuer, security and listing identity |
+| `ingestion earnings TICKER --start D --end D` | `QF_FINNHUB_API_KEY`, reference first | earnings observations (revisions kept) |
+| `ingestion daily TICKER --start D --end D` | `QF_MASSIVE_API_KEY`, reference first | split-adjusted (or `--price-basis as-traded`) daily bars |
+| `ingestion benchmark SYMBOL --start D --end D --name N` | `QF_MASSIVE_API_KEY` | benchmark levels with an explicit identity |
+| `ingestion sec-filings CIK` | `QF_SEC_USER_AGENT` | SEC filing **identity** (`accepted_at` stays NULL) |
+| `ingestion sec-filing-acceptance ACCESSION [--verify]` | `QF_SEC_USER_AGENT` | one filing's `accepted_at`, from its official EDGAR header |
+| `ingestion sec-fsds PACKAGE.zip --accession A` | a local FSDS ZIP, no network | accession-bound numeric facts |
+| `ingestion runs [--status S] [--dataset D]` | database only | read-only run history with failure reasons and evidence manifests |
 
 Writing data is deliberately conservative: reference resolution matches on CIK
 and FIGI, never on a name; daily bars are idempotent per
@@ -591,11 +613,10 @@ Credentials come from the environment. `.env` is git-ignored; only
 Run from `apps/api`:
 
 ```bash
-uv run alembic upgrade head            # apply everything
-uv run alembic current                 # which revision is applied
+uv run alembic upgrade head            # apply everything (always an explicit, deliberate step)
+uv run alembic current                 # which revision is applied (the head is 0014)
 uv run alembic current --verbose       # ...with its description
 uv run alembic history                 # full lineage
-uv run alembic downgrade -1            # step back one revision
 uv run alembic check                   # fail if models have drifted from the DB
 uv run alembic revision --autogenerate -m "describe the change"
 ```
@@ -604,38 +625,61 @@ uv run alembic revision --autogenerate -m "describe the change"
 `QF_DATABASE_URL` from the application `Settings`, so migrations always target
 the same database as the API and no credential is ever committed. Autogenerate
 compares against `Base.metadata`; `alembic check` fails if the models have
-drifted from the applied schema, and the test suite runs it as a gate. Five
-revisions follow the empty `0001`: the financial domain (`0002`), ingestion
-runs / issuer CIK (`0003`), earnings ingestion persistence (`0004`), and the
-earnings `event_date`/`event_timestamp` correction (`0005`), and explicit price
-basis on both bar tables (`0006`), an availability basis on earnings events
-(`0007`), SEC filing metadata (`0008`), stock splits with split coverage (`0009`), sourced listing history (`0010`), and accession-bound financial facts (`0011`), and the widened verbatim FSDS `accepted` text (`0012`, current head). The research, signal, and
-backtest layers are all computed, not persisted.
+drifted from the applied schema, and the test suite runs it as a gate. The API refuses to
+call itself ready on any other revision than its own single head (see below), and it never migrates.
+
+Lineage: the empty `0001`; the financial domain (`0002`); ingestion runs / issuer CIK (`0003`);
+earnings persistence (`0004`) and the `event_date`/`event_timestamp` correction (`0005`); explicit price
+basis (`0006`); the availability basis on earnings events (`0007`); SEC filing metadata (`0008`); stock
+splits with coverage (`0009`); sourced listing history (`0010`); accession-bound financial facts (`0011`);
+verbatim FSDS `accepted` text (`0012`); saved research records and the benchmark-bar run link (`0013`);
+and `sec_filing.accepted_at` made nullable (`0014`, current head).
+
+> **`0014` cannot be downgraded once SEC filings are ingested.** Bulk SEC ingestion stores
+> `accepted_at = NULL` by design ("exact instant not established"), and the downgrade refuses while any such
+> row exists rather than invent an instant. After SEC ingestion, rolling back means **restoring the
+> pre-migration backup**, not `alembic downgrade`. See the runbook.
+
+The research, signal, and backtest layers are all computed, not persisted (except saved research records).
 
 ## Health endpoints
 
-| Endpoint                | Checks              | On failure            |
-| ----------------------- | ------------------- | --------------------- |
-| `GET /health`           | process liveness    | n/a                   |
-| `GET /api/v1/health`    | process liveness    | n/a                   |
-| `GET /api/v1/health/ready` | PostgreSQL + Redis | `503`, names the failed dependency |
+| Endpoint                   | Answers                                              | Gates on                              | On failure |
+| -------------------------- | ---------------------------------------------------- | ------------------------------------- | ---------- |
+| `GET /health`, `GET /api/v1/health` | is the process answering HTTP?               | nothing (queries no datastore, no migration, no provider) | n/a |
+| `GET /api/v1/health/ready` | can this binary serve its contract against its infrastructure? | PostgreSQL **and** schema = this binary's migration head | `503`, typed body |
 
-The liveness endpoints never touch a datastore, so they stay `200` even when
-PostgreSQL and Redis are both stopped — use them for container and orchestrator
-probes. Readiness actively probes both dependencies and returns `503` with a
-typed body if either is unavailable:
+Liveness stays `200` with every datastore stopped: use it for container probes. Readiness is `200` only
+when PostgreSQL answers a bounded query **and** the database's Alembic revision equals the binary's single
+head exactly (behind, ahead, missing or ambiguous revisions are all `503`; nothing is ever migrated or
+repaired by the probe). **Redis is reported but never gates** (`gating: false`): no serving path uses it,
+so a Redis outage does not take the product out of rotation. Providers (Massive, Finnhub, SEC) are never
+probed. A future feature that makes Redis part of serving must make it gating in the same change.
 
 ```json
 {
-  "status": "not_ready",
+  "status": "ready",
   "service": "quantforge-api",
-  "dependencies": { "database": "ok", "redis": "unavailable" },
+  "dependencies": {
+    "database": { "state": "ok", "gating": true },
+    "redis": { "state": "unavailable", "gating": false }
+  },
+  "schema": { "state": "compatible", "expected": "0014", "current": "0014", "gating": true },
   "detail": { "redis": "ConnectionError" }
 }
 ```
 
-`detail` reports only the exception class name. Passwords, DSNs, stack traces and
-driver messages are never returned.
+`state` values: database `ok | unavailable`; redis `ok | unavailable | not_configured`; schema
+`compatible | mismatch | unknown`. `detail` reports exception class names only. Passwords, DSNs, hosts,
+SQL, paths, stack traces and driver messages are never **returned**, and an expected outage is logged as
+one concise line of class names only. An unexpected programming error inside a probe keeps its traceback
+in the server log by design.
+
+## Operations
+
+`docs/operations-runbook.md` covers the deploy order (backup, deploy, explicit migration, liveness,
+readiness, smoke), the `0014` rollback caveat, provider outages, failed ingestion, backup and restore, and
+the release smoke (`npm run smoke:release` from `apps/web`, or `node scripts/release-smoke.mjs`).
 
 ## Quality gates
 

@@ -10,7 +10,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
-__all__ = ["DependencyCheck", "DependencyName", "DependencyState"]
+__all__ = [
+    "DatabaseProbe",
+    "DependencyCheck",
+    "DependencyName",
+    "DependencyState",
+    "SchemaCheck",
+    "SchemaState",
+]
 
 
 class DependencyState(StrEnum):
@@ -18,6 +25,8 @@ class DependencyState(StrEnum):
 
     OK = "ok"
     UNAVAILABLE = "unavailable"
+    #: The service is deliberately not configured (e.g. a blank ``QF_REDIS_URL``): not an outage.
+    NOT_CONFIGURED = "not_configured"
 
 
 class DependencyName(StrEnum):
@@ -59,3 +68,39 @@ class DependencyCheck:
             state=DependencyState.UNAVAILABLE,
             detail=type(error).__name__,
         )
+
+
+class SchemaState(StrEnum):
+    """Whether the database schema is the one this binary was built for."""
+
+    #: The database's Alembic revision equals this binary's single migration head.
+    COMPATIBLE = "compatible"
+    #: A revision was read and it is not this binary's head (behind, ahead or foreign).
+    MISMATCH = "mismatch"
+    #: Compatibility cannot be proven: no version table, no single revision, no single head.
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class SchemaCheck:
+    """Outcome of comparing the database's Alembic revision with this binary's migration head.
+
+    Only revision identifiers ever appear here (never a DSN, a message or a path), and ``current`` is
+    only populated when it looks like a revision identifier at all.
+    """
+
+    state: SchemaState
+    expected: str | None = None
+    current: str | None = None
+
+    @property
+    def is_compatible(self) -> bool:
+        return self.state is SchemaState.COMPATIBLE
+
+
+@dataclass(frozen=True, slots=True)
+class DatabaseProbe:
+    """One database round trip: connectivity and the schema revision read on the same connection."""
+
+    database: DependencyCheck
+    schema: SchemaCheck

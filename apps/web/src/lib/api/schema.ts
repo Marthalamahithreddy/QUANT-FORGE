@@ -17,7 +17,9 @@ type Schemas = components["schemas"];
 
 export type HealthResponse = Schemas["HealthResponse"];
 export type ReadinessResponse = Schemas["ReadinessResponse"];
-export type DependencyState = Schemas["DependencyReadiness"]["database"];
+export type DatabaseState = Schemas["DatabaseReadiness"]["state"];
+export type RedisState = Schemas["RedisReadiness"]["state"];
+export type SchemaState = Schemas["SchemaReadiness"]["state"];
 
 export type EarningsEvent = Schemas["EarningsEventItem"];
 export type EarningsPage = Schemas["EarningsEventPage"];
@@ -339,7 +341,10 @@ export const HORIZON_MAX_VALUE = 252;
 export const DEFAULT_HORIZONS = [1, 5, 20] as const;
 
 export const READINESS_STATUSES = ["ready", "not_ready"] as const;
-export const DEPENDENCY_STATES = ["ok", "unavailable"] as const;
+/** PostgreSQL gates readiness; Redis is reported and never gates; the schema gates (exact migration head). */
+export const DATABASE_STATES = ["ok", "unavailable"] as const;
+export const REDIS_STATES = ["ok", "unavailable", "not_configured"] as const;
+export const SCHEMA_STATES = ["compatible", "mismatch", "unknown"] as const;
 
 // ── list-page bounds (mirrors the API's parameter limits; parity-tested) ─────────────────
 

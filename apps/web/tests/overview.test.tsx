@@ -30,7 +30,13 @@ interface Api {
 }
 
 const HEALTH = { status: "ok", service: "quantforge-api", version: "0.1.0", environment: "local" };
-const READY = { status: "ready", service: "quantforge-api", dependencies: { database: "ok", redis: "ok" } };
+const READY = {
+  status: "ready",
+  service: "quantforge-api",
+  dependencies: { database: { state: "ok", gating: true }, redis: { state: "ok", gating: false } },
+  schema: { state: "compatible", expected: "0014", current: "0014", gating: true },
+};
+const readyWith = (patch: Record<string, unknown>) => ({ ...READY, ...patch });
 const VERTICAL = JSON.parse(readFileSync(join(process.cwd(), "tests/contract/vertical.json"), "utf8"));
 const RECORD_ITEMS = (RECORDS.lists.limit_20!.body as any).items as any[];
 
@@ -176,10 +182,75 @@ describe("Overview: a launchpad, not a dashboard", () => {
   });
 
   it("states a down dependency from the readiness body, never as healthy", async () => {
-    serve({ ready: jsonResponse({ ...READY, status: "not_ready", dependencies: { database: "unavailable", redis: "ok" } }, 503) });
+    serve({
+      ready: jsonResponse(
+        readyWith({
+          status: "not_ready",
+          dependencies: { database: { state: "unavailable", gating: true }, redis: { state: "ok", gating: false } },
+          schema: { state: "unknown", expected: "0014", current: null, gating: true },
+        }),
+        503,
+      ),
+    });
     await renderServer(<Overview />);
 
     expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
+    expect(screen.getByText("Not ready")).toBeInTheDocument();
+  });
+
+  it("treats Redis being down as an available application: nothing is shown as an outage", async () => {
+    serve({
+      ready: jsonResponse(
+        readyWith({
+          dependencies: { database: { state: "ok", gating: true }, redis: { state: "unavailable", gating: false } },
+          detail: { redis: "ConnectionError" },
+        }),
+      ),
+    });
+    await renderServer(<Overview />);
+
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.queryByText("Not ready")).toBeNull();
+    expect(screen.getByText(/Unavailable · not required/)).toBeInTheDocument();
+    const redisBadge = screen.getByText(/Unavailable · not required/).closest("[data-state]");
+    expect(redisBadge?.getAttribute("data-state")).toBe("UNAVAILABLE");
+    expect(redisBadge?.getAttribute("data-state")).not.toBe("ERROR"); // not an application error
+    expect(screen.queryByText(/Dependency readiness could not be read/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("says Redis is not configured rather than down when it is not configured", async () => {
+    serve({
+      ready: jsonResponse(
+        readyWith({ dependencies: { database: { state: "ok", gating: true }, redis: { state: "not_configured", gating: false } } }),
+      ),
+    });
+    await renderServer(<Overview />);
+
+    expect(screen.getByText("Not configured")).toBeInTheDocument();
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+  });
+
+  it("shows a schema mismatch only as 'Not ready': no revision or migration detail reaches a user", async () => {
+    serve({
+      ready: jsonResponse(
+        readyWith({ status: "not_ready", schema: { state: "mismatch", expected: "0014", current: "0013", gating: true } }),
+        503,
+      ),
+    });
+    await renderServer(<Overview />);
+
+    expect(screen.getByText("Not ready")).toBeInTheDocument();
+    expect(screen.getAllByText("Reachable").length).toBeGreaterThan(0); // the database itself is fine
+    expect(document.body.textContent).not.toMatch(/0013|0014|alembic|migration|schema|revision|mismatch/i);
+  });
+
+  it("fails strictly on a readiness body that does not match the contract", async () => {
+    serve({ ready: jsonResponse({ ...READY, dependencies: { database: "ok", redis: "ok" } }) });
+    await renderServer(<Overview />);
+
+    expect(screen.getByText(/Dependency readiness could not be read/)).toBeInTheDocument();
+    expect(screen.queryByText("Ready")).toBeNull();
   });
 
   it("claims nothing it does not read: no KPI, score or aggregate wording", async () => {

@@ -14,14 +14,28 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import Any
 
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from quantforge.core.config import Settings, get_settings
-from quantforge.core.dependencies import DependencyCheck, DependencyName
+from quantforge.core.dependencies import (
+    DatabaseProbe,
+    DependencyCheck,
+    DependencyName,
+    SchemaCheck,
+    SchemaState,
+)
+from quantforge.db.schema import check_schema, expected_head
 
 logger = logging.getLogger(__name__)
+
+#: Upper bound on the readiness probe's own statements, whatever the serving statement timeout is: a
+#: probe that hangs is a probe that cannot answer.
+READINESS_STATEMENT_TIMEOUT_MS = 5000
 
 #: SQLAlchemy URL scheme prefixes that mean PostgreSQL.
 _POSTGRES_SCHEMES = ("postgresql", "postgres")
@@ -75,23 +89,45 @@ class _EngineRegistry:
     def __init__(self) -> None:
         self._engine: Engine | None = None
         self._database_url: str | None = None
+        self._connect_args: dict[str, Any] | None = None
+        self._pool_timeout: float | None = None
         self._session_factory: sessionmaker[Session] | None = None
 
-    def engine(self, database_url: str) -> Engine:
-        """Return the engine for ``database_url``, creating it if required."""
-        if self._engine is None or self._database_url != database_url:
+    def engine(
+        self,
+        database_url: str,
+        connect_args: dict[str, Any] | None = None,
+        pool_timeout: float | None = None,
+    ) -> Engine:
+        """Return the engine for this URL and these limits, creating it if required."""
+        wanted = connect_args or {}
+        if (
+            self._engine is None
+            or self._database_url != database_url
+            or self._connect_args != wanted
+            or self._pool_timeout != pool_timeout
+        ):
             self.dispose()
-            self._engine = create_engine(database_url, pool_pre_ping=True)
+            extra: dict[str, Any] = {} if pool_timeout is None else {"pool_timeout": pool_timeout}
+            self._engine = create_engine(
+                database_url, pool_pre_ping=True, connect_args=wanted, **extra
+            )
             self._database_url = database_url
+            self._connect_args = wanted
+            self._pool_timeout = pool_timeout
         return self._engine
 
-    def session_factory(self, database_url: str) -> sessionmaker[Session]:
-        """Return the session factory for ``database_url``, creating it if required."""
-        if self._session_factory is None:
+    def session_factory(
+        self,
+        database_url: str,
+        connect_args: dict[str, Any] | None = None,
+        pool_timeout: float | None = None,
+    ) -> sessionmaker[Session]:
+        """Return the session factory bound to the CURRENT engine, rebuilding it if the engine changed."""
+        engine = self.engine(database_url, connect_args, pool_timeout)
+        if self._session_factory is None or self._session_factory.kw.get("bind") is not engine:
             self._session_factory = sessionmaker(
-                bind=self.engine(database_url),
-                autoflush=False,
-                expire_on_commit=False,
+                bind=engine, autoflush=False, expire_on_commit=False
             )
         return self._session_factory
 
@@ -101,10 +137,39 @@ class _EngineRegistry:
             self._engine.dispose()
         self._engine = None
         self._database_url = None
+        self._connect_args = None
+        self._pool_timeout = None
         self._session_factory = None
 
 
 _registry = _EngineRegistry()
+
+
+def connect_arguments(settings: Settings) -> dict[str, Any]:
+    """Driver arguments that bound how long the database can make a caller wait.
+
+    ``connect_timeout`` (libpq, seconds) bounds establishing a connection; waiting for a free pooled
+    connection is bounded by the same number of seconds (``pool_timeout``), so a saturated pool fails
+    a request or a readiness probe quickly instead of after SQLAlchemy's 30 s default. The statement
+    timeout is sent as a server option at connect time, so every statement on every pooled connection
+    is bounded by PostgreSQL itself -- no application-level thread or timer is involved. A
+    ``connect_timeout`` or ``options`` already present in ``QF_DATABASE_URL`` is respected (``options``
+    is merged, not replaced). Poolers that reject the ``options`` startup parameter (PgBouncer without
+    ``ignore_startup_parameters=options``) need that setting or a direct connection.
+    """
+    query = make_url(normalise_database_url(settings.database_url)).query
+    arguments: dict[str, Any] = {}
+    # An operator who put connect_timeout in the URL itself has made an explicit choice: leave it.
+    if "connect_timeout" not in query:
+        arguments["connect_timeout"] = settings.db_connect_timeout_seconds
+    options = query.get("options", "")
+    options = options if isinstance(options, str) else " ".join(options)
+    # Keep any server options the URL already carries (for example a search_path) and add the cap,
+    # unless the URL itself already sets a statement_timeout.
+    if "statement_timeout" not in options:
+        cap = f"-c statement_timeout={settings.db_statement_timeout_seconds * 1000}"
+        arguments["options"] = f"{options} {cap}".strip()
+    return arguments
 
 
 def _resolve_database_url(settings: Settings | None) -> str:
@@ -114,12 +179,22 @@ def _resolve_database_url(settings: Settings | None) -> str:
 
 def get_engine(settings: Settings | None = None) -> Engine:
     """Return the process-wide :class:`~sqlalchemy.Engine`."""
-    return _registry.engine(_resolve_database_url(settings))
+    resolved = settings if settings is not None else get_settings()
+    return _registry.engine(
+        _resolve_database_url(resolved),
+        connect_arguments(resolved),
+        float(resolved.db_connect_timeout_seconds),
+    )
 
 
 def get_session_factory(settings: Settings | None = None) -> sessionmaker[Session]:
     """Return the process-wide :class:`~sqlalchemy.orm.sessionmaker`."""
-    return _registry.session_factory(_resolve_database_url(settings))
+    resolved = settings if settings is not None else get_settings()
+    return _registry.session_factory(
+        _resolve_database_url(resolved),
+        connect_arguments(resolved),
+        float(resolved.db_connect_timeout_seconds),
+    )
 
 
 @contextmanager
@@ -156,23 +231,54 @@ def dispose_engines() -> None:
     _registry.dispose()
 
 
-def ping_database(settings: Settings | None = None) -> DependencyCheck:
-    """Probe PostgreSQL by executing a trivial statement.
+#: Failures that mean "the database cannot be used right now": expected, so logged in one line with
+#: no traceback. Anything else is a defect in this code and keeps its traceback.
+_EXPECTED_FAILURES = (SQLAlchemyError, OSError)
 
-    ``pool_pre_ping`` already discards connections that died while idle, so a
-    single ``SELECT 1`` is enough to prove the server is reachable and accepting
-    queries.
+
+def _failure_label(exc: BaseException) -> str:
+    """Exception class names only (the driver's own class when SQLAlchemy wrapped one).
+
+    Driver messages embed the DSN, host and sometimes the password, so nothing but class names is
+    ever logged or returned by a probe. The full detail is deliberately not recoverable from here.
+    """
+    inner = getattr(exc, "orig", None)
+    return (
+        f"{type(exc).__name__}({type(inner).__name__})" if inner is not None else type(exc).__name__
+    )
+
+
+def probe_database(settings: Settings | None = None) -> DatabaseProbe:
+    """One bounded round trip: is PostgreSQL usable, and is its schema this binary's schema?
+
+    Connectivity (``SELECT 1``) and the Alembic revision are read on the same connection inside one
+    transaction whose statements are capped at :data:`READINESS_STATEMENT_TIMEOUT_MS`; connecting is
+    bounded by the engine's ``connect_timeout``. Nothing is written, upgraded or stamped.
 
     Returns:
-        A :class:`~quantforge.core.dependencies.DependencyCheck` that never
-        raises. On failure the detail is the exception type name only, because
-        SQLAlchemy exception text embeds the DSN.
+        A :class:`~quantforge.core.dependencies.DatabaseProbe` that never raises. When the database
+        cannot be reached the schema is ``unknown``. The failure detail is the exception CLASS name
+        only, because driver exception text embeds the DSN.
     """
+    unknown = SchemaCheck(SchemaState.UNKNOWN, expected=expected_head())
     try:
         with get_engine(settings).connect() as connection:
+            connection.execute(
+                text(f"SET LOCAL statement_timeout = {READINESS_STATEMENT_TIMEOUT_MS}")
+            )
             connection.execute(text("SELECT 1"))
-    except Exception as exc:  # any driver error means the dependency is unavailable
-        logger.warning("PostgreSQL readiness probe failed.", exc_info=True)
-        return DependencyCheck.failure(DependencyName.DATABASE, exc)
+            schema = check_schema(connection)
+    except _EXPECTED_FAILURES as exc:
+        logger.warning("PostgreSQL readiness probe failed: %s", _failure_label(exc))
+        return DatabaseProbe(DependencyCheck.failure(DependencyName.DATABASE, exc), unknown)
+    except Exception as exc:
+        # Not a connectivity problem: a defect. Still reported as unavailable, but with its traceback.
+        logger.exception("PostgreSQL readiness probe raised an unexpected error")
+        return DatabaseProbe(DependencyCheck.failure(DependencyName.DATABASE, exc), unknown)
 
-    return DependencyCheck.ok(DependencyName.DATABASE)
+    return DatabaseProbe(DependencyCheck.ok(DependencyName.DATABASE), schema)
+
+
+def ping_database(settings: Settings | None = None) -> DependencyCheck:
+    """Connectivity only: the database half of :func:`probe_database`."""
+    return probe_database(settings).database

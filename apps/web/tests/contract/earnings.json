@@ -171,10 +171,22 @@
   },
   "ready": {
     "dependencies": {
-      "database": "ok",
-      "redis": "ok"
+      "database": {
+        "gating": true,
+        "state": "ok"
+      },
+      "redis": {
+        "gating": false,
+        "state": "ok"
+      }
     },
     "detail": null,
+    "schema": {
+      "current": "0014",
+      "expected": "0014",
+      "gating": true,
+      "state": "compatible"
+    },
     "service": "quantforge-api",
     "status": "ready"
   }

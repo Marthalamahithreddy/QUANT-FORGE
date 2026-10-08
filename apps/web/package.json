@@ -15,7 +15,8 @@
     "e2e:build": "QF_DIST_DIR=.next-e2e NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8765 next build",
     "e2e": "npm run e2e:build && playwright test",
     "e2e:run": "playwright test",
-    "e2e:live": "next build && playwright test -c playwright.live.config.ts"
+    "e2e:live": "next build && playwright test -c playwright.live.config.ts",
+    "smoke:release": "node ../../scripts/release-smoke.mjs"
   },
   "dependencies": {
     "next": "16.3.6",

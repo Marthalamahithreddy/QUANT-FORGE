@@ -1,9 +1,11 @@
 """Readiness endpoint tests.
 
-The matrix of dependency states is driven through FastAPI dependency overrides,
-so these tests are deterministic and never require PostgreSQL or Redis to be
-running. The liveness and credential-leakage tests deliberately use the real
-probes against an unreachable DSN, which fails instantly on loopback.
+Readiness is ready only when PostgreSQL answers AND its schema is exactly this binary's migration
+head; Redis is reported and never gates (12D). The matrix of states is driven through FastAPI
+dependency overrides, so these tests are deterministic and never require PostgreSQL or Redis. The
+credential-leakage and real-failure tests deliberately use the real probes against an unreachable
+DSN, which fails instantly on loopback. Behind/ahead/missing schemas against a real database live in
+``tests/integration/test_readiness_schema.py``.
 """
 
 from __future__ import annotations
@@ -18,7 +20,15 @@ from fastapi.testclient import TestClient
 from quantforge.api.v1 import ready as ready_module
 from quantforge.api.v1.ready import check_database, check_redis
 from quantforge.core.config import Settings, get_settings
-from quantforge.core.dependencies import DependencyCheck, DependencyName, DependencyState
+from quantforge.core.dependencies import (
+    DatabaseProbe,
+    DependencyCheck,
+    DependencyName,
+    DependencyState,
+    SchemaCheck,
+    SchemaState,
+)
+from quantforge.db.schema import expected_head
 from quantforge.main import app as module_level_app
 from quantforge.main import create_app
 
@@ -28,14 +38,24 @@ READY_PATH = "/api/v1/health/ready"
 SECRET = "sup3rs3cret-do-not-leak"
 UNREACHABLE_DSN = f"postgresql+psycopg://quantforge:{SECRET}@127.0.0.1:1/quantforge"
 
+HEAD = expected_head()
+assert HEAD is not None, "the repository must have exactly one migration head"
+
 DATABASE_OK = DependencyCheck.ok(DependencyName.DATABASE)
 DATABASE_DOWN = DependencyCheck.failure(DependencyName.DATABASE, ConnectionError("refused"))
+SCHEMA_OK = SchemaCheck(SchemaState.COMPATIBLE, expected=HEAD, current=HEAD)
+SCHEMA_BEHIND = SchemaCheck(SchemaState.MISMATCH, expected=HEAD, current="0013")
+SCHEMA_AHEAD = SchemaCheck(SchemaState.MISMATCH, expected=HEAD, current="9999")
+SCHEMA_UNKNOWN = SchemaCheck(SchemaState.UNKNOWN, expected=HEAD, current=None)
+
+PROBE_OK = DatabaseProbe(DATABASE_OK, SCHEMA_OK)
 REDIS_OK = DependencyCheck.ok(DependencyName.REDIS)
 REDIS_DOWN = DependencyCheck.failure(DependencyName.REDIS, ConnectionError("refused"))
+REDIS_NOT_CONFIGURED = DependencyCheck(DependencyName.REDIS, DependencyState.NOT_CONFIGURED)
 
 
 def _app_with(
-    database: DependencyCheck,
+    database: DatabaseProbe,
     redis: DependencyCheck,
     settings: Settings,
 ) -> FastAPI:
@@ -47,79 +67,146 @@ def _app_with(
     return application
 
 
+def _get(
+    settings: Settings,
+    database: DatabaseProbe = PROBE_OK,
+    redis: DependencyCheck = REDIS_OK,
+) -> tuple[int, dict[str, Any]]:
+    with TestClient(_app_with(database, redis, settings)) as client:
+        response = client.get(READY_PATH)
+    return response.status_code, response.json()
+
+
 # ── Status and payload matrix ────────────────────────────────────────────────
 
 
-def test_ready_when_both_dependencies_succeed(make_settings: Callable[..., Settings]) -> None:
-    application = _app_with(DATABASE_OK, REDIS_OK, make_settings())
+def test_ready_when_database_schema_and_redis_are_all_healthy(
+    make_settings: Callable[..., Settings],
+) -> None:
+    code, payload = _get(make_settings())
 
-    with TestClient(application) as client:
-        response = client.get(READY_PATH)
-
-    assert response.status_code == 200
-    assert response.json() == {
+    assert code == 200
+    assert payload == {
         "status": "ready",
         "service": "quantforge-api",
-        "dependencies": {"database": "ok", "redis": "ok"},
+        "dependencies": {
+            "database": {"state": "ok", "gating": True},
+            "redis": {"state": "ok", "gating": False},
+        },
+        "schema": {"state": "compatible", "expected": HEAD, "current": HEAD, "gating": True},
         "detail": None,
     }
 
 
-def test_not_ready_when_postgres_fails(make_settings: Callable[..., Settings]) -> None:
-    application = _app_with(DATABASE_DOWN, REDIS_OK, make_settings())
+def test_redis_unavailable_does_not_make_the_service_not_ready(
+    make_settings: Callable[..., Settings],
+) -> None:
+    """Redis is non-gating: nothing that serves the persisted product uses it."""
+    code, payload = _get(make_settings(), redis=REDIS_DOWN)
 
-    with TestClient(application) as client:
-        response = client.get(READY_PATH)
-
-    assert response.status_code == 503
-    assert response.json() == {
-        "status": "not_ready",
-        "service": "quantforge-api",
-        "dependencies": {"database": "unavailable", "redis": "ok"},
-        "detail": {"database": "ConnectionError"},
-    }
-
-
-def test_not_ready_when_redis_fails(make_settings: Callable[..., Settings]) -> None:
-    application = _app_with(DATABASE_OK, REDIS_DOWN, make_settings())
-
-    with TestClient(application) as client:
-        response = client.get(READY_PATH)
-
-    assert response.status_code == 503
-    payload = response.json()
-    assert payload["dependencies"] == {"database": "ok", "redis": "unavailable"}
+    assert code == 200
+    assert payload["status"] == "ready"
+    assert payload["dependencies"]["redis"] == {"state": "unavailable", "gating": False}
+    assert payload["dependencies"]["database"]["state"] == "ok"
     assert payload["detail"] == {"redis": "ConnectionError"}
 
 
-def test_not_ready_when_both_fail(make_settings: Callable[..., Settings]) -> None:
-    application = _app_with(DATABASE_DOWN, REDIS_DOWN, make_settings())
+def test_redis_not_configured_is_its_own_state_and_not_an_outage(
+    make_settings: Callable[..., Settings],
+) -> None:
+    code, payload = _get(make_settings(), redis=REDIS_NOT_CONFIGURED)
 
-    with TestClient(application) as client:
-        response = client.get(READY_PATH)
+    assert code == 200 and payload["status"] == "ready"
+    assert payload["dependencies"]["redis"] == {"state": "not_configured", "gating": False}
+    assert payload["detail"] is None, "not an outage, so nothing to explain"
 
-    assert response.status_code == 503
-    payload = response.json()
+
+def test_not_ready_when_the_database_is_unreachable(
+    make_settings: Callable[..., Settings],
+) -> None:
+    unreachable = DatabaseProbe(DATABASE_DOWN, SchemaCheck(SchemaState.UNKNOWN, expected=HEAD))
+    code, payload = _get(make_settings(), database=unreachable)
+
+    assert code == 503
     assert payload["status"] == "not_ready"
-    assert payload["dependencies"] == {"database": "unavailable", "redis": "unavailable"}
+    assert payload["dependencies"]["database"] == {"state": "unavailable", "gating": True}
+    assert payload["schema"] == {
+        "state": "unknown",
+        "expected": HEAD,
+        "current": None,
+        "gating": True,
+    }
+    assert payload["detail"] == {"database": "ConnectionError"}
+
+
+@pytest.mark.parametrize(
+    ("label", "schema", "state", "current"),
+    [
+        ("behind", SCHEMA_BEHIND, "mismatch", "0013"),
+        ("ahead of the binary", SCHEMA_AHEAD, "mismatch", "9999"),
+        ("version missing or ambiguous", SCHEMA_UNKNOWN, "unknown", None),
+    ],
+)
+def test_not_ready_for_any_schema_that_is_not_exactly_the_expected_head(
+    make_settings: Callable[..., Settings],
+    label: str,
+    schema: SchemaCheck,
+    state: str,
+    current: str | None,
+) -> None:
+    code, payload = _get(make_settings(), database=DatabaseProbe(DATABASE_OK, schema))
+
+    assert code == 503, label
+    assert payload["status"] == "not_ready", label
+    assert payload["dependencies"]["database"]["state"] == "ok", "the database itself is fine"
+    assert payload["schema"] == {
+        "state": state,
+        "expected": HEAD,
+        "current": current,
+        "gating": True,
+    }
+    assert payload["detail"] is None, "a schema problem is not an unavailable dependency"
+
+
+def test_redis_down_cannot_rescue_or_condemn_a_schema_failure(
+    make_settings: Callable[..., Settings],
+) -> None:
+    code, payload = _get(
+        make_settings(), database=DatabaseProbe(DATABASE_OK, SCHEMA_BEHIND), redis=REDIS_DOWN
+    )
+    assert code == 503 and payload["status"] == "not_ready"
+    assert payload["dependencies"]["redis"]["state"] == "unavailable"
+
+
+def test_both_failing_reports_both(make_settings: Callable[..., Settings]) -> None:
+    unreachable = DatabaseProbe(DATABASE_DOWN, SchemaCheck(SchemaState.UNKNOWN, expected=HEAD))
+    code, payload = _get(make_settings(), database=unreachable, redis=REDIS_DOWN)
+
+    assert code == 503
     assert payload["detail"] == {"database": "ConnectionError", "redis": "ConnectionError"}
 
 
-def test_dependencies_are_always_reported(make_settings: Callable[..., Settings]) -> None:
-    """Both keys are present regardless of outcome, so clients can rely on them."""
-    application = _app_with(DATABASE_DOWN, REDIS_OK, make_settings())
+def test_every_component_is_always_reported(make_settings: Callable[..., Settings]) -> None:
+    """The keys a client can rely on exist whatever the outcome."""
+    _, payload = _get(make_settings(), database=DatabaseProbe(DATABASE_DOWN, SCHEMA_UNKNOWN))
 
-    with TestClient(application) as client:
-        payload = client.get(READY_PATH).json()
-
+    assert set(payload) == {"status", "service", "dependencies", "schema", "detail"}
     assert set(payload["dependencies"]) == {"database", "redis"}
+    assert set(payload["schema"]) == {"state", "expected", "current", "gating"}
+
+
+def test_the_gating_policy_is_part_of_the_contract(make_settings: Callable[..., Settings]) -> None:
+    """Which components gate readiness is machine-readable, and it is constant."""
+    for redis in (REDIS_OK, REDIS_DOWN, REDIS_NOT_CONFIGURED):
+        _, payload = _get(make_settings(), redis=redis)
+        assert payload["dependencies"]["database"]["gating"] is True
+        assert payload["schema"]["gating"] is True
+        assert payload["dependencies"]["redis"]["gating"] is False
 
 
 def test_service_name_comes_from_settings(make_settings: Callable[..., Settings]) -> None:
-    application = _app_with(DATABASE_OK, REDIS_OK, make_settings(app_name="custom-api"))
-
-    with TestClient(application) as client:
-        assert client.get(READY_PATH).json()["service"] == "custom-api"
+    _, payload = _get(make_settings(app_name="custom-api"))
+    assert payload["service"] == "custom-api"
 
 
 # ── Dependency wiring ────────────────────────────────────────────────────────
@@ -131,19 +218,19 @@ def test_probes_delegate_settings_to_the_infrastructure_layer(
     """The FastAPI wrappers must forward settings and return the probe result."""
     forwarded: list[Settings] = []
 
-    def _fake_database(settings: Settings) -> DependencyCheck:
+    def _fake_database(settings: Settings) -> DatabaseProbe:
         forwarded.append(settings)
-        return DATABASE_OK
+        return PROBE_OK
 
     def _fake_redis(settings: Settings) -> DependencyCheck:
         forwarded.append(settings)
         return REDIS_DOWN
 
-    monkeypatch.setattr(ready_module, "ping_database", _fake_database)
+    monkeypatch.setattr(ready_module, "probe_database", _fake_database)
     monkeypatch.setattr(ready_module, "ping_redis", _fake_redis)
     settings = Settings(_env_file=None)
 
-    assert check_database(settings) is DATABASE_OK
+    assert check_database(settings) is PROBE_OK
     assert check_redis(settings) is REDIS_DOWN
     assert forwarded == [settings, settings]
 
@@ -155,7 +242,9 @@ def test_health_stays_200_with_both_dependencies_down(
     make_settings: Callable[..., Settings],
 ) -> None:
     """Liveness is a process probe and must not care about datastores."""
-    application = _app_with(DATABASE_DOWN, REDIS_DOWN, make_settings())
+    application = _app_with(
+        DatabaseProbe(DATABASE_DOWN, SCHEMA_UNKNOWN), REDIS_DOWN, make_settings()
+    )
 
     with TestClient(application) as client:
         assert client.get("/health").status_code == 200
@@ -163,7 +252,7 @@ def test_health_stays_200_with_both_dependencies_down(
 
 
 def test_health_contract_is_unchanged(make_settings: Callable[..., Settings]) -> None:
-    application = _app_with(DATABASE_OK, REDIS_OK, make_settings())
+    application = _app_with(PROBE_OK, REDIS_OK, make_settings())
 
     with TestClient(application) as client:
         payload = client.get("/api/v1/health").json()
@@ -175,18 +264,14 @@ def test_readiness_does_not_replace_the_liveness_path(
     make_settings: Callable[..., Settings],
 ) -> None:
     """Readiness is versioned only; /health/ready must not appear."""
-    application = _app_with(DATABASE_OK, REDIS_OK, make_settings())
+    application = _app_with(PROBE_OK, REDIS_OK, make_settings())
 
     with TestClient(application) as client:
         assert client.get("/health/ready").status_code == 404
 
 
 def test_readiness_respects_a_custom_prefix(make_settings: Callable[..., Settings]) -> None:
-    application = _app_with(
-        DATABASE_OK,
-        REDIS_OK,
-        make_settings(api_v1_prefix="/api/v2"),
-    )
+    application = _app_with(PROBE_OK, REDIS_OK, make_settings(api_v1_prefix="/api/v2"))
 
     with TestClient(application) as client:
         assert client.get("/api/v2/health/ready").status_code == 200
@@ -216,7 +301,8 @@ def test_real_database_failure_is_reported_cleanly(
     assert response.status_code == 503
     payload = response.json()
     assert payload["status"] == "not_ready"
-    assert payload["dependencies"]["database"] == "unavailable"
+    assert payload["dependencies"]["database"] == {"state": "unavailable", "gating": True}
+    assert payload["schema"]["state"] == "unknown"
     assert payload["detail"]["database"] == "OperationalError"
 
 
@@ -252,7 +338,7 @@ def test_unavailable_detail_defaults_to_the_state_name(
 ) -> None:
     """A failure with no exception type still yields a useful, safe label."""
     bare = DependencyCheck(name=DependencyName.REDIS, state=DependencyState.UNAVAILABLE)
-    application = _app_with(DATABASE_OK, bare, make_settings())
+    application = _app_with(PROBE_OK, bare, make_settings())
 
     with TestClient(application) as client:
         payload = client.get(READY_PATH).json()
@@ -287,10 +373,21 @@ def test_response_model_is_declared(client: TestClient) -> None:
     }
 
 
-def test_dependency_states_are_constrained_in_the_schema(client: TestClient) -> None:
-    properties: dict[str, Any] = client.get("/openapi.json").json()["components"]["schemas"][
-        "DependencyReadiness"
-    ]["properties"]
+def test_component_states_are_constrained_in_the_schema(client: TestClient) -> None:
+    schemas: dict[str, Any] = client.get("/openapi.json").json()["components"]["schemas"]
 
-    for name in ("database", "redis"):
-        assert set(properties[name]["enum"]) == {"ok", "unavailable"}
+    assert set(schemas["DatabaseReadiness"]["properties"]["state"]["enum"]) == {"ok", "unavailable"}
+    assert set(schemas["RedisReadiness"]["properties"]["state"]["enum"]) == {
+        "ok",
+        "unavailable",
+        "not_configured",
+    }
+    assert set(schemas["SchemaReadiness"]["properties"]["state"]["enum"]) == {
+        "compatible",
+        "mismatch",
+        "unknown",
+    }
+    assert schemas["RedisReadiness"]["properties"]["gating"]["const"] is False
+    assert schemas["DatabaseReadiness"]["properties"]["gating"]["const"] is True
+    assert schemas["SchemaReadiness"]["properties"]["gating"]["const"] is True
+    assert "schema" in schemas["ReadinessResponse"]["properties"]

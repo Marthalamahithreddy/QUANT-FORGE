@@ -521,26 +521,40 @@
         "title": "CurrentEpsSection",
         "type": "object"
       },
-      "DependencyReadiness": {
-        "description": "Per-dependency readiness, reported for every dependency on every call.",
+      "DatabaseReadiness": {
+        "description": "PostgreSQL connectivity. Gates readiness.",
         "properties": {
-          "database": {
+          "gating": {
+            "const": true,
+            "default": true,
+            "description": "An unavailable database makes the service not ready.",
+            "title": "Gating",
+            "type": "boolean"
+          },
+          "state": {
             "description": "PostgreSQL connectivity.",
             "enum": [
               "ok",
               "unavailable"
             ],
-            "title": "Database",
+            "title": "State",
             "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "DatabaseReadiness",
+        "type": "object"
+      },
+      "DependencyReadiness": {
+        "description": "Per-dependency readiness, reported for every dependency on every call.",
+        "properties": {
+          "database": {
+            "$ref": "#/components/schemas/DatabaseReadiness"
           },
           "redis": {
-            "description": "Redis connectivity.",
-            "enum": [
-              "ok",
-              "unavailable"
-            ],
-            "title": "Redis",
-            "type": "string"
+            "$ref": "#/components/schemas/RedisReadiness"
           }
         },
         "required": [
@@ -2106,11 +2120,11 @@
         "type": "string"
       },
       "ReadinessResponse": {
-        "description": "Readiness payload including the outcome for each backing service.",
+        "description": "Readiness payload: the verdict, and the state of everything that was looked at.",
         "properties": {
           "dependencies": {
             "$ref": "#/components/schemas/DependencyReadiness",
-            "description": "State of each dependency."
+            "description": "State of each backing service."
           },
           "detail": {
             "anyOf": [
@@ -2127,13 +2141,17 @@
             "description": "For each unavailable dependency, the exception class name. Never contains a message, DSN, password or stack trace.",
             "title": "Detail"
           },
+          "schema": {
+            "$ref": "#/components/schemas/SchemaReadiness",
+            "description": "Migration-head compatibility of the database."
+          },
           "service": {
             "description": "Logical service name.",
             "title": "Service",
             "type": "string"
           },
           "status": {
-            "description": "'ready' only when every dependency is reachable.",
+            "description": "'ready' only when the database is reachable AND the schema is compatible.",
             "enum": [
               "ready",
               "not_ready"
@@ -2145,7 +2163,8 @@
         "required": [
           "status",
           "service",
-          "dependencies"
+          "dependencies",
+          "schema"
         ],
         "title": "ReadinessResponse",
         "type": "object"
@@ -2378,6 +2397,33 @@
           "fingerprints"
         ],
         "title": "RecordVerificationSide",
+        "type": "object"
+      },
+      "RedisReadiness": {
+        "description": "Redis state. Reported for operators; never gates readiness.",
+        "properties": {
+          "gating": {
+            "const": false,
+            "default": false,
+            "description": "Redis does not affect readiness: no serving path requires it.",
+            "title": "Gating",
+            "type": "boolean"
+          },
+          "state": {
+            "description": "Redis connectivity, or that it is not configured.",
+            "enum": [
+              "ok",
+              "unavailable",
+              "not_configured"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "RedisReadiness",
         "type": "object"
       },
       "RefusalOut": {
@@ -2675,6 +2721,59 @@
           "request"
         ],
         "title": "ResearchRecordSummary",
+        "type": "object"
+      },
+      "SchemaReadiness": {
+        "description": "Whether the database schema is the migration head this binary expects. Gates readiness.",
+        "properties": {
+          "current": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The database's single Alembic revision; null when it cannot be read.",
+            "title": "Current"
+          },
+          "expected": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The single Alembic head of this binary; null when it cannot be established.",
+            "title": "Expected"
+          },
+          "gating": {
+            "const": true,
+            "default": true,
+            "description": "Any state other than 'compatible' makes the service not ready.",
+            "title": "Gating",
+            "type": "boolean"
+          },
+          "state": {
+            "description": "'compatible' only when the database revision equals the expected head exactly.",
+            "enum": [
+              "compatible",
+              "mismatch",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "expected",
+          "current"
+        ],
+        "title": "SchemaReadiness",
         "type": "object"
       },
       "SecFormType": {
@@ -3335,7 +3434,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "description": "Reports that the API process is serving requests. Does not assert the health of any backing datastore.",
+        "description": "Reports that the API process is answering HTTP. Queries nothing: it asserts nothing about any backing service (see the readiness probe).",
         "operationId": "health_api_v1_health_get",
         "responses": {
           "200": {
@@ -3357,7 +3456,7 @@
     },
     "/api/v1/health/ready": {
       "get": {
-        "description": "Reports whether PostgreSQL and Redis are reachable. Returns 200 when both are available and 503 otherwise, always with a typed body naming the failing dependency.",
+        "description": "Reports whether this binary can serve its application contract: PostgreSQL reachable and its schema exactly the expected migration head. Redis is reported but does not gate. Returns 200 when ready and 503 otherwise, always with a typed body.",
         "operationId": "readiness_api_v1_health_ready_get",
         "responses": {
           "200": {
@@ -3724,7 +3823,7 @@
     },
     "/health": {
       "get": {
-        "description": "Reports that the API process is serving requests. Does not assert the health of any backing datastore.",
+        "description": "Reports that the API process is answering HTTP. Queries nothing: it asserts nothing about any backing service (see the readiness probe).",
         "operationId": "health_health_get",
         "responses": {
           "200": {

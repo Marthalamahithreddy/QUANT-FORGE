@@ -68,7 +68,7 @@ class _RedisRegistry:
 _registry = _RedisRegistry()
 
 
-def _resolve_redis_url(settings: Settings | None) -> str:
+def _resolve_redis_url(settings: Settings | None) -> str | None:
     resolved = settings if settings is not None else get_settings()
     return resolved.redis_url
 
@@ -77,8 +77,15 @@ def get_redis(settings: Settings | None = None) -> Redis:
     """Return the process-wide :class:`redis.Redis` client.
 
     Construction is lazy and does not dial the server.
+
+    Raises:
+        RuntimeError: ``QF_REDIS_URL`` is blank, i.e. Redis is deliberately not configured.
     """
-    return _registry.client(_resolve_redis_url(settings))
+    url = _resolve_redis_url(settings)
+    if url is None:
+        message = "Redis is not configured (QF_REDIS_URL is blank)."
+        raise RuntimeError(message)
+    return _registry.client(url)
 
 
 def close_redis() -> None:
@@ -101,11 +108,21 @@ def ping_redis(
         A :class:`~quantforge.core.dependencies.DependencyCheck` that never
         raises. On failure the detail is the exception type name only.
     """
-    redis_client: Pingable = client if client is not None else get_redis(settings)
+    if client is None and _resolve_redis_url(settings) is None:
+        # Deliberately unconfigured is a distinct, honest state -- not an outage.
+        return DependencyCheck(DependencyName.REDIS, DependencyState.NOT_CONFIGURED)
     try:
+        # Building the client is inside the guard: a malformed QF_REDIS_URL raises here, and Redis
+        # must never be able to turn the readiness probe into a 500.
+        redis_client: Pingable = client if client is not None else get_redis(settings)
         response = redis_client.ping()
-    except Exception as exc:  # any client error means the dependency is unavailable
-        logger.warning("Redis readiness probe failed.", exc_info=True)
+    except (RedisError, OSError, ValueError) as exc:
+        # Expected: the server is down or unreachable. One line, class name only (a client error can
+        # embed the URL); no traceback.
+        logger.warning("Redis readiness probe failed: %s", type(exc).__name__)
+        return DependencyCheck.failure(DependencyName.REDIS, exc)
+    except Exception as exc:  # a defect, not an outage: keep the traceback
+        logger.exception("Redis readiness probe raised an unexpected error")
         return DependencyCheck.failure(DependencyName.REDIS, exc)
 
     # A successful PING answers b"PONG" or "PONG" depending on decode_responses.
