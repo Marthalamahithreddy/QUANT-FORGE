@@ -273,3 +273,31 @@ describe("tooling and dependencies", () => {
     expect(pkg.scripts["contract:check"]).toBe("node scripts/openapi.mjs check");
   });
 });
+
+describe("pinned backend captures: provenance and freshness (Step 12E)", () => {
+  const capture = (name: string): Record<string, unknown> => JSON.parse(read(join(ROOT, "tests", "contract", `${name}.json`)));
+
+  it.each(["observation", "records"])("%s.json states the baseline it was captured under", (name) => {
+    expect(capture(name).capture_baseline).toEqual({
+      step: "12E",
+      forward_returns_methodology: "close-to-close-proven-session-returns/2",
+      provider_requests: 0,
+    });
+  });
+
+  it("the captured saved records ran under the methodology the capture baseline names", () => {
+    const labels = new Set(read(join(ROOT, "tests", "contract", "records.json")).match(/close-to-close-proven-session-returns\/\d+/g));
+    expect([...labels]).toEqual(["close-to-close-proven-session-returns/2"]);
+  });
+
+  it("no pinned capture contains the wording or status semantics that predate the session-integrity repair", () => {
+    for (const name of ["observation", "records", "earnings", "vertical"]) {
+      const text = read(join(ROOT, "tests", "contract", `${name}.json`));
+      expect(text, name).not.toMatch(/available trading sessions exist after|ordered available trading-session|ordered list of available trading sessions|INSUFFICIENT_FORWARD_BARS|Too few stored sessions/);
+    }
+  });
+
+  it("the captures are real backend responses: each states that it must not be edited by hand", () => {
+    for (const name of ["observation", "records", "earnings"]) expect(String(capture(name)._note)).toMatch(/Captured from the real backend/);
+  });
+});

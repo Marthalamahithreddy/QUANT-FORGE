@@ -119,10 +119,11 @@ describe("no benchmark (the default study)", () => {
     expect(descriptive()).toHaveTextContent("No benchmark selected: stock returns only.");
   });
 
-  it("states the stock-only partial study honestly when horizons exceed the calendar's proven horizon", async () => {
+  it("states the stock-only partial study honestly when later horizons are proven sessions with no stored price", async () => {
     await open("default_no_benchmark");
     const table = within(descriptive()).getByRole("table", { name: "Descriptive returns by horizon" });
-    expect(within(table).getAllByText(/Beyond the calendar's proven horizon/)).toHaveLength(2);
+    expect(within(table).getAllByText(/Price not stored for target session/)).toHaveLength(2);
+    expect(within(table).queryByText(/Beyond the calendar's proven horizon/)).toBeNull(); // the calendar CAN prove these
     expect(within(descriptive()).getByText("Partial")).toBeInTheDocument();
     expect(descriptive().querySelector('[data-state="MISSING"]')).not.toBeNull();
   });
@@ -402,10 +403,23 @@ describe("refusals", () => {
     expect(screen.queryAllByRole("alert")).toHaveLength(0);
   });
 
-  it("event off the stored calendar: missing sessions are MISSING, not a refusal and not an error", async () => {
+  it("an event aligned by the calendar but with no stored price at its anchor: MISSING anchor price, not a refusal, not an error", async () => {
     await open("event_off_calendar", searchOf("event_off_calendar"));
-    expect(within(descriptive()).getByRole("status", { name: /Session alignment: Missing/ })).toBeInTheDocument();
+    // The sessions come from the exchange calendar, so the event ALIGNS even though no bar is stored for it.
+    expect(within(descriptive()).queryByRole("status", { name: /Session alignment/ })).toBeNull();
+    const table = within(descriptive()).getByRole("table", { name: "Descriptive returns by horizon" });
+    expect(within(table).getAllByText("MISSING_ANCHOR_PRICE")).toHaveLength(2);
     expect(screen.queryAllByRole("alert")).toHaveLength(0);
+  });
+
+  it("a horizon the calendar cannot prove is INSUFFICIENT_FORWARD_SESSIONS, listed apart from unpriced proven sessions", async () => {
+    await open("horizons_beyond_calendar", searchOf("horizons_beyond_calendar"));
+    const ledger = document.getElementById("refusal-ledger")!;
+    const market = within(ledger).getByRole("table", { name: /Market · 3 refusals/ });
+    expect(within(market).getAllByText("MISSING_TARGET_PRICE")).toHaveLength(2);
+    expect(within(market).getAllByText("INSUFFICIENT_FORWARD_SESSIONS")).toHaveLength(1);
+    expect(within(market).getByText(/the exchange calendar proves fewer than 5 trading sessions after the anchor session 2027-10-06/)).toBeInTheDocument();
+    expect(ledger.querySelector('[role="alert"]')).toBeNull();
   });
 
   it("event refusal: a missing reported EPS is NOT_STATED, listed under EVENT, and not an error", async () => {
@@ -423,8 +437,8 @@ describe("refusals", () => {
     const captions = [...ledger.querySelectorAll("caption")].map((c) => c.textContent);
     expect(captions).toEqual(["Market · 2 refusals", "Point-in-time · 1 refusal"]);
     const market = within(ledger).getByRole("table", { name: /Market/ });
-    expect(within(market).getAllByText("INSUFFICIENT_FORWARD_SESSIONS")).toHaveLength(2);
-    expect(within(market).getByText("fewer than 5 available trading sessions exist after the anchor session 2026-03-02")).toBeInTheDocument();
+    expect(within(market).getAllByText("MISSING_TARGET_PRICE")).toHaveLength(2);
+    expect(within(market).getByText(/^2026-03-30 is the 20-th exchange session after the anchor 2026-03-02, but no price observation is stored for it/)).toBeInTheDocument();
     expect(within(market).getByText("+20 sessions")).toBeInTheDocument();
     expect(ledger.querySelector('[data-state="MISSING"]')).not.toBeNull();
     expect(ledger.querySelector('[role="alert"]')).toBeNull();
@@ -441,7 +455,7 @@ describe("refusals", () => {
 
   it("does not repeat full refusal paragraphs in the sections: they point at the ledger", async () => {
     await open("default_no_benchmark");
-    const reason = "fewer than 5 available trading sessions exist after the anchor session 2026-03-02";
+    const reason = "2026-03-09 is the 5-th exchange session after the anchor 2026-03-02, but no price observation is stored for it; the target is not moved to another date";
     expect(screen.getAllByText(reason).length).toBeGreaterThanOrEqual(1);
     const outsideLedger = [...document.querySelectorAll("*")].filter((el) => el.children.length === 0 && el.textContent === reason && !el.closest("#refusal-ledger") && !el.hasAttribute("title"));
     // the table's cell tooltip carries it, the visible section text only references the ledger

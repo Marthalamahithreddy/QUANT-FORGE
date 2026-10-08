@@ -70,7 +70,13 @@ export function SessionLadder({ study, label }: { readonly study: Study; readonl
         {anchor ? <Slot label="Anchor · first post-event session" date={anchor} /> : null}
         {study.stock_returns.forward_returns.map((entry) =>
           entry.target_session ? (
-            <Slot key={entry.horizon} label={`+${entry.horizon} sessions`} date={entry.target_session} />
+            // A proven session whose price is not stored must not look like a priced one.
+            <Slot
+              key={entry.horizon}
+              label={`+${entry.horizon} sessions`}
+              date={entry.target_session}
+              note={entry.status === "MISSING_TARGET_PRICE" ? FORWARD_RETURN_LABEL.MISSING_TARGET_PRICE : undefined}
+            />
           ) : (
             <li key={entry.horizon} className="flex min-w-28 shrink-0 flex-col gap-1 rounded border border-dashed border-border px-3 py-2">
               <span className="type-label">+{entry.horizon} sessions</span>

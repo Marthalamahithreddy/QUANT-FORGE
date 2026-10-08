@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -28,6 +28,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from tests.fsds_fixture import ACC_10Q, ACC_10QA, ACC_OTHER, CIK_OTHER, build_package
 from tests.integration.test_research_observation import (  # noqa: F401
@@ -46,13 +47,36 @@ from quantforge.db.session import get_session
 from quantforge.ingestion.financial_facts import FinancialFactIngestionService
 from quantforge.ingestion.raw_store import RawResponseStore
 from quantforge.main import create_app
+from quantforge.reproducibility.methodology import COMPONENT_VERSIONS
 from quantforge.models.benchmark import Benchmark
 from quantforge.models.company import Company
-from quantforge.models.enums import EarningsTiming, SecFormType
+from quantforge.models.enums import EarningsTiming, PriceBasis, SecFormType
+from quantforge.models.market import DailyPriceBar
+from quantforge.models.security import Listing
+from quantforge.research.alignment import resolve_session_calendar
+from quantforge.research.calendar import proven_sessions_after
 
 pytestmark = pytest.mark.integration
 OUT = Path(__file__).resolve().parents[1] / "tests" / "contract" / "observation.json"
 QUARTER = {"eps_period_class": "QUARTER", "eps_kind": "DILUTED"}
+
+
+def _calendar_edge_anchor() -> date:
+    """The exchange session whose NEXT sessions the calendar can prove only partly (two of them).
+
+    The status INSUFFICIENT_FORWARD_SESSIONS means the calendar cannot prove the N-th session; it is
+    reached only at the end of the calendar's range, so the anchor is found by probing the calendar
+    itself. Nothing here reads the clock, and the captured response states the proven sessions.
+    """
+    calendar = resolve_session_calendar(None)
+    day = date(2027, 9, 1)
+    while day < date(2030, 1, 1):
+        proven = proven_sessions_after(calendar=calendar, mic="XNYS", anchor_session=day, count=5)
+        if len(proven.sessions) == 2 and not proven.complete:
+            return day
+        day += timedelta(days=1)
+    message = "the calendar's range end was not found"
+    raise AssertionError(message)
 
 
 def test_capture(db_session: Session, market: dict[str, object], tmp_path: Path) -> None:
@@ -88,6 +112,26 @@ def test_capture(db_session: Session, market: dict[str, object], tmp_path: Path)
         db_session, market, reported_eps=None, estimated_eps=Decimal("1.0000"), fiscal_quarter=4
     )
     off_calendar = _event(db_session, market, event_date=date(2026, 6, 1), fiscal_year=2025)
+    # An anchor two sessions before the end of the exchange calendar: horizon 1 and 2 can be proven
+    # (and, with no stored bar, are MISSING_TARGET_PRICE), horizon 5 cannot (INSUFFICIENT_FORWARD_SESSIONS).
+    edge_anchor = _calendar_edge_anchor()
+    listing = db_session.scalars(select(Listing).where(Listing.ticker == "OBSV")).one()
+    db_session.add(
+        DailyPriceBar(
+            price_basis=PriceBasis.SPLIT_ADJUSTED,
+            listing_id=listing.id,
+            trading_date=edge_anchor,
+            open=Decimal(100),
+            high=Decimal(100),
+            low=Decimal(100),
+            close=Decimal(100),
+            source_id=market["stock_source"].id,  # type: ignore[attr-defined]
+        )
+    )
+    db_session.commit()
+    at_calendar_edge = _event(
+        db_session, market, event_date=edge_anchor, fiscal_year=2027, fiscal_quarter=1
+    )
 
     cases: list[tuple[str, Any, dict[str, str]]] = [
         ("default_no_benchmark", plain, {}),
@@ -108,9 +152,17 @@ def test_capture(db_session: Session, market: dict[str, object], tmp_path: Path)
         ("filing_not_stored", plain, {"horizons": "1,2", "filing_accession": "0000111111-24-000001", **QUARTER}),
         ("filing_cik_mismatch", plain, {"horizons": "1,2", "filing_accession": ACC_OTHER, **QUARTER}),
         ("horizons_beyond_stored_sessions", plain, {"horizons": "1,5,20", "benchmark_id": bid}),
+        ("horizons_beyond_calendar", at_calendar_edge, {"horizons": "1,2,5"}),
     ]
     out: dict[str, Any] = {
         "_note": "Captured from the real backend by scripts/capture_observation_fixtures.py. Do not edit by hand.",
+        # Which backend semantics this capture reflects (checked by tests/contract-structure.test.ts):
+        # the forward-return methodology the responses were computed under, and no provider requests.
+        "capture_baseline": {
+            "step": "12E",
+            "forward_returns_methodology": COMPONENT_VERSIONS["forward_returns"],
+            "provider_requests": 0,
+        },
         "cases": [],
     }
     for name, event, params in cases:

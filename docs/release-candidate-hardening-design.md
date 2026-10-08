@@ -575,4 +575,26 @@ conversion is deferred); its `unchanged` phase compares four totals; poolers tha
 `ignore_startup_parameters=options` or a direct connection; the ingestion CLI inherits the 60 s statement timeout (raise
 `QF_DB_STATEMENT_TIMEOUT_SECONDS` for a deliberately long bulk run); a wheel install cannot establish its head and stays not ready.
 
-Next planned slice: 12E (regression, performance and security cleanup; frontend fixture recapture; dependency and secret audits).
+## 18. Step 12E results (release qualification)
+
+Step 12D is committed as `8661fba` ("fix: harden operational readiness"). 12E is a qualification slice: no migration, provider, methodology, accounting or ingestion change.
+The full evidence is in `docs/release-qualification-12e.md`; this section records what changed and what was decided.
+
+| Area | Result |
+|---|---|
+| Release smoke false positive (12D carried item) | **resolved.** Proven first: with every event-detail request answered 503 the 12D smoke passed (exit 0). Now the browser phase fails on `role="alert"` / `data-state="ERROR"` served with HTTP 200 (`scripts/validation/page_health.mjs`), on script / console errors, on a page that does not show what the API reports it holds, and on any browser write request; refusals, missing / unavailable states and honest empty lists pass |
+| `unchanged` check | per-list digests (events, filings, benchmarks, saved records), the EPS facts of the first five filings and one observation; with `--db-fingerprint` a per-table row count, insert/update/delete counters, head/tail/key digests and full digests of saved records, raw-artifact references and ingestion runs (`scripts/validation/state_fingerprint.py`, read-only). An unreadable state is now a failure (two failed reads used to compare equal). The run reports that every request was a GET |
+| Failure injection | 20 real-Chrome scenarios (`e2e/release-smoke-controls.spec.ts`), 40 classifier tests over the real components (`tests/page-health.test.tsx`), 33 orchestration tests, 12 fingerprint tests against PostgreSQL, plus real-stack runs: backend down, database down, schema mismatch (dev DB at 0013, read-only), web down, and a mutated DB copy |
+| Frontend fixtures | `observation.json` and `records.json` recaptured with the existing recipes; one case added (`horizons_beyond_calendar`) so a real `INSUFFICIENT_FORWARD_SESSIONS` is pinned; `capture_baseline` metadata and `contract-structure.test.ts` guards; tests that encoded pre-11.2E semantics rewritten; `docs/frontend-v2-design.md` updated. One e2e test depended on random identifiers sorting into the first five events and was made order-independent |
+| Dependencies | Python: 0 findings. npm runtime: `next` 16.3.6 -> 16.3.8 (six advisories incl. an SSRF in Image Optimization; not reachable by this app, fixed anyway), `sharp` 0.35.5, `source-map-js` 1.2.2 -> runtime audit 0. One development-only chain (`braces`, no patch exists) waived |
+| Security posture tests | `test_deployment_boundary.py`: every route is GET and every write method 405; serving never imports a provider / ingestion module; an unhandled error leaks nothing |
+| Performance | statement counts identical to the 12A baseline; no regression; synthetic scale (1,000 listings, 2.5 M bars, 40,000 events / filings, 500 saved records) shows flat statement counts (no N+1) and linear offset cost (81 ms worst); frozen request budgets confirmed at scale |
+| Production source change | one: the session ladder notes "Price not stored for target session" on a proven but unpriced target (found by the recapture) |
+
+**Decisions recorded.** The API stays unauthenticated; a private network or authenticating reverse proxy is an explicit deployment constraint (runbook section 10). The ordinal text "1-th exchange session" in a backend reason is cosmetic but part of `result_fingerprint`, so it stays (changing it
+would change saved-record fingerprints the goldens freeze). Partial-bar coverage stays POST-RC.
+
+**Carried (post-RC register).** Ladder legend and alignment label still say "stored sessions"; redaction does not match `password='quoted'`, JSON `"api_key"` values or `client_secret=` (no emitter exists); the earnings list page is about 12 KB of HTML per row (660 KB for 50 rows, unmeasured before 12E);
+soft-404 status codes; saved-list batch endpoint; the items already listed in sections 16 and 17.
+
+Next planned slice: 12F (release-candidate freeze).

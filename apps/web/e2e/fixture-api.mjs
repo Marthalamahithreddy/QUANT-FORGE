@@ -93,7 +93,9 @@ const page = (items, query) => {
 };
 
 function answer(pathname, query) {
-  if (pathname === "/api/v1/health") return { status: 200, body: earnings.health };
+  // Liveness lives at /health on the real API (and the release smoke probes it there); the /api/v1
+  // alias is what the application's own status indicator reads.
+  if (pathname === "/health" || pathname === "/api/v1/health") return { status: 200, body: earnings.health };
   if (pathname === "/api/v1/health/ready") return { status: 200, body: earnings.ready };
   if (pathname === "/api/v1/benchmarks") return { status: 200, body: page(benchmarks, query) };
 

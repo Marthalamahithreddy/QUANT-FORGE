@@ -52,6 +52,7 @@ from tests.integration.test_research_observation import (  # noqa: F401
 from quantforge.core.config import Settings
 from quantforge.db.session import get_session
 from quantforge.main import create_app
+from quantforge.reproducibility.methodology import COMPONENT_VERSIONS
 from quantforge.models.benchmark import Benchmark, BenchmarkPriceBar
 from quantforge.models.company import Company
 from quantforge.models.earnings import EarningsEvent
@@ -90,6 +91,13 @@ def test_capture(db_session: Session, market: dict[str, object], tmp_path: Path)
 
     out: dict[str, Any] = {
         "_note": "Captured from the real backend by scripts/capture_record_fixtures.py. Do not edit by hand.",
+        # Which backend semantics this capture reflects (checked by tests/contract-structure.test.ts):
+        # the forward-return methodology the responses were computed under, and no provider requests.
+        "capture_baseline": {
+            "step": "12E",
+            "forward_returns_methodology": COMPONENT_VERSIONS["forward_returns"],
+            "provider_requests": 0,
+        },
         "records": [],
     }
 

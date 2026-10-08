@@ -4,21 +4,21 @@
     "items": [
       {
         "currency": "USD",
-        "id": "51840eaa-53d9-411d-9f18-ad4803bfd503",
+        "id": "4232cfc0-0afe-4c82-9b01-9ca0991bbf19",
         "is_active": true,
         "name": "Empty Index",
         "symbol": "EMPT"
       },
       {
         "currency": "USD",
-        "id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+        "id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
         "is_active": true,
         "name": "Observation Index",
         "symbol": "OBSI"
       },
       {
         "currency": "USD",
-        "id": "044d10e4-e113-4ce6-92e7-2866e21d50d8",
+        "id": "452dacba-12bf-4d38-92ae-2df04b4892cd",
         "is_active": false,
         "name": "Retired Index",
         "symbol": "RETD"
@@ -28,9 +28,14 @@
     "offset": 0,
     "total": 3
   },
+  "capture_baseline": {
+    "forward_returns_methodology": "close-to-close-proven-session-returns/2",
+    "provider_requests": 0,
+    "step": "12E"
+  },
   "cases": [
     {
-      "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+      "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -41,7 +46,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -57,13 +62,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2026,
-        "id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
-        "ingested_at": "2026-10-06T10:00:48.579711Z",
+        "id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
+        "ingested_at": "2026-10-08T09:52:05.118582Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -118,7 +123,7 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
@@ -176,7 +181,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -186,25 +191,25 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 5,
-                  "reason": "fewer than 5 available trading sessions exist after the anchor session 2026-03-02",
+                  "reason": "2026-03-09 is the 5-th exchange session after the anchor 2026-03-02, but no price observation is stored for it; the target is not moved to another date",
                   "return_value": null,
-                  "status": "INSUFFICIENT_FORWARD_SESSIONS",
+                  "status": "MISSING_TARGET_PRICE",
                   "target_close": null,
-                  "target_session": null
+                  "target_session": "2026-03-09"
                 },
                 {
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 20,
-                  "reason": "fewer than 20 available trading sessions exist after the anchor session 2026-03-02",
+                  "reason": "2026-03-30 is the 20-th exchange session after the anchor 2026-03-02, but no price observation is stored for it; the target is not moved to another date",
                   "return_value": null,
-                  "status": "INSUFFICIENT_FORWARD_SESSIONS",
+                  "status": "MISSING_TARGET_PRICE",
                   "target_close": null,
-                  "target_session": null
+                  "target_session": "2026-03-30"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -217,7 +222,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "event_timestamp": null,
           "fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "fiscal_quarter": 1,
@@ -238,15 +243,15 @@
         "identity": {
           "benchmark_id": null,
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "filing_accession": null,
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
@@ -273,22 +278,22 @@
           "benchmark_id": null,
           "event_fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
           "filing_source_id": null,
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
-            "code": "INSUFFICIENT_FORWARD_SESSIONS",
+            "code": "MISSING_TARGET_PRICE",
             "horizon": 5,
-            "reason": "fewer than 5 available trading sessions exist after the anchor session 2026-03-02",
+            "reason": "2026-03-09 is the 5-th exchange session after the anchor 2026-03-02, but no price observation is stored for it; the target is not moved to another date",
             "scope": "MARKET"
           },
           {
-            "code": "INSUFFICIENT_FORWARD_SESSIONS",
+            "code": "MISSING_TARGET_PRICE",
             "horizon": 20,
-            "reason": "fewer than 20 available trading sessions exist after the anchor session 2026-03-02",
+            "reason": "2026-03-30 is the 20-th exchange session after the anchor 2026-03-02, but no price observation is stored for it; the target is not moved to another date",
             "scope": "MARKET"
           },
           {
@@ -301,7 +306,7 @@
       }
     },
     {
-      "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+      "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -312,7 +317,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -328,13 +333,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2026,
-        "id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
-        "ingested_at": "2026-10-06T10:00:48.579711Z",
+        "id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
+        "ingested_at": "2026-10-08T09:52:05.118582Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -379,7 +384,7 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
@@ -417,15 +422,15 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
                   "target_session": "2026-03-03"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -438,7 +443,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "event_timestamp": null,
           "fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "fiscal_quarter": 1,
@@ -459,15 +464,15 @@
         "identity": {
           "benchmark_id": null,
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "filing_accession": null,
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
@@ -492,10 +497,10 @@
           "benchmark_id": null,
           "event_fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
           "filing_source_id": null,
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
@@ -508,7 +513,7 @@
       }
     },
     {
-      "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+      "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -519,7 +524,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -535,13 +540,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2026,
-        "id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
-        "ingested_at": "2026-10-06T10:00:48.579711Z",
+        "id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
+        "ingested_at": "2026-10-08T09:52:05.118582Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -563,7 +568,7 @@
       },
       "name": "benchmark_selected",
       "params": {
-        "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+        "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
         "horizons": "1,2"
       },
       "response": {
@@ -593,13 +598,13 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
             },
             "benchmark": {
-              "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+              "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
               "returns": [
                 {
                   "anchor_close": "200.000000",
@@ -641,7 +646,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -651,15 +656,15 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 2,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.2",
                   "status": "AVAILABLE",
                   "target_close": "120.000000",
                   "target_session": "2026-03-04"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -672,7 +677,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "event_timestamp": null,
           "fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "fiscal_quarter": 1,
@@ -691,22 +696,22 @@
           "status": "NOT_LINKED"
         },
         "identity": {
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "filing_accession": null,
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
         "parameters": {
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "eps_kind": null,
           "eps_period_class": null,
           "filing_accession": null,
@@ -724,13 +729,13 @@
         },
         "provenance": {
           "accounting_artifacts": [],
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "event_fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
           "filing_source_id": null,
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
@@ -743,7 +748,7 @@
       }
     },
     {
-      "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+      "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -754,7 +759,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -770,13 +775,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2026,
-        "id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
-        "ingested_at": "2026-10-06T10:00:48.579711Z",
+        "id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
+        "ingested_at": "2026-10-08T09:52:05.118582Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -798,7 +803,7 @@
       },
       "name": "custom_horizons_unsorted",
       "params": {
-        "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+        "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
         "horizons": "2,1"
       },
       "response": {
@@ -828,13 +833,13 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
             },
             "benchmark": {
-              "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+              "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
               "returns": [
                 {
                   "anchor_close": "200.000000",
@@ -876,7 +881,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -886,15 +891,15 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 2,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.2",
                   "status": "AVAILABLE",
                   "target_close": "120.000000",
                   "target_session": "2026-03-04"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -907,7 +912,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "event_timestamp": null,
           "fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "fiscal_quarter": 1,
@@ -926,22 +931,22 @@
           "status": "NOT_LINKED"
         },
         "identity": {
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "filing_accession": null,
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
         "parameters": {
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "eps_kind": null,
           "eps_period_class": null,
           "filing_accession": null,
@@ -959,13 +964,13 @@
         },
         "provenance": {
           "accounting_artifacts": [],
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "event_fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
           "filing_source_id": null,
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
@@ -978,7 +983,7 @@
       }
     },
     {
-      "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+      "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -989,7 +994,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -1005,13 +1010,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2026,
-        "id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
-        "ingested_at": "2026-10-06T10:00:48.579711Z",
+        "id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
+        "ingested_at": "2026-10-08T09:52:05.118582Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -1033,7 +1038,7 @@
       },
       "name": "inactive_benchmark",
       "params": {
-        "benchmark_id": "044d10e4-e113-4ce6-92e7-2866e21d50d8",
+        "benchmark_id": "452dacba-12bf-4d38-92ae-2df04b4892cd",
         "horizons": "1,2"
       },
       "response": {
@@ -1063,13 +1068,13 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
             },
             "benchmark": {
-              "benchmark_id": "044d10e4-e113-4ce6-92e7-2866e21d50d8",
+              "benchmark_id": "452dacba-12bf-4d38-92ae-2df04b4892cd",
               "returns": [
                 {
                   "anchor_close": null,
@@ -1111,7 +1116,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -1121,15 +1126,15 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 2,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.2",
                   "status": "AVAILABLE",
                   "target_close": "120.000000",
                   "target_session": "2026-03-04"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -1142,7 +1147,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "event_timestamp": null,
           "fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "fiscal_quarter": 1,
@@ -1161,22 +1166,22 @@
           "status": "NOT_LINKED"
         },
         "identity": {
-          "benchmark_id": "044d10e4-e113-4ce6-92e7-2866e21d50d8",
+          "benchmark_id": "452dacba-12bf-4d38-92ae-2df04b4892cd",
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "filing_accession": null,
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
         "parameters": {
-          "benchmark_id": "044d10e4-e113-4ce6-92e7-2866e21d50d8",
+          "benchmark_id": "452dacba-12bf-4d38-92ae-2df04b4892cd",
           "eps_kind": null,
           "eps_period_class": null,
           "filing_accession": null,
@@ -1194,13 +1199,13 @@
         },
         "provenance": {
           "accounting_artifacts": [],
-          "benchmark_id": "044d10e4-e113-4ce6-92e7-2866e21d50d8",
+          "benchmark_id": "452dacba-12bf-4d38-92ae-2df04b4892cd",
           "event_fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
           "filing_source_id": null,
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
@@ -1225,7 +1230,7 @@
       }
     },
     {
-      "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+      "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -1236,7 +1241,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -1252,13 +1257,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2026,
-        "id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
-        "ingested_at": "2026-10-06T10:00:48.579711Z",
+        "id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
+        "ingested_at": "2026-10-08T09:52:05.118582Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -1280,7 +1285,7 @@
       },
       "name": "benchmark_without_data",
       "params": {
-        "benchmark_id": "51840eaa-53d9-411d-9f18-ad4803bfd503",
+        "benchmark_id": "4232cfc0-0afe-4c82-9b01-9ca0991bbf19",
         "horizons": "1,2"
       },
       "response": {
@@ -1310,13 +1315,13 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
             },
             "benchmark": {
-              "benchmark_id": "51840eaa-53d9-411d-9f18-ad4803bfd503",
+              "benchmark_id": "4232cfc0-0afe-4c82-9b01-9ca0991bbf19",
               "returns": [
                 {
                   "anchor_close": null,
@@ -1358,7 +1363,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -1368,15 +1373,15 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 2,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.2",
                   "status": "AVAILABLE",
                   "target_close": "120.000000",
                   "target_session": "2026-03-04"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -1389,7 +1394,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "event_timestamp": null,
           "fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "fiscal_quarter": 1,
@@ -1408,22 +1413,22 @@
           "status": "NOT_LINKED"
         },
         "identity": {
-          "benchmark_id": "51840eaa-53d9-411d-9f18-ad4803bfd503",
+          "benchmark_id": "4232cfc0-0afe-4c82-9b01-9ca0991bbf19",
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "filing_accession": null,
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
         "parameters": {
-          "benchmark_id": "51840eaa-53d9-411d-9f18-ad4803bfd503",
+          "benchmark_id": "4232cfc0-0afe-4c82-9b01-9ca0991bbf19",
           "eps_kind": null,
           "eps_period_class": null,
           "filing_accession": null,
@@ -1441,13 +1446,13 @@
         },
         "provenance": {
           "accounting_artifacts": [],
-          "benchmark_id": "51840eaa-53d9-411d-9f18-ad4803bfd503",
+          "benchmark_id": "4232cfc0-0afe-4c82-9b01-9ca0991bbf19",
           "event_fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
           "filing_source_id": null,
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
@@ -1472,7 +1477,7 @@
       }
     },
     {
-      "event_id": "ce0bb097-cbd2-48ca-8ffc-aae6dfe63448",
+      "event_id": "0bf74812-de0d-4432-8f10-0b6e1bfa1077",
       "event_record": {
         "availability": {
           "observed_at": "2026-03-02T11:00:00Z",
@@ -1483,7 +1488,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -1499,13 +1504,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 2,
         "fiscal_year": 2026,
-        "id": "ce0bb097-cbd2-48ca-8ffc-aae6dfe63448",
-        "ingested_at": "2026-10-06T10:00:48.581022Z",
+        "id": "0bf74812-de0d-4432-8f10-0b6e1bfa1077",
+        "ingested_at": "2026-10-08T09:52:05.120136Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -1527,7 +1532,7 @@
       },
       "name": "pit_eligible",
       "params": {
-        "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+        "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
         "horizons": "1,2"
       },
       "response": {
@@ -1557,13 +1562,13 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
             },
             "benchmark": {
-              "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+              "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
               "returns": [
                 {
                   "anchor_close": "200.000000",
@@ -1605,7 +1610,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -1615,15 +1620,15 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 2,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.2",
                   "status": "AVAILABLE",
                   "target_close": "120.000000",
                   "target_session": "2026-03-04"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -1636,7 +1641,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "ce0bb097-cbd2-48ca-8ffc-aae6dfe63448",
+          "event_id": "0bf74812-de0d-4432-8f10-0b6e1bfa1077",
           "event_timestamp": null,
           "fingerprint": "acf7a784d4b61472dd2b2f459a3eeb1f2498cb762b759649b576960510d91482",
           "fiscal_quarter": 2,
@@ -1655,22 +1660,22 @@
           "status": "NOT_LINKED"
         },
         "identity": {
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "ce0bb097-cbd2-48ca-8ffc-aae6dfe63448",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "0bf74812-de0d-4432-8f10-0b6e1bfa1077",
           "filing_accession": null,
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
         "parameters": {
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "eps_kind": null,
           "eps_period_class": null,
           "filing_accession": null,
@@ -1704,13 +1709,13 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
             },
             "benchmark": {
-              "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+              "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
               "returns": [
                 {
                   "anchor_close": "200.000000",
@@ -1752,7 +1757,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -1762,33 +1767,33 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 2,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.2",
                   "status": "AVAILABLE",
                   "target_close": "120.000000",
                   "target_session": "2026-03-04"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
         "provenance": {
           "accounting_artifacts": [],
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "event_fingerprint": "acf7a784d4b61472dd2b2f459a3eeb1f2498cb762b759649b576960510d91482",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
           "filing_source_id": null,
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": []
       }
     },
     {
-      "event_id": "694b7b4f-ab42-41fa-9ad8-1a53a45666bf",
+      "event_id": "54f0f6fe-dbcb-4eda-8c04-18f808a9d052",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -1799,7 +1804,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -1815,13 +1820,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 3,
         "fiscal_year": 2026,
-        "id": "694b7b4f-ab42-41fa-9ad8-1a53a45666bf",
-        "ingested_at": "2026-10-06T10:00:48.581994Z",
+        "id": "54f0f6fe-dbcb-4eda-8c04-18f808a9d052",
+        "ingested_at": "2026-10-08T09:52:05.122244Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -1843,7 +1848,7 @@
       },
       "name": "unknown_timing",
       "params": {
-        "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+        "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
         "horizons": "1,2"
       },
       "response": {
@@ -1879,7 +1884,7 @@
               "timing": "UNKNOWN"
             },
             "benchmark": {
-              "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+              "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
               "returns": [
                 {
                   "anchor_close": null,
@@ -1938,7 +1943,7 @@
                   "target_session": null
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
               "price_source_id": null
             }
           }
@@ -1952,7 +1957,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "694b7b4f-ab42-41fa-9ad8-1a53a45666bf",
+          "event_id": "54f0f6fe-dbcb-4eda-8c04-18f808a9d052",
           "event_timestamp": null,
           "fingerprint": "228bd2ac56110b8c00323e6df1b289e48e05fe190cd2c4f036f6563f85a1848c",
           "fiscal_quarter": 3,
@@ -1971,22 +1976,22 @@
           "status": "NOT_LINKED"
         },
         "identity": {
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "694b7b4f-ab42-41fa-9ad8-1a53a45666bf",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "54f0f6fe-dbcb-4eda-8c04-18f808a9d052",
           "filing_accession": null,
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
         "parameters": {
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "eps_kind": null,
           "eps_period_class": null,
           "filing_accession": null,
@@ -2004,10 +2009,10 @@
         },
         "provenance": {
           "accounting_artifacts": [],
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "event_fingerprint": "228bd2ac56110b8c00323e6df1b289e48e05fe190cd2c4f036f6563f85a1848c",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
           "filing_source_id": null,
           "stock_price_source_id": null
@@ -2029,7 +2034,7 @@
       }
     },
     {
-      "event_id": "dbf0d4c9-143a-4c6e-80ae-1d631194af7c",
+      "event_id": "c8590aac-00ea-47d2-bd38-197477a72c23",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -2040,7 +2045,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -2056,13 +2061,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 4,
         "fiscal_year": 2026,
-        "id": "dbf0d4c9-143a-4c6e-80ae-1d631194af7c",
-        "ingested_at": "2026-10-06T10:00:48.583078Z",
+        "id": "c8590aac-00ea-47d2-bd38-197477a72c23",
+        "ingested_at": "2026-10-08T09:52:05.123387Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -2113,7 +2118,7 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
@@ -2161,7 +2166,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -2171,15 +2176,15 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 2,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.2",
                   "status": "AVAILABLE",
                   "target_close": "120.000000",
                   "target_session": "2026-03-04"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -2192,7 +2197,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "dbf0d4c9-143a-4c6e-80ae-1d631194af7c",
+          "event_id": "c8590aac-00ea-47d2-bd38-197477a72c23",
           "event_timestamp": null,
           "fingerprint": "54ef3fdb6ee02fea50fb39aaa40864acd655aa4f74f68fda6a46820ca1380198",
           "fiscal_quarter": 4,
@@ -2213,15 +2218,15 @@
         "identity": {
           "benchmark_id": null,
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "dbf0d4c9-143a-4c6e-80ae-1d631194af7c",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "c8590aac-00ea-47d2-bd38-197477a72c23",
           "filing_accession": null,
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
@@ -2247,10 +2252,10 @@
           "benchmark_id": null,
           "event_fingerprint": "54ef3fdb6ee02fea50fb39aaa40864acd655aa4f74f68fda6a46820ca1380198",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
           "filing_source_id": null,
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
@@ -2269,7 +2274,7 @@
       }
     },
     {
-      "event_id": "d308708e-ec16-4ee6-897a-5765cd8a5049",
+      "event_id": "248a3d8f-1247-40b2-8147-15fd7c3c4877",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -2280,7 +2285,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -2296,13 +2301,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2025,
-        "id": "d308708e-ec16-4ee6-897a-5765cd8a5049",
-        "ingested_at": "2026-10-06T10:00:48.584022Z",
+        "id": "248a3d8f-1247-40b2-8147-15fd7c3c4877",
+        "ingested_at": "2026-10-08T09:52:05.124405Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -2324,7 +2329,7 @@
       },
       "name": "event_off_calendar",
       "params": {
-        "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+        "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
         "horizons": "1,2"
       },
       "response": {
@@ -2352,15 +2357,15 @@
             "alignment": {
               "event_date": "2026-06-01",
               "session_alignment": {
-                "event_session": null,
-                "first_post_event_session": null,
-                "reason": "no available trading session satisfies this event's timing within the supplied session window",
-                "status": "NO_SESSION_DATA"
+                "event_session": "2026-06-01",
+                "first_post_event_session": "2026-06-01",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
+                "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
             },
             "benchmark": {
-              "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+              "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
               "returns": [
                 {
                   "anchor_close": null,
@@ -2396,30 +2401,30 @@
             "price_basis_note": "Stock returns use DailyPriceBar.close; benchmark returns use BenchmarkPriceBar.close -- in both cases only rows whose price_basis is SPLIT_ADJUSTED (AS_TRADED rows are never read by research). The SPLIT_ADJUSTED rows come from Massive's daily-aggregate request with adjusted=true, which (per Polygon's own aggregates contract, which Massive -- formerly Polygon.io -- uses as-is) means split-adjusted, not dividend-adjusted and not total-return. So both series are split-adjusted price series; cash dividends are excluded from both. DailyPriceBar.adjusted_close stays unconditionally NULL under the current ingestion path and must not be read as a further adjustment on top of close; BenchmarkPriceBar has no adjusted-level column at all. These are therefore split-adjusted price returns, dividends excluded -- not dividend-reinvested total returns. The abnormal return is a simple market-adjusted figure (stock return minus benchmark return, implicit beta of 1) -- it is not a CAPM alpha, a factor alpha, or a regression-based excess return.",
             "research_mode": "DESCRIPTIVE",
             "stock_returns": {
-              "anchor_session": null,
+              "anchor_session": "2026-06-01",
               "forward_returns": [
                 {
                   "anchor_close": null,
-                  "anchor_session": null,
+                  "anchor_session": "2026-06-01",
                   "horizon": 1,
-                  "reason": "the earnings event did not align to a usable anchor session",
+                  "reason": "no price bars exist for this listing in [2026-06-01, 2026-06-15]",
                   "return_value": null,
-                  "status": "NO_ALIGNMENT",
+                  "status": "MISSING_ANCHOR_PRICE",
                   "target_close": null,
                   "target_session": null
                 },
                 {
                   "anchor_close": null,
-                  "anchor_session": null,
+                  "anchor_session": "2026-06-01",
                   "horizon": 2,
-                  "reason": "the earnings event did not align to a usable anchor session",
+                  "reason": "no price bars exist for this listing in [2026-06-01, 2026-06-15]",
                   "return_value": null,
-                  "status": "NO_ALIGNMENT",
+                  "status": "MISSING_ANCHOR_PRICE",
                   "target_close": null,
                   "target_session": null
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
               "price_source_id": null
             }
           }
@@ -2433,7 +2438,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-06-01",
-          "event_id": "d308708e-ec16-4ee6-897a-5765cd8a5049",
+          "event_id": "248a3d8f-1247-40b2-8147-15fd7c3c4877",
           "event_timestamp": null,
           "fingerprint": "99338b051743f74e7fa5bbb1a1c1be3bd3c519b530265ad4e11a5299030bd40a",
           "fiscal_quarter": 1,
@@ -2452,22 +2457,22 @@
           "status": "NOT_LINKED"
         },
         "identity": {
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "d308708e-ec16-4ee6-897a-5765cd8a5049",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "248a3d8f-1247-40b2-8147-15fd7c3c4877",
           "filing_accession": null,
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
         "parameters": {
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "eps_kind": null,
           "eps_period_class": null,
           "filing_accession": null,
@@ -2485,19 +2490,25 @@
         },
         "provenance": {
           "accounting_artifacts": [],
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "event_fingerprint": "99338b051743f74e7fa5bbb1a1c1be3bd3c519b530265ad4e11a5299030bd40a",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
           "filing_source_id": null,
           "stock_price_source_id": null
         },
         "refusals": [
           {
-            "code": "NO_SESSION_DATA",
-            "horizon": null,
-            "reason": "no available trading session satisfies this event's timing within the supplied session window",
+            "code": "MISSING_ANCHOR_PRICE",
+            "horizon": 1,
+            "reason": "no price bars exist for this listing in [2026-06-01, 2026-06-15]",
+            "scope": "MARKET"
+          },
+          {
+            "code": "MISSING_ANCHOR_PRICE",
+            "horizon": 2,
+            "reason": "no price bars exist for this listing in [2026-06-01, 2026-06-15]",
             "scope": "MARKET"
           },
           {
@@ -2510,7 +2521,7 @@
       }
     },
     {
-      "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+      "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -2521,7 +2532,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -2537,13 +2548,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2026,
-        "id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
-        "ingested_at": "2026-10-06T10:00:48.579711Z",
+        "id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
+        "ingested_at": "2026-10-08T09:52:05.118582Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -2565,7 +2576,7 @@
       },
       "name": "filing_evaluated",
       "params": {
-        "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+        "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
         "eps_kind": "DILUTED",
         "eps_period_class": "QUARTER",
         "filing_accession": "0000320193-24-000010",
@@ -2588,7 +2599,7 @@
             "comparative": {
               "fact": {
                 "coreg": "",
-                "fact_id": "037e0248-2711-4e13-a6d9-818115fa6c81",
+                "fact_id": "d45f9df0-6d71-4dac-ab49-7e56c4ea64e7",
                 "period_end": "2023-03-31",
                 "qtrs": 1,
                 "segments": "",
@@ -2604,7 +2615,7 @@
             "current": {
               "fact": {
                 "coreg": "",
-                "fact_id": "a3acf412-b3fb-429e-98fe-080c711ed7a2",
+                "fact_id": "c37b05bf-bfa0-484f-b479-243bf9afa244",
                 "period_end": "2024-03-31",
                 "qtrs": 1,
                 "segments": "",
@@ -2646,13 +2657,13 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
             },
             "benchmark": {
-              "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+              "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
               "returns": [
                 {
                   "anchor_close": "200.000000",
@@ -2694,7 +2705,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -2704,15 +2715,15 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 2,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.2",
                   "status": "AVAILABLE",
                   "target_close": "120.000000",
                   "target_session": "2026-03-04"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -2725,7 +2736,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "event_timestamp": null,
           "fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "fiscal_quarter": 1,
@@ -2744,22 +2755,22 @@
           "status": "CALLER_SUPPLIED_CIK_CONSISTENT"
         },
         "identity": {
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "filing_accession": "0000320193-24-000010",
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
         "parameters": {
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "eps_kind": "DILUTED",
           "eps_period_class": "QUARTER",
           "filing_accession": "0000320193-24-000010",
@@ -2779,20 +2790,20 @@
           "accounting_artifacts": [
             {
               "role": "current",
-              "sha256": "36e0617e2298bf924de13bb21c1f08bb3b77e6fd12b11300b1984555663467f8"
+              "sha256": "036745dbf9039e1e7790148a50b673bc1a937ac89493784336bd04902a71ef54"
             },
             {
               "role": "comparative",
-              "sha256": "36e0617e2298bf924de13bb21c1f08bb3b77e6fd12b11300b1984555663467f8"
+              "sha256": "036745dbf9039e1e7790148a50b673bc1a937ac89493784336bd04902a71ef54"
             }
           ],
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "event_fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
-          "filing_source_id": "24e0be2a-5f76-433e-9fe4-07df284bbb77",
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "filing_source_id": "cee27a03-7d15-49da-adef-19c50fd99df8",
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
@@ -2805,7 +2816,7 @@
       }
     },
     {
-      "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+      "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -2816,7 +2827,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -2832,13 +2843,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2026,
-        "id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
-        "ingested_at": "2026-10-06T10:00:48.579711Z",
+        "id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
+        "ingested_at": "2026-10-08T09:52:05.118582Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -2888,7 +2899,7 @@
             "current": {
               "fact": {
                 "coreg": "",
-                "fact_id": "b776d9f9-0388-45c5-920c-b9d53d9b20f1",
+                "fact_id": "cd94a746-4b49-45e6-adf1-ed2161731613",
                 "period_end": "2024-03-31",
                 "qtrs": 1,
                 "segments": "",
@@ -2930,7 +2941,7 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
@@ -2978,7 +2989,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -2988,15 +2999,15 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 2,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.2",
                   "status": "AVAILABLE",
                   "target_close": "120.000000",
                   "target_session": "2026-03-04"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -3009,7 +3020,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "event_timestamp": null,
           "fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "fiscal_quarter": 1,
@@ -3030,15 +3041,15 @@
         "identity": {
           "benchmark_id": null,
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "filing_accession": "0000320193-24-000020",
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
@@ -3063,16 +3074,16 @@
           "accounting_artifacts": [
             {
               "role": "current",
-              "sha256": "0cc552dfc7c2d8f48e6384fe777e34f76df28ebc81081e0f80e277b2408241e3"
+              "sha256": "25210c876c0096ae5d8e9c2959ea4561805be108106f4c4742e9933572f69fcf"
             }
           ],
           "benchmark_id": null,
           "event_fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
-          "filing_source_id": "24e0be2a-5f76-433e-9fe4-07df284bbb77",
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "filing_source_id": "cee27a03-7d15-49da-adef-19c50fd99df8",
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
@@ -3091,7 +3102,7 @@
       }
     },
     {
-      "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+      "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -3102,7 +3113,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -3118,13 +3129,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2026,
-        "id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
-        "ingested_at": "2026-10-06T10:00:48.579711Z",
+        "id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
+        "ingested_at": "2026-10-08T09:52:05.118582Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -3206,7 +3217,7 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
@@ -3254,7 +3265,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -3264,15 +3275,15 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 2,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.2",
                   "status": "AVAILABLE",
                   "target_close": "120.000000",
                   "target_session": "2026-03-04"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -3285,7 +3296,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "event_timestamp": null,
           "fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "fiscal_quarter": 1,
@@ -3306,15 +3317,15 @@
         "identity": {
           "benchmark_id": null,
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "filing_accession": "0000320193-24-000010",
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
@@ -3340,10 +3351,10 @@
           "benchmark_id": null,
           "event_fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
-          "filing_source_id": "24e0be2a-5f76-433e-9fe4-07df284bbb77",
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "filing_source_id": "cee27a03-7d15-49da-adef-19c50fd99df8",
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
@@ -3362,7 +3373,7 @@
       }
     },
     {
-      "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+      "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -3373,7 +3384,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -3389,13 +3400,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2026,
-        "id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
-        "ingested_at": "2026-10-06T10:00:48.579711Z",
+        "id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
+        "ingested_at": "2026-10-08T09:52:05.118582Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -3477,7 +3488,7 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
@@ -3525,7 +3536,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -3535,15 +3546,15 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 2,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.2",
                   "status": "AVAILABLE",
                   "target_close": "120.000000",
                   "target_session": "2026-03-04"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -3556,7 +3567,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "event_timestamp": null,
           "fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "fiscal_quarter": 1,
@@ -3577,15 +3588,15 @@
         "identity": {
           "benchmark_id": null,
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "filing_accession": "0000320193-24-000030",
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
@@ -3611,10 +3622,10 @@
           "benchmark_id": null,
           "event_fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
-          "filing_source_id": "24e0be2a-5f76-433e-9fe4-07df284bbb77",
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "filing_source_id": "cee27a03-7d15-49da-adef-19c50fd99df8",
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
@@ -3633,7 +3644,7 @@
       }
     },
     {
-      "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+      "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -3644,7 +3655,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -3660,13 +3671,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2026,
-        "id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
-        "ingested_at": "2026-10-06T10:00:48.579711Z",
+        "id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
+        "ingested_at": "2026-10-08T09:52:05.118582Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -3748,7 +3759,7 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
@@ -3796,7 +3807,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -3806,15 +3817,15 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 2,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.2",
                   "status": "AVAILABLE",
                   "target_close": "120.000000",
                   "target_session": "2026-03-04"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -3827,7 +3838,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "event_timestamp": null,
           "fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "fiscal_quarter": 1,
@@ -3848,15 +3859,15 @@
         "identity": {
           "benchmark_id": null,
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "filing_accession": "0000320193-24-000031",
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
@@ -3882,10 +3893,10 @@
           "benchmark_id": null,
           "event_fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
-          "filing_source_id": "24e0be2a-5f76-433e-9fe4-07df284bbb77",
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "filing_source_id": "cee27a03-7d15-49da-adef-19c50fd99df8",
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
@@ -3904,7 +3915,7 @@
       }
     },
     {
-      "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+      "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -3915,7 +3926,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -3931,13 +3942,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2026,
-        "id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
-        "ingested_at": "2026-10-06T10:00:48.579711Z",
+        "id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
+        "ingested_at": "2026-10-08T09:52:05.118582Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -3991,7 +4002,7 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
@@ -4039,7 +4050,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -4049,15 +4060,15 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 2,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.2",
                   "status": "AVAILABLE",
                   "target_close": "120.000000",
                   "target_session": "2026-03-04"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -4070,7 +4081,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "event_timestamp": null,
           "fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "fiscal_quarter": 1,
@@ -4091,15 +4102,15 @@
         "identity": {
           "benchmark_id": null,
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "filing_accession": "0000111111-24-000001",
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
@@ -4125,10 +4136,10 @@
           "benchmark_id": null,
           "event_fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
           "filing_source_id": null,
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
@@ -4147,7 +4158,7 @@
       }
     },
     {
-      "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+      "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -4158,7 +4169,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -4174,13 +4185,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2026,
-        "id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
-        "ingested_at": "2026-10-06T10:00:48.579711Z",
+        "id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
+        "ingested_at": "2026-10-08T09:52:05.118582Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -4234,7 +4245,7 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
@@ -4282,7 +4293,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -4292,15 +4303,15 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 2,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.2",
                   "status": "AVAILABLE",
                   "target_close": "120.000000",
                   "target_session": "2026-03-04"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -4313,7 +4324,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "event_timestamp": null,
           "fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "fiscal_quarter": 1,
@@ -4334,15 +4345,15 @@
         "identity": {
           "benchmark_id": null,
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "filing_accession": "0000555555-24-000007",
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
@@ -4368,10 +4379,10 @@
           "benchmark_id": null,
           "event_fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
           "filing_source_id": null,
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
@@ -4390,7 +4401,7 @@
       }
     },
     {
-      "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+      "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
       "event_record": {
         "availability": {
           "observed_at": null,
@@ -4401,7 +4412,7 @@
         "company": {
           "cik": "0000320193",
           "display_name": "Observation Co",
-          "id": "425e4a40-ad85-4693-9003-14c3de196941",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
           "legal_name": "Observation Co"
         },
         "currency": null,
@@ -4417,13 +4428,13 @@
         "event_timestamp": null,
         "fiscal_quarter": 1,
         "fiscal_year": 2026,
-        "id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
-        "ingested_at": "2026-10-06T10:00:48.579711Z",
+        "id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
+        "ingested_at": "2026-10-08T09:52:05.118582Z",
         "listings": [
           {
             "exchange_name": "Observation Exchange",
             "is_primary": true,
-            "mic": "XOBS",
+            "mic": "XNYS",
             "security_name": "Shares",
             "security_type": "EQUITY",
             "ticker": "OBSV",
@@ -4445,7 +4456,7 @@
       },
       "name": "horizons_beyond_stored_sessions",
       "params": {
-        "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+        "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
         "horizons": "1,5,20"
       },
       "response": {
@@ -4481,13 +4492,13 @@
               "session_alignment": {
                 "event_session": "2026-03-02",
                 "first_post_event_session": "2026-03-02",
-                "reason": "resolved from the ordered list of available trading sessions",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
                 "status": "ALIGNED"
               },
               "timing": "BEFORE_MARKET"
             },
             "benchmark": {
-              "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+              "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
               "returns": [
                 {
                   "anchor_close": "200.000000",
@@ -4539,7 +4550,7 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 1,
-                  "reason": "computed from the ordered available trading-session series",
+                  "reason": "computed from the closes on the anchor and the proven target exchange session",
                   "return_value": "0.1",
                   "status": "AVAILABLE",
                   "target_close": "110.000000",
@@ -4549,25 +4560,25 @@
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 5,
-                  "reason": "fewer than 5 available trading sessions exist after the anchor session 2026-03-02",
+                  "reason": "2026-03-09 is the 5-th exchange session after the anchor 2026-03-02, but no price observation is stored for it; the target is not moved to another date",
                   "return_value": null,
-                  "status": "INSUFFICIENT_FORWARD_SESSIONS",
+                  "status": "MISSING_TARGET_PRICE",
                   "target_close": null,
-                  "target_session": null
+                  "target_session": "2026-03-09"
                 },
                 {
                   "anchor_close": "100.000000",
                   "anchor_session": "2026-03-02",
                   "horizon": 20,
-                  "reason": "fewer than 20 available trading sessions exist after the anchor session 2026-03-02",
+                  "reason": "2026-03-30 is the 20-th exchange session after the anchor 2026-03-02, but no price observation is stored for it; the target is not moved to another date",
                   "return_value": null,
-                  "status": "INSUFFICIENT_FORWARD_SESSIONS",
+                  "status": "MISSING_TARGET_PRICE",
                   "target_close": null,
-                  "target_session": null
+                  "target_session": "2026-03-30"
                 }
               ],
-              "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
-              "price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
             }
           }
         },
@@ -4580,7 +4591,7 @@
         "event": {
           "estimated_eps": "1.0000",
           "event_date": "2026-03-02",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "event_timestamp": null,
           "fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "fiscal_quarter": 1,
@@ -4599,22 +4610,22 @@
           "status": "NOT_LINKED"
         },
         "identity": {
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "company_cik": "0000320193",
-          "company_id": "425e4a40-ad85-4693-9003-14c3de196941",
-          "event_id": "cb55653a-450a-49cc-9837-49c851a1cb5f",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "140e2f0a-58bc-4bb1-82d7-ef2a9a3ff925",
           "filing_accession": null,
           "listing_resolution": {
             "evidence": "PROVISIONAL_FIRST_OBSERVED",
-            "exchange_mic": "XOBS",
-            "listing_id": "7d681f7c-bfd8-4399-8685-3a754f9ef123",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
             "reason": "exactly one first-observed listing was valid on this date",
-            "security_id": "f0540b0b-3b55-45af-bfb7-340b239bcba6",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
             "status": "RESOLVED"
           }
         },
         "parameters": {
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "eps_kind": null,
           "eps_period_class": null,
           "filing_accession": null,
@@ -4633,25 +4644,304 @@
         },
         "provenance": {
           "accounting_artifacts": [],
-          "benchmark_id": "3ad6a9d9-5c7d-4f98-b50c-fb1e86feb583",
+          "benchmark_id": "fc758a35-870d-46c7-a3e8-d61d6bb3c180",
           "event_fingerprint": "0fe211ccdafdebeeaf443df898728e9b522d38fff076a615a6bd7a20c8c6139f",
           "event_ingestion_run_id": null,
-          "event_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3",
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
           "filing_ingestion_run_id": null,
           "filing_source_id": null,
-          "stock_price_source_id": "6afb569e-93f7-4966-a840-040b5aa3b2a3"
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
         },
         "refusals": [
           {
-            "code": "INSUFFICIENT_FORWARD_SESSIONS",
+            "code": "MISSING_TARGET_PRICE",
             "horizon": 5,
-            "reason": "fewer than 5 available trading sessions exist after the anchor session 2026-03-02",
+            "reason": "2026-03-09 is the 5-th exchange session after the anchor 2026-03-02, but no price observation is stored for it; the target is not moved to another date",
+            "scope": "MARKET"
+          },
+          {
+            "code": "MISSING_TARGET_PRICE",
+            "horizon": 20,
+            "reason": "2026-03-30 is the 20-th exchange session after the anchor 2026-03-02, but no price observation is stored for it; the target is not moved to another date",
+            "scope": "MARKET"
+          },
+          {
+            "code": "INELIGIBLE_NO_AVAILABILITY_EVIDENCE",
+            "horizon": null,
+            "reason": "no approved availability evidence supports a point-in-time claim for this event",
+            "scope": "POINT_IN_TIME"
+          }
+        ]
+      }
+    },
+    {
+      "event_id": "e2c005d8-e837-4921-8c8c-0098a0687cf2",
+      "event_record": {
+        "availability": {
+          "observed_at": null,
+          "observed_at_basis": null,
+          "pit_eligibility": "INELIGIBLE_NO_AVAILABILITY_EVIDENCE",
+          "pit_reason": "The source did not supply a historical availability time (observed_at is not set)."
+        },
+        "company": {
+          "cik": "0000320193",
+          "display_name": "Observation Co",
+          "id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "legal_name": "Observation Co"
+        },
+        "currency": null,
+        "eps_surprise": {
+          "absolute": "0.2000",
+          "ratio": "0.2",
+          "reason": "computed from reported and estimated EPS",
+          "status": "AVAILABLE"
+        },
+        "estimated_eps": "1.0000",
+        "estimated_revenue": null,
+        "event_date": "2027-10-06",
+        "event_timestamp": null,
+        "fiscal_quarter": 1,
+        "fiscal_year": 2027,
+        "id": "e2c005d8-e837-4921-8c8c-0098a0687cf2",
+        "ingested_at": "2026-10-08T09:52:05.358087Z",
+        "listings": [
+          {
+            "exchange_name": "Observation Exchange",
+            "is_primary": true,
+            "mic": "XNYS",
+            "security_name": "Shares",
+            "security_type": "EQUITY",
+            "ticker": "OBSV",
+            "valid_from": "2018-01-02",
+            "valid_on_event_date": true,
+            "valid_to": null
+          }
+        ],
+        "reported_eps": "1.2000",
+        "reported_revenue": null,
+        "resolved_tickers": [
+          "OBSV"
+        ],
+        "source": {
+          "name": "obs-stock-vendor",
+          "provider_type": "MARKET_DATA_VENDOR"
+        },
+        "timing": "BEFORE_MARKET"
+      },
+      "name": "horizons_beyond_calendar",
+      "params": {
+        "horizons": "1,2,5"
+      },
+      "response": {
+        "accounting": {
+          "eps": null,
+          "state": "NOT_REQUESTED"
+        },
+        "descriptive": {
+          "state": "UNAVAILABLE",
+          "study": {
+            "abnormal_returns": [
+              {
+                "abnormal_return": null,
+                "horizon": 1,
+                "reason": "the stock forward return for this horizon was not available",
+                "status": "STOCK_RETURN_UNAVAILABLE"
+              },
+              {
+                "abnormal_return": null,
+                "horizon": 2,
+                "reason": "the stock forward return for this horizon was not available",
+                "status": "STOCK_RETURN_UNAVAILABLE"
+              },
+              {
+                "abnormal_return": null,
+                "horizon": 5,
+                "reason": "the stock forward return for this horizon was not available",
+                "status": "STOCK_RETURN_UNAVAILABLE"
+              }
+            ],
+            "alignment": {
+              "event_date": "2027-10-06",
+              "session_alignment": {
+                "event_session": "2027-10-06",
+                "first_post_event_session": "2027-10-06",
+                "reason": "event date is an exchange session; before-market information is tradable in it",
+                "status": "ALIGNED"
+              },
+              "timing": "BEFORE_MARKET"
+            },
+            "benchmark": {
+              "benchmark_id": null,
+              "returns": [
+                {
+                  "anchor_close": null,
+                  "anchor_session": null,
+                  "benchmark_return": null,
+                  "horizon": 1,
+                  "reason": "no benchmark was supplied for this event study",
+                  "status": "NO_BENCHMARK",
+                  "target_close": null,
+                  "target_session": null
+                },
+                {
+                  "anchor_close": null,
+                  "anchor_session": null,
+                  "benchmark_return": null,
+                  "horizon": 2,
+                  "reason": "no benchmark was supplied for this event study",
+                  "status": "NO_BENCHMARK",
+                  "target_close": null,
+                  "target_session": null
+                },
+                {
+                  "anchor_close": null,
+                  "anchor_session": null,
+                  "benchmark_return": null,
+                  "horizon": 5,
+                  "reason": "no benchmark was supplied for this event study",
+                  "status": "NO_BENCHMARK",
+                  "target_close": null,
+                  "target_session": null
+                }
+              ]
+            },
+            "eps_surprise": {
+              "absolute_surprise": "0.2000",
+              "estimated_eps": "1.0000",
+              "reason": "computed from reported and estimated EPS",
+              "reported_eps": "1.2000",
+              "status": "AVAILABLE",
+              "surprise_ratio": "0.2"
+            },
+            "point_in_time_eligibility": "NOT_APPLICABLE",
+            "price_basis_note": "Stock returns use DailyPriceBar.close; benchmark returns use BenchmarkPriceBar.close -- in both cases only rows whose price_basis is SPLIT_ADJUSTED (AS_TRADED rows are never read by research). The SPLIT_ADJUSTED rows come from Massive's daily-aggregate request with adjusted=true, which (per Polygon's own aggregates contract, which Massive -- formerly Polygon.io -- uses as-is) means split-adjusted, not dividend-adjusted and not total-return. So both series are split-adjusted price series; cash dividends are excluded from both. DailyPriceBar.adjusted_close stays unconditionally NULL under the current ingestion path and must not be read as a further adjustment on top of close; BenchmarkPriceBar has no adjusted-level column at all. These are therefore split-adjusted price returns, dividends excluded -- not dividend-reinvested total returns. The abnormal return is a simple market-adjusted figure (stock return minus benchmark return, implicit beta of 1) -- it is not a CAPM alpha, a factor alpha, or a regression-based excess return.",
+            "research_mode": "DESCRIPTIVE",
+            "stock_returns": {
+              "anchor_session": "2027-10-06",
+              "forward_returns": [
+                {
+                  "anchor_close": "100.000000",
+                  "anchor_session": "2027-10-06",
+                  "horizon": 1,
+                  "reason": "2027-10-07 is the 1-th exchange session after the anchor 2027-10-06, but no price observation is stored for it; the target is not moved to another date",
+                  "return_value": null,
+                  "status": "MISSING_TARGET_PRICE",
+                  "target_close": null,
+                  "target_session": "2027-10-07"
+                },
+                {
+                  "anchor_close": "100.000000",
+                  "anchor_session": "2027-10-06",
+                  "horizon": 2,
+                  "reason": "2027-10-08 is the 2-th exchange session after the anchor 2027-10-06, but no price observation is stored for it; the target is not moved to another date",
+                  "return_value": null,
+                  "status": "MISSING_TARGET_PRICE",
+                  "target_close": null,
+                  "target_session": "2027-10-08"
+                },
+                {
+                  "anchor_close": "100.000000",
+                  "anchor_session": "2027-10-06",
+                  "horizon": 5,
+                  "reason": "the exchange calendar proves fewer than 5 trading sessions after the anchor session 2027-10-06 (the exchange calendar cannot prove a session (OUT_OF_CALENDAR_RANGE): the next session relative to 2027-10-08 is outside the XNYS calendar's range)",
+                  "return_value": null,
+                  "status": "INSUFFICIENT_FORWARD_SESSIONS",
+                  "target_close": null,
+                  "target_session": null
+                }
+              ],
+              "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+              "price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
+            }
+          }
+        },
+        "disclosure_evidence": {
+          "accession_number": null,
+          "form": null,
+          "items": null,
+          "level": "NONE"
+        },
+        "event": {
+          "estimated_eps": "1.0000",
+          "event_date": "2027-10-06",
+          "event_id": "e2c005d8-e837-4921-8c8c-0098a0687cf2",
+          "event_timestamp": null,
+          "fingerprint": "82ffae303e02c5587346cf9e80637da5381379839dc4c26b13c5febc69a5465f",
+          "fiscal_quarter": 1,
+          "fiscal_year": 2027,
+          "observed_at": null,
+          "observed_at_basis": null,
+          "reported_eps": "1.2000",
+          "timing": "BEFORE_MARKET"
+        },
+        "filing_link": {
+          "accession_number": null,
+          "company_cik": "0000320193",
+          "form": null,
+          "period_verification": "NOT_APPLICABLE",
+          "reason": "no filing accession was supplied; no filing is inferred from the event",
+          "status": "NOT_LINKED"
+        },
+        "identity": {
+          "benchmark_id": null,
+          "company_cik": "0000320193",
+          "company_id": "11249a19-10d6-4d6a-bd4a-4cacd26d401b",
+          "event_id": "e2c005d8-e837-4921-8c8c-0098a0687cf2",
+          "filing_accession": null,
+          "listing_resolution": {
+            "evidence": "PROVISIONAL_FIRST_OBSERVED",
+            "exchange_mic": "XNYS",
+            "listing_id": "7a2fbd1e-f238-4406-9323-6c3cacc8721d",
+            "reason": "exactly one first-observed listing was valid on this date",
+            "security_id": "a51cb54c-cb58-4ac0-ab71-8d9921c6611c",
+            "status": "RESOLVED"
+          }
+        },
+        "parameters": {
+          "benchmark_id": null,
+          "eps_kind": null,
+          "eps_period_class": null,
+          "filing_accession": null,
+          "horizons": [
+            1,
+            2,
+            5
+          ],
+          "price_basis": "SPLIT_ADJUSTED",
+          "security_id": null
+        },
+        "point_in_time": {
+          "eligibility": "INELIGIBLE_NO_AVAILABILITY_EVIDENCE",
+          "state": "REFUSED",
+          "study": null
+        },
+        "provenance": {
+          "accounting_artifacts": [],
+          "benchmark_id": null,
+          "event_fingerprint": "82ffae303e02c5587346cf9e80637da5381379839dc4c26b13c5febc69a5465f",
+          "event_ingestion_run_id": null,
+          "event_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e",
+          "filing_ingestion_run_id": null,
+          "filing_source_id": null,
+          "stock_price_source_id": "f655ff17-55b1-4008-b816-9bb6bf83747e"
+        },
+        "refusals": [
+          {
+            "code": "MISSING_TARGET_PRICE",
+            "horizon": 1,
+            "reason": "2027-10-07 is the 1-th exchange session after the anchor 2027-10-06, but no price observation is stored for it; the target is not moved to another date",
+            "scope": "MARKET"
+          },
+          {
+            "code": "MISSING_TARGET_PRICE",
+            "horizon": 2,
+            "reason": "2027-10-08 is the 2-th exchange session after the anchor 2027-10-06, but no price observation is stored for it; the target is not moved to another date",
             "scope": "MARKET"
           },
           {
             "code": "INSUFFICIENT_FORWARD_SESSIONS",
-            "horizon": 20,
-            "reason": "fewer than 20 available trading sessions exist after the anchor session 2026-03-02",
+            "horizon": 5,
+            "reason": "the exchange calendar proves fewer than 5 trading sessions after the anchor session 2027-10-06 (the exchange calendar cannot prove a session (OUT_OF_CALENDAR_RANGE): the next session relative to 2027-10-08 is outside the XNYS calendar's range)",
             "scope": "MARKET"
           },
           {

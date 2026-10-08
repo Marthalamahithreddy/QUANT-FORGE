@@ -1,4 +1,4 @@
-import { DATA, alerts, expect, expectNoInternalDetail, noPageOverflow, settled, test } from "./support";
+import { alerts, expect, expectNoInternalDetail, noPageOverflow, settled, test } from "./support";
 
 test.describe("Overview", () => {
   test("is a launchpad: bounded independent reads, real destinations, no invented figures", async ({ page, fixture }) => {
@@ -43,8 +43,12 @@ test.describe("Overview", () => {
     await expect(page).toHaveURL("/research");
 
     await page.goto("/");
-    await page.getByRole("table", { name: "Latest earnings events" }).locator(`a[href="/research/events/${DATA.event}"]`).click();
-    await expect(page).toHaveURL(`/research/events/${DATA.event}`);
+    // The first listed event, whichever it is: the list is newest-first with an identifier tie-break, and
+    // identifiers differ between captures, so no particular captured event is guaranteed to be on the page.
+    const eventLink = page.getByRole("table", { name: "Latest earnings events" }).locator('a[href^="/research/events/"]').first();
+    const eventHref = await eventLink.getAttribute("href");
+    await eventLink.click();
+    await expect(page).toHaveURL(eventHref!);
 
     await page.goto("/");
     const record = page.getByRole("table", { name: "Recent saved research records" }).getByRole("link").first();

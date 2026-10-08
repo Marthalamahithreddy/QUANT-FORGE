@@ -602,6 +602,8 @@ ACCOUNTING, POINT_IN_TIME) as group headings, each entry showing the backend `co
 strip equals the ledger length.
 
 Examples and their state: `NO_ALIGNMENT` -> `UNAVAILABLE`; `MISSING_ANCHOR_PRICE` -> `MISSING`;
+`MISSING_TARGET_PRICE` -> `MISSING` (the calendar proves the N-th session, no price is stored for it);
+`INSUFFICIENT_FORWARD_SESSIONS` -> `MISSING` (the calendar cannot prove the N-th session at all);
 `AMBIGUOUS_PRICE_SOURCE` -> `AMBIGUOUS`; `COMPARATIVE_MISSING` -> `MISSING`; `CIK_MISMATCH_REFUSED` -> `REFUSED`;
 `FILING_NOT_STORED` -> `MISSING`. Full table in Appendix B.
 
@@ -644,15 +646,15 @@ beside it that is the source of truth; the chart is a supplement.
 
 | Property | Specification |
 |---|---|
-| Question answered | "Which stored trading sessions did the event map to, and which sessions were the horizons measured to?" |
-| Layout | a horizontal categorical strip of **session dates**: `event session` (if the event date is itself a stored session), the **anchor** `first_post_event_session` (S0), then the target sessions `S+N` for each requested horizon |
+| Question answered | "Which exchange sessions did the event map to, and which sessions were the horizons measured to?" (sessions come from the exchange calendar since Step 11.2E; prices are what is stored) |
+| Layout | a horizontal categorical strip of **session dates**: `event session` (if the event date is itself an exchange session), the **anchor** `first_post_event_session` (S0), then the target sessions `S+N` for each requested horizon |
 | Event marker | placed **between session slots** according to the declared timing: `AFTER_MARKET` -> after the event session's slot; `BEFORE_MARKET` -> before the anchor's slot. It is labelled with the timing text ("After close") and the event date. **It is never placed at a clock time** |
-| Not to scale | slots are equal width and the legend says "stored trading sessions; weekends and holidays are not shown" |
-| Refusals | `UNKNOWN_TIMING` and `INTRADAY_PRECISION_UNSUPPORTED` replace the ladder with a `REFUSED` notice quoting the backend reason; `NO_SESSION_DATA` -> `MISSING` |
+| Not to scale | slots are equal width and the legend says "stored trading sessions only; weekends and holidays are not shown" (the legend wording predates 11.2E and is carried: see the 12E register) |
+| Refusals | `UNKNOWN_TIMING` and `INTRADAY_PRECISION_UNSUPPORTED` replace the ladder with a `REFUSED` notice quoting the backend reason; `NO_SESSION_DATA` -> `MISSING` (the backend no longer emits it for an event the calendar can align; the status stays in the contract). A target session that is proven but has no stored price keeps its date and carries the note "Price not stored for target session"; a horizon the calendar cannot prove has no date at all |
 
 **Temporal precision rule.** No visual element positions an event, an observation or a filing at an intraday point.
 `event_timestamp` and `observed_at` are shown only as text (UTC instants) in evidence panels, never on a time axis.
-The only axis of time in any chart is a sequence of stored session dates.
+The only axis of time in any chart is a sequence of exchange session dates.
 
 #### 8.5.7 Tables beneath the charts
 
@@ -1777,7 +1779,7 @@ Responses: `200`, `404`, `409`, `422`, `500`, `503`.
 - **EpsTransition**: `POSITIVE_INCREASED`, `POSITIVE_DECREASED`, `POSITIVE_UNCHANGED`, `LOSS_NARROWED`, `LOSS_WIDENED`, `LOSS_UNCHANGED`, `LOSS_TO_PROFIT`, `PROFIT_TO_LOSS`, `ZERO_TO_PROFIT`, `ZERO_TO_LOSS`, `PROFIT_TO_ZERO`, `LOSS_TO_ZERO`, `ZERO_UNCHANGED`
 - **Evidence**: `PROVISIONAL_FIRST_OBSERVED`, `SOURCE_STATED_HISTORY`
 - **FilingLinkStatus**: `NOT_LINKED`, `FILING_NOT_STORED`, `CIK_MISMATCH_REFUSED`, `CALLER_SUPPLIED_CIK_CONSISTENT`
-- **ForwardReturnStatus**: `AVAILABLE`, `NO_ALIGNMENT`, `MISSING_ANCHOR_PRICE`, `INSUFFICIENT_FORWARD_SESSIONS`, `INVALID_PRICE`, `AMBIGUOUS_PRICE_SOURCE`
+- **ForwardReturnStatus**: `AVAILABLE`, `NO_ALIGNMENT`, `MISSING_ANCHOR_PRICE`, `INSUFFICIENT_FORWARD_SESSIONS`, `MISSING_TARGET_PRICE`, `INVALID_PRICE`, `AMBIGUOUS_PRICE_SOURCE`
 - **ListingResolutionStatus**: `RESOLVED`, `NO_LISTING_FOR_DATE`, `AMBIGUOUS_LISTING`, `CONFLICTING_HISTORY`
 - **PercentageUnavailableReason**: `ZERO_COMPARATIVE`, `NEGATIVE_COMPARATIVE`
 - **PeriodVerification**: `NOT_APPLICABLE`, `PERIOD_UNVERIFIED`
@@ -1810,12 +1812,13 @@ example abnormal return depends on the benchmark status of the same horizon) the
 | `AlignmentStatus` | `ALIGNED` | V | |
 | | `UNKNOWN_TIMING` | R | the source stated no timing; the engine will not guess |
 | | `INTRADAY_PRECISION_UNSUPPORTED` | R | daily bars cannot place an intraday event |
-| | `NO_SESSION_DATA` | M | no qualifying stored session |
+| | `NO_SESSION_DATA` | M | no qualifying session (not emitted for a calendar-alignable event since 11.2E) |
 | | `NOT_POINT_IN_TIME_ELIGIBLE` | R | alignment withheld in PIT mode |
 | `ForwardReturnStatus` | `AVAILABLE` | V | |
 | | `NO_ALIGNMENT` | U | depends on alignment |
-| | `MISSING_ANCHOR_PRICE` | M | |
-| | `INSUFFICIENT_FORWARD_SESSIONS` | M | horizon beyond stored sessions |
+| | `MISSING_ANCHOR_PRICE` | M | the proven anchor session has no stored price |
+| | `INSUFFICIENT_FORWARD_SESSIONS` | M | the exchange calendar cannot prove this many sessions after the anchor (end of its range); no session is named |
+| | `MISSING_TARGET_PRICE` | M | the calendar proves the N-th session and no price is stored for it; the proven session is shown and never moved |
 | | `INVALID_PRICE` | R | the engine refuses an invalid price |
 | | `AMBIGUOUS_PRICE_SOURCE` | A | more than one price source in the window |
 | `BenchmarkReturnStatus` | `AVAILABLE` | V | |

@@ -36,8 +36,31 @@ describe("pinned backend observations", () => {
     expect(seen((r) => r.accounting.state)).toEqual(new Set(["NOT_REQUESTED", "EVALUATED", "LINK_REFUSED"]));
     expect(seen((r) => r.disclosure_evidence.level)).toEqual(new Set(["NONE", "D0_FILING_EXISTS", "D1_ITEM_2_02_DECLARED"]));
     expect(seen((r) => r.descriptive.state)).toEqual(new Set(["AVAILABLE", "PARTIAL", "UNAVAILABLE"]));
-    expect(seen((r) => r.descriptive.study.alignment.session_alignment?.status)).toContain("UNKNOWN_TIMING");
-    expect(seen((r) => r.descriptive.study.alignment.session_alignment?.status)).toContain("NO_SESSION_DATA");
+    // Sessions come from the exchange calendar: an event with no stored bar is still ALIGNED.
+    expect(seen((r) => r.descriptive.study.alignment.session_alignment?.status)).toEqual(new Set(["ALIGNED", "UNKNOWN_TIMING"]));
+  });
+
+  it("covers each of the three unavailable forward-return statuses, with the 12B/11.2E semantics", () => {
+    const forward = CAPTURE.cases.flatMap((c) => (c.response as unknown as Json).descriptive.study.stock_returns.forward_returns as Json[]);
+    const byStatus = (status: string) => forward.filter((f) => f.status === status);
+    // the calendar proves the target session and no price is stored: the proven session is reported, never moved
+    for (const f of byStatus("MISSING_TARGET_PRICE")) {
+      expect(f.target_session).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(f.target_close).toBeNull();
+      expect(f.reason).toMatch(/exchange session after the anchor .*no price observation is stored for it; the target is not moved/);
+    }
+    // the calendar cannot prove the session: no session is named at all
+    for (const f of byStatus("INSUFFICIENT_FORWARD_SESSIONS")) {
+      expect(f.target_session).toBeNull();
+      expect(f.reason).toMatch(/^the exchange calendar proves fewer than \d+ trading sessions after the anchor session/);
+    }
+    // the proven anchor session has no stored price
+    for (const f of byStatus("MISSING_ANCHOR_PRICE")) expect(f.anchor_close).toBeNull();
+    expect(byStatus("MISSING_TARGET_PRICE").length).toBeGreaterThan(0);
+    expect(byStatus("INSUFFICIENT_FORWARD_SESSIONS").length).toBeGreaterThan(0);
+    expect(byStatus("MISSING_ANCHOR_PRICE").length).toBeGreaterThan(0);
+    // none of the pre-11.2E / pre-12B wording survives in the pinned captures
+    expect(JSON.stringify(CAPTURE)).not.toMatch(/available trading sessions exist after|ordered available trading-session|ordered list of available trading sessions/);
   });
 
   it("keeps every financial value an exact string and never produces a JS number for one", () => {

@@ -97,16 +97,22 @@ describe("what is drawn and what is not", () => {
   });
 
   it("a horizon that could not be computed has NO mark: an empty slot names its state instead", () => {
-    const s = study("default_no_benchmark"); // +1 available, +5 and +20 beyond the calendar's proven horizon
+    const s = study("default_no_benchmark"); // +1 available; +5 and +20 are proven sessions with no stored price
     const { container } = chart(s);
     expect(plot(container).querySelectorAll("circle.fill-chart-stock")).toHaveLength(1);
     const groups = screen.getAllByRole("group");
     expect(groups).toHaveLength(3);
-    expect(groups[1]).toHaveAccessibleName("+5 sessions: stock return beyond the calendar's proven horizon");
+    expect(groups[1]).toHaveAccessibleName("+5 sessions: stock return price not stored for target session");
     expect(groups[1]!.querySelector("circle.fill-chart-stock")).toBeNull(); // (the state glyph is a hollow ring, not a data mark)
-    expect(groups[1]!.textContent).toContain("Beyond the calendar's proven horizon");
+    expect(groups[1]!.textContent).toContain("Price not stored for target session");
     expect(groups[1]!.querySelector("svg[data-glyph]")).not.toBeNull(); // the state's glyph, not a zero
     expect(groups[1]!.textContent).not.toMatch(/0\.00%|\+0%/);
+  });
+
+  it("no horizon has a return (unpriced and unprovable targets only): no chart, no zero, no coordinate system", () => {
+    const { container } = chart(study("horizons_beyond_calendar"));
+    expect(container.querySelector("svg")).toBeNull();
+    expect(container.textContent).toBe("");
   });
 
   it("when only the benchmark is missing the stock mark stays and the slot says why", () => {
@@ -161,9 +167,16 @@ describe("returns table", () => {
     const table = screen.getByRole("table", { name: "Descriptive returns by horizon" });
     expect(within(table).getAllByRole("row")).toHaveLength(4);
     expect(within(table).getByText("+1 sessions")).toBeInTheDocument();
-    expect(within(table).getAllByText("INSUFFICIENT_FORWARD_SESSIONS")).toHaveLength(2);
+    expect(within(table).getAllByText("MISSING_TARGET_PRICE")).toHaveLength(2);
     expect(within(table).getByText("110.000000")).toBeInTheDocument();
     expect(within(table).queryByRole("columnheader", { name: /Benchmark target close/ })).toBeNull();
+  });
+
+  it("tells the three unavailable statuses apart: unpriced anchor never appears here, unpriced target and unprovable target do", () => {
+    render(<ReturnsTable study={study("horizons_beyond_calendar")} caption="Descriptive returns by horizon" />);
+    const table = screen.getByRole("table", { name: "Descriptive returns by horizon" });
+    expect(within(table).getAllByText("MISSING_TARGET_PRICE")).toHaveLength(2);
+    expect(within(table).getAllByText("INSUFFICIENT_FORWARD_SESSIONS")).toHaveLength(1);
   });
 
   it("a stock-only table (the event record's preview) leaves out the benchmark and abnormal columns", () => {
@@ -223,13 +236,26 @@ describe("session ladder", () => {
     expect(items[2]).toHaveTextContent("Anchor · first post-event session2026-03-03");
   });
 
-  it("manufactures no date: a horizon with no stored target session shows its state", () => {
+  it("a proven target session whose price is not stored shows its date AND says the price is missing", () => {
     render(<SessionLadder study={study("default_no_benchmark")} />);
     const items = within(screen.getByRole("list", { name: "Stored trading sessions" })).getAllByRole("listitem");
     expect(items).toHaveLength(5);
-    expect(items[3]).toHaveTextContent("+5 sessions");
-    expect(items[3]!.querySelector('[data-state="MISSING"]')).not.toBeNull();
-    expect(items[3]!.querySelector(".num")).toBeNull(); // no session date is shown for it (only the backend's reason text)
+    expect(items[2]).toHaveTextContent("+1 sessions2026-03-03");
+    expect(items[2]).not.toHaveTextContent("Price not stored");
+    expect(items[3]).toHaveTextContent("+5 sessions2026-03-09Price not stored for target session"); // the proven session, never moved
+    expect(items[4]).toHaveTextContent("+20 sessions2026-03-30Price not stored for target session");
+  });
+
+  it("manufactures no date: a horizon the calendar cannot prove shows its state and no date", () => {
+    render(<SessionLadder study={study("horizons_beyond_calendar")} />);
+    const items = within(screen.getByRole("list", { name: "Stored trading sessions" })).getAllByRole("listitem");
+    expect(items).toHaveLength(5); // marker, anchor, +1 and +2 (proven, unpriced), +5 (not provable)
+    expect(items[3]).toHaveTextContent("+2 sessions");
+    expect(items[3]).toHaveTextContent("Price not stored for target session");
+    expect(items[4]).toHaveTextContent("+5 sessions");
+    expect(items[4]!.querySelector('[data-state="MISSING"]')).not.toBeNull();
+    expect(items[4]!.querySelector(".num")).toBeNull(); // no session date is shown for it (only the backend's reason text)
+    expect(items[4]).toHaveTextContent("Beyond the calendar's proven horizon");
   });
 
   it("a refused alignment replaces the ladder with the backend's reason", () => {

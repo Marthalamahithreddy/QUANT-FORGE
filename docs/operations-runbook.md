@@ -198,20 +198,80 @@ Read-only: GET requests only; it saves nothing, ingests nothing, calls no provid
 ```bash
 # with the API and the PRODUCTION web build running
 QF_API_URL=http://127.0.0.1:8000 QF_WEB_URL=http://127.0.0.1:3101 node scripts/release-smoke.mjs
-#   --build       run `npm run build` first        --start-web   serve that build for the run
-#   --verify      also open a saved record's verify page (asks the backend to re-verify; still read-only)
-#   --no-browser  API + web reachability only
+#   --build           run `npm run build` first        --start-web   serve that build for the run
+#   --verify          also open a saved record's verify page (asks the backend to re-verify; still read-only)
+#   --no-browser      API + web reachability only
+#   --db-fingerprint  also fingerprint the database before and after (needs the application's Python and DB access;
+#                     QF_SMOKE_FINGERPRINT_COMMAND overrides the command, QF_SMOKE_FINGERPRINT_VALIDATION=1 targets the validation DB)
 # or, from apps/web:  npm run smoke:release
 ```
 
 Phases (the first failure stops the run, prints `FAIL <phase>: <reason>` and exits 1):
-`liveness` -> `readiness` (ready, database ok, schema compatible) -> `web` (200) -> `browser`
-(every page 200, no 5xx, zero axe violations, no horizontal overflow at 1440 px and 390 px) ->
-`unchanged` (stored counts and readiness are the same after the run as before it). It needs Google Chrome
-installed (the browser phase uses the system Chrome through Playwright) and at least one stored earnings
-event and FSDS-backed filing to visit.
+`liveness` -> `readiness` (ready, database ok, schema compatible) -> `web` (200) -> `browser` ->
+`unchanged`. It needs Google Chrome installed (the browser phase uses the system Chrome through Playwright)
+and at least one stored earnings event and FSDS-backed filing to visit.
 
-## 10. Quick reference
+**The browser phase fails on an application error served with HTTP 200.** The product shows an unreachable
+API, a database outage, a contract violation or a render crash as an ordinary page with status 200, so a status
+check alone passes a broken deployment. The smoke reads the design system's own markers instead of wording:
+`role="alert"` and `data-state="ERROR"` are reserved for application failure; a point-in-time refusal, a missing
+target price, `NOT_REQUESTED` and an honest empty list are domain states and **do not** fail it. It also fails
+on an uncaught script error or console error, on a non-200 page, on any 5xx the browser receives, on a write
+request issued by the browser, on an axe violation and on horizontal overflow at 1440 px and 390 px. And it
+fails when a page does not show what the API reports it holds: a list the API says has rows must have rows,
+with the same total; the research page must have its sections and chart; the overview must say "Ready".
+A failure looks like `FAIL browser: ... desktop earnings-event: application error state rendered with HTTP 200
+(1 role="alert" marker(s); first: "Temporarily unavailable ...")`.
+
+**What `unchanged` proves.** The stored state is compared before and after the browser phase.
+Always (HTTP): for earnings events, filings, benchmarks and saved research records, the total and a digest of
+every item (up to 500 per list; saved records carry their manifest and result fingerprints), the EPS facts of the
+first five filings and one research observation (the stored bars and returns it is computed from).
+With `--db-fingerprint` (database): for every application table the row count, PostgreSQL's cumulative
+insert/update/delete counters (these move on *any* write, including a rewrite that changes no value), digests of
+the first and last 50 rows and of the primary keys, and full digests of saved records, raw-artifact references
+and ingestion runs. Read-only (`REPEATABLE READ, READ ONLY`). **Proves:** no served list, no saved record and (with the flag) no table
+was written during the run. **Does not prove:** that a value outside the digested windows of a very large table is
+unchanged beyond what the write counters say (they are cumulative and flushed with a short delay, so the second snapshot
+waits 1.5 s); nor anything about state before the run began. The run ends by reporting how many requests it
+issued and that none was a write.
+
+## 10. Release qualification and deployment constraints
+
+Before a release candidate is frozen, qualify it with these (all offline; none calls a provider):
+
+```bash
+cd apps/api && uv run pytest -q                 # unit + integration, coverage gate
+cd apps/api && uv audit --frozen --preview-features audit-command   # Python dependencies (OSV)
+cd apps/web && npm audit --omit=dev             # runtime npm dependencies; plain `npm audit` adds dev tooling
+cd apps/web && npm run lint && npm run typecheck && npm test && npm run contract:check && npm run e2e
+node scripts/release-smoke.mjs --build --start-web --verify --db-fingerprint     # against the validation DB
+uv run --project apps/api python scripts/validation/perf_baseline.py --runs 30
+node scripts/validation/page_perf.mjs <web> <api> <api-access-log>               # API started with PYTHONUNBUFFERED=1, log_level=info
+```
+
+Scale measurements use a **disposable** synthetic database, never the validation database:
+`scripts/validation/synthetic_scale.py build` creates `qf_scale_synthetic` (clearly synthetic names, real XNYS sessions,
+saved records through the real service) and `... drop` removes it. Compare statement counts and ratios between runs on the
+same machine; absolute milliseconds depend on the machine.
+
+**Deployment constraints (explicit, not hidden).**
+
+* **No authentication, by design.** Every route is a read, so the API is safe to place in front of people who may
+  read the stored research, and *only* them. It MUST sit on a private network or behind a reverse proxy that provides
+  authentication/authorisation, TLS, rate limiting and request-size limits. Do not expose uvicorn or `next start` to the internet.
+  `docs`/`redoc`/`openapi.json` are disabled in production.
+* The API may not be deployed with `QF_DEBUG`, a development database login or unset/wildcard CORS origins (refused at start).
+* Only one schema revision is served: deploy the binary and run `alembic upgrade head` together (readiness is `503` until both match).
+* The first research request after a process start (and after UTC midnight) builds the exchange calendar (about 0.3 s alone;
+  concurrent first requests may each build one, about 1.3 s under 16-way contention, with identical results). Send one research request (the release smoke
+  does) before putting an instance in rotation.
+* Offset pagination: an `offset` of 40,000 on a 40,000-row list costs about 80 ms (`/filings`) and 45 ms (`/earnings-events`).
+  It grows linearly with the offset; there is no cursor pagination.
+* The saved-research list page issues one event lookup per distinct event on the page: up to 22 API requests (1 health, 1 list, 20 events).
+  Bounded by the page size of 20.
+
+## 11. Quick reference
 
 | Symptom | Meaning | Do |
 |---|---|---|

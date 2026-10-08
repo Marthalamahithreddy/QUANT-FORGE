@@ -55,15 +55,35 @@ interface Api {
   liveStatus?: number;
   ready?: unknown;
   readyStatus?: number;
-  total?: () => number;
+  /** Routes (path prefix) answered with this status instead of data. */
+  failing?: Record<string, number>;
 }
-const api = (config: Api = {}) =>
-  stub((request, response) => {
+/**
+ * A stand-in API with stored state a test can change through `GET /__flip` (a stub-only side effect the
+ * browser stub triggers, to simulate the product writing during the run): `version` changes an item's
+ * content without changing any total.
+ */
+const state = { version: 0, extra: 0 };
+const api = (config: Api = {}) => {
+  state.version = 0;
+  state.extra = 0;
+  return stub((request, response) => {
     const url = new URL(request.url ?? "/", "http://x");
     if (url.pathname === "/health") return json(response, config.liveStatus ?? 200, config.live ?? LIVE);
     if (url.pathname === "/api/v1/health/ready") return json(response, config.readyStatus ?? 200, config.ready ?? READY);
-    return json(response, 200, { items: [], total: config.total?.() ?? 3, limit: 1, offset: 0 });
+    if (url.pathname === "/__flip") {
+      if (url.searchParams.get("kind") === "extra") state.extra += 1;
+      else state.version += 1;
+      return json(response, 200, { ok: true });
+    }
+    const failing = Object.entries(config.failing ?? {}).find(([prefix]) => url.pathname.startsWith(`/api/v1${prefix}`));
+    if (failing) return json(response, failing[1], { detail: "stub failure" });
+    if (url.pathname.includes("/research/observations/")) return json(response, 200, { version: state.version });
+    if (url.pathname.endsWith("/eps")) return json(response, 200, { eps: "0.3500" });
+    const items = [{ id: "e1", accession: "0000320187-26-000037", company_cik: "0000320187", record_id: "r1", note: state.version }];
+    return json(response, 200, { items, total: 1 + state.extra, limit: 100, offset: 0 });
   });
+};
 const web = (status = 200) =>
   stub((_request, response) => {
     response.writeHead(status, { "content-type": "text/html" });
@@ -163,12 +183,58 @@ describe("release smoke: each failure names its phase and exits non-zero", () =>
     expect(result.out).toContain("FAIL browser: 1 failure(s): desktop saved-record: 2 axe violation(s): color-contrast");
   });
 
-  it("stored state changing during the run", async () => {
-    let calls = 0;
-    const [a, w] = [await api({ total: () => (calls++ < 4 ? 3 : 4) }), await web()];
-    const result = await run([], target(a.url, w.url, { QF_SMOKE_BROWSER_SCRIPT: PASSING }));
+  it("a stored item changing its CONTENT with every total unchanged (the old four-total check missed this)", async () => {
+    const [a, w] = [await api(), await web()];
+    const flip = browserStub('await fetch(process.env.QF_API_URL + "/__flip");');
+    const result = await run([], target(a.url, w.url, { QF_SMOKE_BROWSER_SCRIPT: flip }));
     expect(result.code).toBe(1);
     expect(result.out).toContain("RESULT: FAIL (unchanged)");
+    expect(result.out).toMatch(/stored state changed during the run at: http\.(events|filings|benchmarks|records|observation)/);
+  });
+
+  it("a total changing (a record appearing) during the run", async () => {
+    const [a, w] = [await api(), await web()];
+    const flip = browserStub('await fetch(process.env.QF_API_URL + "/__flip?kind=extra");');
+    const result = await run([], target(a.url, w.url, { QF_SMOKE_BROWSER_SCRIPT: flip }));
+    expect(result.code).toBe(1);
+    expect(result.out).toContain("stored state changed during the run at: http.events.total");
+  });
+
+  it("an unreadable state list fails the check instead of comparing 'nothing' with 'nothing'", async () => {
+    const [a, w] = [await api({ failing: { "/filings": 500 } }), await web()];
+    const result = await run([], target(a.url, w.url, { QF_SMOKE_BROWSER_SCRIPT: PASSING }));
+    expect(result.code).toBe(1);
+    expect(result.out).toContain("FAIL unchanged: could not read GET /filings");
+  });
+
+  it("an unexpected 5xx reported by the browser phase fails the run", async () => {
+    const [a, w] = [await api(), await web()];
+    const five = browserStub('console.log("SMOKE FAIL desktop research-spy: 502 from /api/v1/research/observations/x"); process.exitCode = 1;');
+    const result = await run([], target(a.url, w.url, { QF_SMOKE_BROWSER_SCRIPT: five }));
+    expect(result.code).toBe(1);
+    expect(result.out).toContain("FAIL browser: 1 failure(s): desktop research-spy: 502");
+  });
+
+  it.each([
+    ["an application error state served with HTTP 200", "desktop earnings-event: application error state rendered with HTTP 200"],
+    ["a list that is empty although the API reports rows", "desktop earnings: expected at least 1 row(s) because the API reports data, found 0"],
+    ["horizontal overflow", "mobile filings: horizontal overflow (900 > 390)"],
+    ["an accessibility violation", "desktop overview: 1 axe violation(s): image-alt"],
+    ["a mutation attempt by the browser", "desktop saved-record: the browser issued POST /api/v1/research/records"],
+  ])("the browser phase reporting %s fails the run and says so", async (_name, line) => {
+    const [a, w] = [await api(), await web()];
+    const failing = browserStub(`console.log(${JSON.stringify(`SMOKE FAIL ${line}`)}); process.exitCode = 1;`);
+    const result = await run([], target(a.url, w.url, { QF_SMOKE_BROWSER_SCRIPT: failing }));
+    expect(result.code).toBe(1);
+    expect(result.out).toContain(`FAIL browser: 1 failure(s): ${line}`);
+  });
+
+  it("a browser script that crashes without a verdict fails (no silent pass)", async () => {
+    const [a, w] = [await api(), await web()];
+    const crash = browserStub('throw new Error("boom");');
+    const result = await run([], target(a.url, w.url, { QF_SMOKE_BROWSER_SCRIPT: crash }));
+    expect(result.code).toBe(1);
+    expect(result.out).toContain("RESULT: FAIL (browser)");
   });
 
   it("stops at the first failing phase: the browser never runs after a readiness failure", async () => {
@@ -198,8 +264,80 @@ describe("release smoke: it cannot mutate anything", () => {
 
   it("the browser script it calls visits pages only, and the verify page only on request", () => {
     const smoke = readFileSync(join(process.cwd(), "..", "..", "scripts", "validation", "real_smoke.mjs"), "utf8");
-    expect(smoke).not.toMatch(/\.fill\(|\.click\(|\.type\(|method:\s*"(POST|PUT|PATCH|DELETE)"|request\.post/);
+    // It never drives the page (no typing, clicking or form submission) and never issues a write request.
+    expect(smoke).not.toMatch(/\b(page|locator|frame)\.(fill|click|dblclick|type|press|check|setInputFiles|dispatchEvent)\(|method:\s*"(POST|PUT|PATCH|DELETE)"|request\.post|\.submit\(/);
     expect(smoke).toMatch(/process\.env\.REAL_SMOKE_VERIFY === "1"/);
+  });
+});
+
+describe("release smoke: the database-side fingerprint (--db-fingerprint)", () => {
+  const table = (writes: number[], head = "h1") => ({ earnings_event: { rows: 1, writes, head, tail: head, keys: "k" } });
+  /** A fingerprint command that reports a different state on its second call. */
+  function fingerprintCommand(first: unknown, second: unknown): string {
+    const dir = mkdtempSync(join(tmpdir(), "qf-fp-"));
+    const script = join(dir, "fp.mjs");
+    const counter = join(dir, "n");
+    writeFileSync(
+      script,
+      `import { existsSync, writeFileSync } from "node:fs";
+       const second = existsSync(${JSON.stringify(counter)});
+       writeFileSync(${JSON.stringify(counter)}, "x");
+       console.log(JSON.stringify(second ? ${JSON.stringify(second)} : ${JSON.stringify(first)}));`,
+    );
+    return `"${process.execPath}" "${script}"`;
+  }
+
+  it("passes when every table's rows, write counters and digests are the same", async () => {
+    const [a, w] = [await api(), await web()];
+    const same = table([1, 0, 0]);
+    const command = fingerprintCommand(same, same);
+    const result = await run(["--db-fingerprint"], target(a.url, w.url, { QF_SMOKE_BROWSER_SCRIPT: PASSING, QF_SMOKE_FINGERPRINT_COMMAND: command }));
+    expect(result.code).toBe(0);
+    expect(result.out).toMatch(/unchanged\s+.*1 tables fingerprinted/);
+  });
+
+  it("fails naming the table when a write counter moved (an UPDATE that changed no row count)", async () => {
+    const [a, w] = [await api(), await web()];
+    const command = fingerprintCommand(table([1, 0, 0]), table([1, 1, 0]));
+    const result = await run(["--db-fingerprint"], target(a.url, w.url, { QF_SMOKE_BROWSER_SCRIPT: PASSING, QF_SMOKE_FINGERPRINT_COMMAND: command }));
+    expect(result.code).toBe(1);
+    expect(result.out).toContain("stored state changed during the run at: db.earnings_event.writes");
+  });
+
+  it("fails when a row digest changed even though the counters did not", async () => {
+    const [a, w] = [await api(), await web()];
+    const command = fingerprintCommand(table([1, 0, 0], "h1"), table([1, 0, 0], "h2"));
+    const result = await run(["--db-fingerprint"], target(a.url, w.url, { QF_SMOKE_BROWSER_SCRIPT: PASSING, QF_SMOKE_FINGERPRINT_COMMAND: command }));
+    expect(result.code).toBe(1);
+    expect(result.out).toMatch(/db\.earnings_event\.(head|tail)/);
+  });
+
+  it("a fingerprint command that cannot read the database fails the check (no silent skip)", async () => {
+    const [a, w] = [await api(), await web()];
+    const broken = browserStub('process.stderr.write("state fingerprint failed: OperationalError\\n"); process.exitCode = 1;');
+    const result = await run(["--db-fingerprint"], target(a.url, w.url, { QF_SMOKE_BROWSER_SCRIPT: PASSING, QF_SMOKE_FINGERPRINT_COMMAND: `"${process.execPath}" "${broken}"` }));
+    expect(result.code).toBe(1);
+    expect(result.out).toContain("FAIL unchanged: --db-fingerprint could not read the database state: state fingerprint failed: OperationalError");
+  });
+
+  it("without the flag it says plainly that the database was not fingerprinted", async () => {
+    const [a, w] = [await api(), await web()];
+    const result = await run([], target(a.url, w.url, { QF_SMOKE_BROWSER_SCRIPT: PASSING }));
+    expect(result.out).toContain("database fingerprint not requested (HTTP level only)");
+  });
+});
+
+describe("release smoke: request audit", () => {
+  it("reports how many requests it issued and that none was a write", async () => {
+    const [a, w] = [await api(), await web()];
+    const result = await run([], target(a.url, w.url, { QF_SMOKE_BROWSER_SCRIPT: PASSING }));
+    expect(result.out).toMatch(/\[ok\]\s+requests\s+smoke script \d+ GET, browser .*no write method/);
+  });
+
+  it("always stops a server it started, whatever the outcome", () => {
+    const source = readFileSync(SCRIPT, "utf8");
+    expect(source).toMatch(/finally \{\s*stop\(server\);\s*\}/);
+    expect(source).toMatch(/detached: true/); // its own process group, so npx -> next is stopped as a tree
   });
 });
 
