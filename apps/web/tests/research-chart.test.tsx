@@ -7,6 +7,7 @@ import { ReturnsTable } from "@/components/research/returns-table";
 import { SessionLadder } from "@/components/research/session-ladder";
 import type { Study } from "@/lib/api/schema";
 import { formatRatioAsPercent } from "@/lib/format";
+import { ALIGNMENT_LABEL } from "@/lib/research-wording";
 import { captured, clone } from "./research-fixtures";
 
 type Json = Record<string, any>;
@@ -213,7 +214,7 @@ describe("session ladder", () => {
 
   it("before-open: the event marker sits before the anchor slot and is labelled with the timing, never a clock time", () => {
     render(<SessionLadder study={study("benchmark_selected")} />);
-    const items = within(screen.getByRole("list", { name: "Stored trading sessions" })).getAllByRole("listitem");
+    const items = within(screen.getByRole("list", { name: "Exchange sessions" })).getAllByRole("listitem");
     expect(items[0]).toHaveAttribute("data-kind", "event-marker");
     expect(items[0]).toHaveTextContent("Before open (as stated by the source)");
     expect(items[1]).toHaveTextContent("Anchor · first post-event session2026-03-02");
@@ -229,7 +230,7 @@ describe("session ladder", () => {
       x.alignment.session_alignment.first_post_event_session = "2026-03-03";
     });
     render(<SessionLadder study={s} />);
-    const items = within(screen.getByRole("list", { name: "Stored trading sessions" })).getAllByRole("listitem");
+    const items = within(screen.getByRole("list", { name: "Exchange sessions" })).getAllByRole("listitem");
     expect(items[0]).toHaveTextContent("Event session2026-03-02");
     expect(items[1]).toHaveAttribute("data-kind", "event-marker");
     expect(items[1]).toHaveTextContent("After close (as stated by the source)");
@@ -238,7 +239,7 @@ describe("session ladder", () => {
 
   it("a proven target session whose price is not stored shows its date AND says the price is missing", () => {
     render(<SessionLadder study={study("default_no_benchmark")} />);
-    const items = within(screen.getByRole("list", { name: "Stored trading sessions" })).getAllByRole("listitem");
+    const items = within(screen.getByRole("list", { name: "Exchange sessions" })).getAllByRole("listitem");
     expect(items).toHaveLength(5);
     expect(items[2]).toHaveTextContent("+1 sessions2026-03-03");
     expect(items[2]).not.toHaveTextContent("Price not stored");
@@ -248,7 +249,7 @@ describe("session ladder", () => {
 
   it("manufactures no date: a horizon the calendar cannot prove shows its state and no date", () => {
     render(<SessionLadder study={study("horizons_beyond_calendar")} />);
-    const items = within(screen.getByRole("list", { name: "Stored trading sessions" })).getAllByRole("listitem");
+    const items = within(screen.getByRole("list", { name: "Exchange sessions" })).getAllByRole("listitem");
     expect(items).toHaveLength(5); // marker, anchor, +1 and +2 (proven, unpriced), +5 (not provable)
     expect(items[3]).toHaveTextContent("+2 sessions");
     expect(items[3]).toHaveTextContent("Price not stored for target session");
@@ -258,9 +259,52 @@ describe("session ladder", () => {
     expect(items[4]).toHaveTextContent("Beyond the calendar's proven horizon");
   });
 
+  it("tells the four per-horizon cases apart: computed, proven but unpriced, unprovable, and no anchor price", () => {
+    const items = () => within(screen.getByRole("list", { name: "Exchange sessions" })).getAllByRole("listitem");
+    const text = () => items().map((item) => item.textContent ?? "");
+    // a slot shows a session DATE only as its visible date value (`.num`); reason text may name dates
+    const showsDate = (item: HTMLElement) => item.querySelector(".num") !== null;
+    // 1 + 2: +1 computed (a date, no note); +5 and +20 proven by the calendar, price not stored (date + note)
+    const { unmount } = render(<SessionLadder study={study("default_no_benchmark")} />);
+    const priced = text();
+    expect(priced[2]).toBe("+1 sessions2026-03-03");
+    expect(priced[3]).toBe("+5 sessions2026-03-09Price not stored for target session");
+    unmount();
+    // 3: the calendar cannot prove +5: no date at all
+    const { unmount: second } = render(<SessionLadder study={study("horizons_beyond_calendar")} />);
+    const unprovable = text();
+    expect(unprovable[4]).toContain("+5 sessions");
+    expect(showsDate(items()[4]!)).toBe(false);
+    expect(unprovable[4]).toContain("Beyond the calendar's proven horizon");
+    second();
+    // 4: no anchor price: every horizon names the missing anchor price and shows no target date
+    render(<SessionLadder study={study("event_off_calendar")} />);
+    const slots = items().slice(2);
+    expect(slots.length).toBeGreaterThan(0);
+    for (const slot of slots) {
+      expect(slot.textContent).toContain("Missing anchor price");
+      expect(showsDate(slot)).toBe(false);
+    }
+  });
+
+  it("calls the sessions exchange sessions, not stored sessions: they come from the calendar, prices are what is stored", () => {
+    render(<SessionLadder study={study("default_no_benchmark")} />);
+    expect(screen.getByRole("list", { name: "Exchange sessions" })).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: /Stored/ })).toBeNull();
+    expect(document.body.textContent).toMatch(/Exchange sessions from the calendar/);
+    expect(document.body.textContent).toMatch(/A session whose price is not stored says so; a horizon the calendar cannot prove shows no date/);
+    expect(document.body.textContent).not.toMatch(/stored (trading )?sessions?/i);
+  });
+
+  it("the alignment wording no longer claims stored sessions", () => {
+    expect(ALIGNMENT_LABEL.ALIGNED).toBe("Aligned to exchange sessions");
+    expect(ALIGNMENT_LABEL.NO_SESSION_DATA).toBe("No qualifying exchange session");
+    for (const label of Object.values(ALIGNMENT_LABEL)) expect(label).not.toMatch(/stored/i);
+  });
+
   it("a refused alignment replaces the ladder with the backend's reason", () => {
     render(<SessionLadder study={study("unknown_timing")} />);
-    expect(screen.queryByRole("list", { name: "Stored trading sessions" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Exchange sessions" })).toBeNull();
     expect(screen.getByRole("status")).toHaveTextContent("source declared no timing; before- vs after-market cannot be inferred");
     expect(screen.getByRole("status")).toHaveTextContent("UNKNOWN_TIMING");
   });
@@ -271,7 +315,7 @@ describe("session ladder", () => {
     expect(region).toHaveAttribute("tabindex", "0");
     expect(region.className).toMatch(/overflow-x-auto/);
     expect(region.className).toMatch(/\brelative\b/);
-    expect(within(region).getByRole("list", { name: "Stored trading sessions" })).toBeInTheDocument();
+    expect(within(region).getByRole("list", { name: "Exchange sessions" })).toBeInTheDocument();
   });
 
   it("the on-chart value label is the exact percent only; the 'not zero' flag lives in the accessible name and the table", () => {

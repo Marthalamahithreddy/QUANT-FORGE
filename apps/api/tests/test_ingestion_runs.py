@@ -13,6 +13,8 @@ PostgreSQL and lives in ``tests/integration/test_ingestion_runs.py``.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from quantforge.ingestion.runs import (
@@ -226,3 +228,77 @@ def test_more_absolute_path_roots_are_redacted(message: str) -> None:
 def test_a_path_in_an_endpoint_template_is_not_mistaken_for_a_filesystem_path() -> None:
     message = "GET /v3/reference/tickers/{ticker} and /api/v1/earnings-events failed"
     assert _safe_error_text(RuntimeError(message)) == message
+
+
+# ── Step 12F: quoted values, JSON bodies, prefixed names ───────────────────────
+
+_12F_CASES = [
+    # (message, the secret that must not survive, a diagnostic fragment that must)
+    ("connect failed password='Sup3rS3cret with space' dbname=qf", "Sup3rS3cret", "dbname=qf"),
+    ('connect failed password="Sup3rS3cret with space" dbname=qf', "Sup3rS3cret", "dbname=qf"),
+    (
+        'rejected: {"api_key": "Sup3rS3cretKey99", "status": 403}',
+        "Sup3rS3cretKey99",
+        '"status": 403',
+    ),
+    ('rejected: {"apiKey":"Sup3rS3cretKey99"}', "Sup3rS3cretKey99", "rejected"),
+    ('{"token":"Sup3rS3cretKey99","ok":false}', "Sup3rS3cretKey99", '"ok":false'),
+    ("client_secret=Sup3rS3cretKey99 for the app", "Sup3rS3cretKey99", "for the app"),
+    ("(client_secret: 'Sup3rS3cret key')", "Sup3rS3cret", "("),
+    ("x-api-key=Sup3rS3cretKey99; retrying", "Sup3rS3cretKey99", "retrying"),
+    ("refresh_token=Sup3rS3cretKey99.", "Sup3rS3cretKey99", "refresh_token"),
+    ("DB_PASSWORD=Sup3rS3cretKey99", "Sup3rS3cretKey99", "DB_PASSWORD"),
+    ("CLIENT_SECRET = 'Sup3rS3cretKey99'", "Sup3rS3cretKey99", "CLIENT_SECRET"),
+    (r'{"password": "a\"Sup3rS3cret b"} next', "Sup3rS3cret", "next"),
+    ("failed (password='Sup3rS3cretKey99'), retry later", "Sup3rS3cretKey99", "retry later"),
+    ('{"Authorization": "Bearer Sup3rS3cretKey99"}', "Sup3rS3cretKey99", "Authorization"),
+    ("password=Sup3rS3cret\\ with\\ escapes tail", "Sup3rS3cret", "tail"),
+    ("password=Sup3rS3cret,part2;part3 then", "part3", "then"),
+    ("password=Sup3rS3cret,part2;part3 then", "part2", "then"),
+]
+
+
+@pytest.mark.parametrize(("message", "secret", "kept"), _12F_CASES)
+def test_quoted_json_and_prefixed_credentials_are_redacted_but_the_diagnosis_survives(
+    message: str, secret: str, kept: str
+) -> None:
+    out = _safe_error_text(RuntimeError(message))
+    assert secret not in out
+    assert _REDACTED_MARKER in out
+    assert kept in out
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "the exchange calendar cannot prove 5 sessions after 2026-10-02",
+        "author=john secretary=x tokens=3 passwords=2 password_hint=none oauthy",
+        "records_failed=1 HTTP 403 from provider",
+        "token budget unaffected",  # prose is not an assignment
+        "which ticker did you mean? try AAPL",  # a bare question mark is not a query string
+        "unknown listing for ZZZZ - did you mean ZZZ?",
+    ],
+)
+def test_words_that_merely_contain_a_credential_name_are_left_alone(message: str) -> None:
+    assert _safe_error_text(RuntimeError(message)) == message
+
+
+def test_a_pathological_message_is_redacted_in_bounded_time() -> None:
+    started = time.perf_counter()
+    for payload in (
+        "a-" * 200_000,
+        "x" * 400_000,
+        "password=" * 50_000,
+        ('"' + "k" * 50 + '" ') * 5_000,
+    ):
+        _safe_error_text(RuntimeError(payload))
+    assert time.perf_counter() - started < 2.0
+
+
+def test_a_credential_beyond_the_stored_prefix_is_never_stored_and_one_inside_it_is_redacted() -> (
+    None
+):
+    message = "password='Sup3rS3cretKey99' " + "y" * 10_000 + " token=Sup3rS3cretLate"
+    out = _safe_error_text(RuntimeError(message))
+    assert "Sup3rS3cret" not in out
+    assert len(out) <= _MAX_ERROR_MESSAGE or out.startswith("password=")

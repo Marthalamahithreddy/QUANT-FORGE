@@ -1,4 +1,4 @@
-# Release qualification report (Step 12E)
+# Release qualification report (Steps 12E and 12F)
 
 Baseline: `8661fba7b935df047a0609e6664b2667416c1aaf` (Step 12D, "fix: harden operational readiness"), migration head `0014`,
 validation database `quantforge_validation` at `0014`, development database `quantforge` at `0013` (untouched).
@@ -122,9 +122,9 @@ This was found while recapturing the fixtures. It changes no data, status, label
 | Connection-pooler `options` startup parameter | ACCEPTED RC LIMITATION | documented escape hatch |
 | CLI statement timeout (60 s) | ACCEPTED RC LIMITATION | documented `QF_DB_STATEMENT_TIMEOUT_SECONDS` |
 | Ctrl-C footer omission; manifest per-artifact disposition | POST-RC | operator ergonomics |
-| Redaction edge cases | POST-RC (P3) | no emitter; see section 3 |
+| Redaction edge cases (`password='quoted'`, JSON `"api_key"`, `client_secret=`) | **RESOLVED in 12F** | section 10 |
 | Backend reason text "1-th / 2-th exchange session" (ordinals) | ACCEPTED RC LIMITATION | cosmetic, but the text is part of `result_fingerprint`; changing it changes saved-record fingerprints, which the goldens freeze |
-| Ladder legend / alignment label "stored sessions" | POST-RC (P3) | wording predates 11.2E |
+| Ladder legend / alignment label "stored sessions" | **RESOLVED in 12F** | section 10 |
 | Release smoke passes a page that renders an error state with HTTP 200 | **RESOLVED in 12E** | section 1 |
 | Stale frontend fixtures | **RESOLVED in 12E** | section 2 |
 | `braces` advisory, dev tooling | ACCEPTED (waiver) | section 3 |
@@ -137,3 +137,32 @@ Frontend 1511 unit tests (44 files), lint, typecheck, contract check, production
 ## 9. Release recommendation
 
 No P0 or P1 is open. The release candidate qualifies for a freeze (12F) subject to the prerequisites in the final report. Remaining constraints: private-network / authenticating-proxy deployment, one served schema revision, and the accepted limitations in section 7.
+
+## 10. Step 12F: release-candidate freeze
+
+Step 12E is committed as `00467823201afa1c11bf0605fcf6210709a10ff8` ("test: qualify release candidate"). 12F changes only presentation wording and the shared redaction helper; no backend status, API contract, methodology, financial value, saved-record fingerprint, migration or provider behaviour changed.
+
+**Session wording (frontend, presentation only).** The session ladder is labelled "Exchange sessions" and its legend says the sessions come from the calendar, that a session whose price is not stored says so, and that a horizon the calendar cannot prove shows no date;
+`ALIGNED` reads "Aligned to exchange sessions" and `NO_SESSION_DATA` "No qualifying exchange session". The four per-horizon cases stay apart, from existing statuses and wording helpers: a computed return (date), `MISSING_TARGET_PRICE` (date plus "Price not stored for target session"),
+`INSUFFICIENT_FORWARD_SESSIONS` (no date, "Beyond the calendar's proven horizon"), and `MISSING_ANCHOR_PRICE` (every horizon names the missing anchor price). The saved-record evidence panel keeps "stored session dates": that digest really is of stored price-bar dates.
+
+**Redaction (`ingestion/runs.py`, one shared helper).** The assignment rule now covers quoted values (`password='a b'`, `password="a b"`, escaped quotes), quoted keys and JSON bodies (`"api_key": "..."`, `"token":"..."`), prefixed names (`client_secret`, `x-api-key`, `refresh_token`, `DB_PASSWORD`), any case, unquoted values that contain commas or semicolons, and surrounding punctuation;
+words that merely contain a name (`secretary`, `tokens`, `author`, `password_hint`) and a bare `?` are left alone, so diagnostic text survives. Input is capped to the first 5,000 characters before redaction, which also removes a pre-existing quadratic cost on pathological messages.
+The review of the sinks found two real leaks and fixed both: (1) the CLI printed `error: ...` lines (and, for an unrecognised failure, the re-raised traceback) from the raw exception text while the footer and the row were redacted; every `error:` line now goes through `redact_text`, and the exception handed to the traceback carries the redacted text;
+(2) the two "could not record / write ..." log lines used `logger.exception`, whose traceback repeats the raw message; they now log the class and the redacted text. Expected readiness-outage logs were already class-name only and are now pinned for the new forms.
+Remaining redaction limits (documented, not a regression): a raw `/` in a DSN password cannot be told from the start of the path; a space-separated flag (`--password hunter2`) has no `=`/`:` to key on; an unexpected defect in the readiness probe keeps its traceback by design.
+
+**Final gates (12F candidate).** Backend 3668 passed (2565 unit + 1103 integration), coverage 95.96 %; ruff, format, mypy (278 files) clean; 39 migration tests, `alembic check` clean, head `0014`, no migration change. Frontend 1514 unit tests, lint, typecheck, contract check, production build green; fixture e2e 227 passed (including the 20 release-smoke controls).
+Real-stack smoke (validation database, production build): PASS with `--verify --db-fingerprint` (10 pages x 2 viewports, 20 tables fingerprinted, 26 GET from the script and 210 from the browser, no write); without `--verify` the verify page is not visited (9 pages). Negative: backend down, web down, schema mismatch (dev DB at 0013, read-only) and database unreachable each fail with the phase named; Redis stopped keeps readiness `ready`.
+Request budgets unchanged (5 / 2 / 3 / 2 / 2 / 4 / 2 / 3). Audits: `uv audit` 0; `npm audit --omit=dev` 0; the full `npm audit` still reports the dev-only `braces` chain (5 packages, one root cause, waived in section 3), so **the full dependency tree is not clean**. Secret scan of all tracked files clean. Goldens unchanged (section 6). Provider requests 0 / 0 / 0.
+
+**Deployment assumptions.** Private network or authenticating reverse proxy in front of the API and web (no authentication by design); one schema revision (`0014`) served at a time; PostgreSQL is the only serving dependency (Redis is reported, never gating); source/editable install for the API (a wheel install cannot establish its head and stays not ready); explicit production database login and CORS origins; Chrome available where the release smoke runs.
+
+**Operator actions (not done by the freeze).** The development database `quantforge` is still at `0013`; an API pointed at it reports `503 schema mismatch` until the operator takes a backup and runs `alembic upgrade head` on it (runbook section 5). The real +5 (2026-10-09) and +20 (2026-10-30) market rechecks are independent follow-ups that spend provider requests and need a separate decision.
+
+**Post-RC work.** Partial-bar coverage and storage (migration); soft-404 status codes; a saved-list batch endpoint; per-artifact manifest disposition; Ctrl-C footer; the dead partial branch; the `.json` header extension; undecodable-200 byte retention for Massive splits / snapshots / events and the SEC client; earnings-list HTML weight (about 12 KB per row); the backend ordinal text ("1-th"), which needs a methodology bump; a wheel-install head; cursor pagination; removing the `braces` waiver when a fix exists.
+
+**Final review (one high-effort pass over the 12F diff and the whole candidate).** No P0, no P1, no unwaived RC-required P2. Found and fixed during 12F, each with a test: P2 the CLI printed `error:` lines and re-raised an unrecognised failure from the raw message (credential visible on stderr while the row was redacted); P2 two secondary-failure log lines carried a traceback that repeats the raw message;
+P2 an unquoted value stopped at a comma (`password=ab,cd` leaked `cd`); P3 a bare `?` would have been mangled to `?[redacted]` in CLI error lines; P3 a pre-existing quadratic cost on pathological messages (input is now capped). Open P3: raw `/` in a DSN password, `--password x` flag form, best-effort `exc.args` redaction for exotic exception classes,
+an unexpected readiness defect keeps its traceback by design. Checked and clean: no backend status / contract / methodology / value / fingerprint change (the only backend source files touched are `ingestion/runs.py` and `ingestion/cli.py`; no migration; both saved records' row digests unchanged and the immutability triggers present);
+saved-record reproducibility (goldens); release-smoke false positives (20 controls incl. legitimate refusals); dependency and secret scans; no accidental source change (the 12F source diff is `session-ladder.tsx`, `research-wording.ts`, `runs.py`, `cli.py`).

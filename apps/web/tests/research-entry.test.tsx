@@ -119,7 +119,7 @@ describe("the event record's stock-only market-reaction preview", () => {
     routeApi();
     await renderServer(await EarningsDetailPage({ params: Promise.resolve({ id: ID }) } as never));
     const frame = screen.getByRole("region", { name: "Market reaction" });
-    expect(within(frame).getByRole("list", { name: "Stored trading sessions" })).toBeInTheDocument();
+    expect(within(frame).getByRole("list", { name: "Exchange sessions" })).toBeInTheDocument();
     const table = within(frame).getByRole("table", { name: "Stock returns by horizon" });
     expect(within(table).getByText("+10.00%")).toBeInTheDocument();
     expect(within(table).queryByRole("columnheader", { name: /Benchmark|Abnormal/ })).toBeNull();

@@ -597,4 +597,10 @@ would change saved-record fingerprints the goldens freeze). Partial-bar coverage
 **Carried (post-RC register).** Ladder legend and alignment label still say "stored sessions"; redaction does not match `password='quoted'`, JSON `"api_key"` values or `client_secret=` (no emitter exists); the earnings list page is about 12 KB of HTML per row (660 KB for 50 rows, unmeasured before 12E);
 soft-404 status codes; saved-list batch endpoint; the items already listed in sections 16 and 17.
 
-Next planned slice: 12F (release-candidate freeze).
+## 19. Step 12F results (release-candidate freeze)
+
+12E is committed as `00467823201afa1c11bf0605fcf6210709a10ff8`. 12F is two bounded fixes plus the final qualification; the evidence is `docs/release-qualification-12e.md` section 10.
+
+* **Session wording** (presentation only): "Exchange sessions" replaces "stored sessions" in the ladder label, legend and the `ALIGNED` / `NO_SESSION_DATA` labels; the four per-horizon cases are asserted apart in focused tests. No status, contract, methodology, value or fingerprint changed.
+* **Redaction**: quoted values, JSON bodies, prefixed names, case variants and punctuation are covered in the one shared helper; input is bounded; the CLI's `error:` lines, the re-raised traceback and the two secondary-failure log lines no longer carry unredacted text (two real leaks found by the new sink tests).
+* **Decision**: the RC freezes with the dev-only `braces` waiver; the full dependency tree is therefore reported as "runtime clean, development tooling waived", never as clean.

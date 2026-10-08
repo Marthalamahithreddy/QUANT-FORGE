@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -357,6 +358,9 @@ def test_request_parameters_are_persisted(db_session: Session, store: RawRespons
         ("refused https://api.massive.com/v2/y?token=abc123DEF", "abc123DEF"),
         ("api_key=deadbeefcafe rejected", "deadbeefcafe"),
         ("Authorization=Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig", "eyJhbGciOiJIUzI1NiJ9"),
+        ("connect failed password='Sup3rS3cret with space' dbname=qf", "Sup3rS3cret"),
+        ('rejected: {"api_key": "Sup3rS3cretKey99"}', "Sup3rS3cretKey99"),
+        ("client_secret=Sup3rS3cretKey99 for the app", "Sup3rS3cretKey99"),
     ],
 )
 def test_a_credential_never_reaches_the_row(
@@ -374,6 +378,54 @@ def test_a_credential_never_reaches_the_row(
     row = _one(db_session, status=IngestionStatus.FAILED)
     assert secret not in str(row.error_message)
     assert "[redacted]" in str(row.error_message)
+
+
+def test_a_failure_to_record_a_failure_logs_the_redacted_text_and_no_traceback(
+    db_session: Session,
+    store: RawResponseStore,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The secondary-failure log lines used to carry a traceback, which repeats the raw message."""
+    caplog.set_level("DEBUG")
+    logging.getLogger("quantforge.ingestion.runs").disabled = False
+
+    def broken(_self: RunRecorder, _savepoint: object, _exc: BaseException) -> None:
+        raise RuntimeError("cannot write: password='Sup3rS3cret pw' client_secret=Sup3rS3cretKey99")
+
+    monkeypatch.setattr(RunRecorder, "_record_failure", broken)
+    with pytest.raises(ValueError, match="the original"), _recorder(db_session, store):
+        message = "the original provider error"
+        raise ValueError(message)
+
+    records = [r for r in caplog.records if r.name == "quantforge.ingestion.runs"]
+    assert records, "the secondary failure is still reported"
+    for record in records:
+        assert "Sup3rS3cret" not in record.getMessage()
+        assert record.exc_info is None, "a traceback would repeat the raw message"
+    assert "RuntimeError" in records[0].getMessage()
+
+
+def test_a_failure_to_write_the_manifest_of_a_failing_run_logs_redacted_text(
+    db_session: Session,
+    store: RawResponseStore,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("DEBUG")
+    logging.getLogger("quantforge.ingestion.runs").disabled = False
+
+    def broken(_self: RunRecorder) -> None:
+        raise OSError('disk said {"api_key": "Sup3rS3cretKey99"}')
+
+    monkeypatch.setattr(RunRecorder, "_write_pending_manifest", broken)
+    with pytest.raises(ValueError, match="boom"), _recorder(db_session, store):
+        message = "boom"
+        raise ValueError(message)
+
+    text = " ".join(r.getMessage() for r in caplog.records if r.name == "quantforge.ingestion.runs")
+    assert "OSError" in text and "Sup3rS3cret" not in text
+    assert all(r.exc_info is None for r in caplog.records if r.name == "quantforge.ingestion.runs")
 
 
 def test_a_long_error_message_is_truncated_to_fit_the_column(

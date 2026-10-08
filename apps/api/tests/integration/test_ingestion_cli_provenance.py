@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import traceback
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -329,6 +330,57 @@ def test_the_footer_and_the_error_never_carry_a_credential(
         assert FINNHUB_KEY not in text and KEY not in text
     (run,) = _runs(integration_engine, "earnings")
     assert FINNHUB_KEY not in (run.error_message or "")
+
+
+_CREDENTIAL_TEXTS = [
+    ("password='Sup3rS3cret with space'", "Sup3rS3cret"),
+    ('password="Sup3rS3cret with space"', "Sup3rS3cret"),
+    ('{"api_key": "Sup3rS3cretKey99"}', "Sup3rS3cretKey99"),
+    ("client_secret=Sup3rS3cretKey99", "Sup3rS3cretKey99"),
+    ("(token='Sup3rS3cretKey99')", "Sup3rS3cretKey99"),
+]
+
+
+@pytest.mark.parametrize(("fragment", "secret"), _CREDENTIAL_TEXTS)
+def test_a_credential_in_an_unexpected_error_reaches_no_cli_output_and_no_row(
+    configured: Path,
+    empty_database: None,
+    serve: Callable[..., None],
+    integration_engine: Engine,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+    fragment: str,
+    secret: str,
+) -> None:
+    """Every sink of a failing run: stdout, stderr (error line and footer), the row, `runs`, and the logs."""
+    _with_apple(serve)
+
+    def explode(_request: httpx.Request) -> httpx.Response:
+        message = f"upstream rejected the call: {fragment} while fetching"
+        raise RuntimeError(message)
+
+    serve(finnhub=explode)
+    capsys.readouterr()
+
+    # An unrecognised failure is re-raised so its traceback finds the bug; the traceback must not carry the secret.
+    with pytest.raises(RuntimeError) as raised:
+        cli.main(ARGV)
+    assert secret not in str(raised.value)
+    assert secret not in "".join(traceback.format_exception(raised.value))
+    failing = capsys.readouterr()
+    assert cli.main(["ingestion", "runs", "--status", "failed"]) == cli.EXIT_OK
+    listing = capsys.readouterr()
+
+    for text in (failing.out, failing.err, listing.out, listing.err, caplog.text):
+        assert secret not in text
+    assert "upstream rejected the call" in failing.err, "the diagnostic text survives"
+    (run,) = _runs(integration_engine, "earnings")
+    assert secret not in (run.error_message or "")
+    assert "[redacted]" in (run.error_message or "")
+    for record in caplog.records:
+        assert secret not in record.getMessage()
+        if record.exc_info is not None:
+            assert secret not in "".join(traceback.format_exception(*record.exc_info))
 
 
 def test_a_failure_before_any_run_exists_prints_no_footer(

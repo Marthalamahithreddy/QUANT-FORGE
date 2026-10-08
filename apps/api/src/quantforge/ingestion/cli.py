@@ -85,7 +85,12 @@ from quantforge.ingestion.listing_history import (
     ListingHistoryIngestionService,
 )
 from quantforge.ingestion.raw_store import RawResponseStore, RawStoreError
-from quantforge.ingestion.runs import FAILED_RUN_ID, FAILED_RUN_RECORDED, RunOutcome
+from quantforge.ingestion.runs import (
+    FAILED_RUN_ID,
+    FAILED_RUN_RECORDED,
+    RunOutcome,
+    redact_text,
+)
 from quantforge.ingestion.service import (
     EarningsIngestionService,
     IngestionService,
@@ -119,6 +124,12 @@ from quantforge.providers.sec.history import HistoryScopeError
 __all__ = ["main"]
 
 logger = logging.getLogger("quantforge.ingestion.cli")
+
+
+def _shown(value: object) -> str:
+    """Text for an ``error:`` line: the same redaction the run row gets, so no sink holds a credential the row lacks."""
+    return redact_text(str(value))
+
 
 EXIT_OK = 0
 EXIT_RUN_FAILED = 1
@@ -551,7 +562,7 @@ def _cmd_reference(args: argparse.Namespace, settings: Settings) -> int:
 def _cmd_daily(args: argparse.Namespace, settings: Settings) -> int:
     if args.end < args.start:
         message = f"--end {args.end} is before --start {args.start}"
-        print(f"error: {message}", file=sys.stderr)
+        print(f"error: {_shown(message)}", file=sys.stderr)
         return EXIT_USAGE
 
     request = DailyRequest(
@@ -605,7 +616,7 @@ def _cmd_earnings(args: argparse.Namespace, settings: Settings) -> int:
 def _cmd_benchmark(args: argparse.Namespace, settings: Settings) -> int:
     if args.end < args.start:
         message = f"--end {args.end} is before --start {args.start}"
-        print(f"error: {message}", file=sys.stderr)
+        print(f"error: {_shown(message)}", file=sys.stderr)
         return EXIT_USAGE
 
     request = BenchmarkRequest(
@@ -636,7 +647,7 @@ def _cmd_sec_filings(args: argparse.Namespace, settings: Settings) -> int:
     try:
         cik = normalise_cik(args.cik)
     except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: {_shown(exc)}", file=sys.stderr)
         return EXIT_USAGE
 
     async def run() -> RunOutcome:
@@ -657,7 +668,7 @@ def _cmd_sec_filings_history(args: argparse.Namespace, settings: Settings) -> in
     try:
         cik = normalise_cik(args.cik)
     except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: {_shown(exc)}", file=sys.stderr)
         return EXIT_USAGE
 
     async def run() -> FilingHistoryReport:
@@ -1343,7 +1354,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         settings = get_settings()
     except Exception as exc:
-        print(f"error: cannot load configuration: {exc}", file=sys.stderr)
+        print(f"error: cannot load configuration: {_shown(exc)}", file=sys.stderr)
         return EXIT_USAGE
 
     handler: Any = args.handler
@@ -1385,26 +1396,29 @@ def _classify(exc: Exception) -> int:  # noqa: PLR0911, PLR0912 - one return per
         | AmbiguousSplitSecurityError
         | UnknownSplitTickerError,
     ):
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: {_shown(exc)}", file=sys.stderr)
         return EXIT_USAGE
     if isinstance(exc, IncompleteListingHistoryError | ListingFactConflictError):
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: {_shown(exc)}", file=sys.stderr)
         print("nothing was stored; reconcile the source before re-running", file=sys.stderr)
         return EXIT_RUN_FAILED
     if isinstance(exc, IncompleteSplitFetchError | UnmappedSplitError):
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: {_shown(exc)}", file=sys.stderr)
         print("no coverage was recorded", file=sys.stderr)
         return EXIT_RUN_FAILED
     if isinstance(exc, StockSplitConflictError):
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: {_shown(exc)}", file=sys.stderr)
         print("nothing was overwritten; reconcile the source before re-running", file=sys.stderr)
         return EXIT_RUN_FAILED
     if isinstance(exc, RawStoreError):
-        print(f"error: the raw artifact could not be read or preserved: {exc}", file=sys.stderr)
+        print(
+            f"error: the raw artifact could not be read or preserved: {_shown(exc)}",
+            file=sys.stderr,
+        )
         print("nothing was stored by this run", file=sys.stderr)
         return EXIT_RUN_FAILED
     if isinstance(exc, PackageRevisionError):
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: {_shown(exc)}", file=sys.stderr)
         print(
             "nothing was overwritten; there is no package-revision workflow yet, so this "
             "package cannot be ingested",
@@ -1412,11 +1426,11 @@ def _classify(exc: Exception) -> int:  # noqa: PLR0911, PLR0912 - one return per
         )
         return EXIT_RUN_FAILED
     if isinstance(exc, AcceptanceHeaderMismatchError | SecAcceptanceConflictError):
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: {_shown(exc)}", file=sys.stderr)
         print("accepted_at was not changed", file=sys.stderr)
         return EXIT_RUN_FAILED
     if isinstance(exc, AllFilingRecordsRejectedError):
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: {_shown(exc)}", file=sys.stderr)
         return EXIT_RUN_FAILED
     if isinstance(
         exc,
@@ -1426,40 +1440,43 @@ def _classify(exc: Exception) -> int:  # noqa: PLR0911, PLR0912 - one return per
         | FsdsRowsRejectedError
         | FinancialFactConflictError,
     ):
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: {_shown(exc)}", file=sys.stderr)
         print("nothing was overwritten; reconcile the source before re-running", file=sys.stderr)
         return EXIT_RUN_FAILED
     if isinstance(exc, BenchmarkIdentityConflict):
         # Like UnknownListingError, this is the caller needing to say which
         # existing identity is meant (or use a different symbol/name), not a
         # data revision to decide about.
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: {_shown(exc)}", file=sys.stderr)
         return EXIT_USAGE
     if isinstance(exc, ProviderAuthenticationError):
-        print(f"error: authentication failed: {exc}", file=sys.stderr)
+        print(f"error: authentication failed: {_shown(exc)}", file=sys.stderr)
         return EXIT_USAGE
     if isinstance(exc, ProviderConfigurationError):
         # A missing or malformed credential is something the caller fixes in
         # their environment. Reporting it as a failed run would suggest retrying,
         # which cannot help, and would bury it among genuine provider outages.
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: {_shown(exc)}", file=sys.stderr)
         return EXIT_USAGE
     if isinstance(exc, ProviderDataConflict | BenchmarkBarConflictError):
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"error: {_shown(exc)}", file=sys.stderr)
         print(
             "nothing was overwritten; reconcile the source before re-running",
             file=sys.stderr,
         )
         return EXIT_RUN_FAILED
     if isinstance(exc, ProviderError):
-        print(f"error: provider request failed: {exc}", file=sys.stderr)
+        print(f"error: provider request failed: {_shown(exc)}", file=sys.stderr)
         return EXIT_RUN_FAILED
     if isinstance(exc, KeyboardInterrupt):  # pragma: no cover - interactive
         print("\ninterrupted", file=sys.stderr)
         return EXIT_RUN_FAILED
     # An unrecognised failure is a bug, not a usage problem. Say so, and re-raise
     # a traceback rather than swallowing a traceback that would have found it.
-    print(f"error: unexpected failure: {type(exc).__name__}: {exc}", file=sys.stderr)
+    print(f"error: unexpected failure: {type(exc).__name__}: {_shown(exc)}", file=sys.stderr)
+    # The interpreter prints the traceback with str(exc): give it the redacted text, keep the frames.
+    with contextlib.suppress(Exception):
+        exc.args = (_shown(exc),)
     raise exc from None
 
 

@@ -28,12 +28,14 @@ function EventMarker({ date, timing }: { readonly date: string; readonly timing:
 }
 
 /**
- * Which stored sessions the event mapped to, and which sessions each horizon was measured to.
+ * Which exchange sessions the event mapped to, and which sessions each horizon was measured to.
  *
  * Only sessions the API returned appear (event session, anchor, targets); the event marker sits
  * BETWEEN session slots according to its declared timing and is labelled with the timing text. It
- * is never placed at a clock time, and no date is manufactured: a horizon with no stored target
- * session shows its state instead of a date. A refused alignment replaces the ladder with the
+ * is never placed at a clock time, and no date is manufactured. The four per-horizon cases stay apart:
+ * a computed return (date), a session the calendar proves but whose price is not stored (date plus
+ * "Price not stored for target session"), a horizon the calendar cannot prove (no date, its state), and a missing
+ * anchor price (every horizon shows its state, because there is no anchor close to measure from). A refused alignment replaces the ladder with the
  * backend's reason.
  */
 export function SessionLadder({ study, label }: { readonly study: Study; readonly label?: string }) {
@@ -45,7 +47,7 @@ export function SessionLadder({ study, label }: { readonly study: Study; readonl
       <RefusalNotice
         kind={ALIGNMENT_STATE[status] as NonValueState}
         title="Session alignment"
-        reason={session?.reason ?? "The event could not be mapped to a stored session."}
+        reason={session?.reason ?? "The event could not be mapped to an exchange session."}
       >
         <span className="type-id text-text-3">{status}</span> · {ALIGNMENT_LABEL[status]}
       </RefusalNotice>
@@ -64,7 +66,7 @@ export function SessionLadder({ study, label }: { readonly study: Study; readonl
         // absolutely positioned: without a positioned ancestor they escape the scroll box and widen the page.
         className="relative overflow-x-auto pb-1"
       >
-        <ol aria-label="Stored trading sessions" className="flex items-stretch gap-2">
+        <ol aria-label="Exchange sessions" className="flex items-stretch gap-2">
         {afterClose && session.event_session ? <Slot label="Event session" date={session.event_session} /> : null}
         <EventMarker date={alignment.event_date} timing={`${timing} (as stated by the source)`} />
         {anchor ? <Slot label="Anchor · first post-event session" date={anchor} /> : null}
@@ -88,8 +90,9 @@ export function SessionLadder({ study, label }: { readonly study: Study; readonl
         </ol>
       </div>
       <p className="type-meta">
-        Stored trading sessions only; weekends and holidays are not shown, and slots are not to scale. The event is placed between
-        sessions by its declared timing, never at a clock time.
+        Exchange sessions from the calendar; weekends and holidays are not shown, and slots are not to scale. A session whose price is
+        not stored says so; a horizon the calendar cannot prove shows no date. The event is placed between sessions by its declared
+        timing, never at a clock time.
       </p>
     </div>
   );

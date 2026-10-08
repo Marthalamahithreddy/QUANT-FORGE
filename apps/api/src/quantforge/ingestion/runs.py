@@ -47,22 +47,35 @@ from quantforge.ingestion.raw_store import RawArtifact, RawResponseStore, Stored
 from quantforge.models.enums import IngestionStatus
 from quantforge.models.ingestion import IngestionRun
 
-__all__ = ["FAILED_RUN_ID", "RecordFailure", "RunOutcome", "RunRecorder"]
+__all__ = ["FAILED_RUN_ID", "RecordFailure", "RunOutcome", "RunRecorder", "redact_text"]
 
 #: Error messages are truncated to fit ``ingestion_run.error_message``. The same
 #: bound as the column, named once so the two cannot drift.
 _MAX_ERROR_MESSAGE = 1000
 
+#: Only the first characters of a message are ever stored, so only they are redacted: a pathological message
+#: (megabytes of hyphenated words) would otherwise make the e-mail and URL rules quadratic. Generous, because
+#: redaction can shorten text (a path becomes ``[path]``) before the 1000-character bound applies.
+_MAX_REDACT_INPUT = 5000
+
 #: Query strings are dropped wholesale. This is the coarse, always-on rule: a
 #: provider that authenticates via query parameter is the common case, and no
-#: allowlist of "safe" parameters is worth the risk of one being added wrongly.
-_QUERY_STRING = re.compile(r"\?[^\s\"'<>]*")
+#: allowlist of "safe" parameters is worth the risk of one being added wrongly. A bare ``?`` (the end of a
+#: question) carries nothing and is left alone, because the CLI now prints its error lines through this rule.
+_QUERY_STRING = re.compile(r"\?[^\s\"'<>]+")
 
-#: Credentials that also appear outside a URL -- in a header dump, a repr, a
-#: provider SDK's own error text. Redacted by parameter name wherever they appear.
+#: Credentials that also appear outside a URL -- in a header dump, a repr, a libpq connection string, a
+#: JSON body, a provider SDK's own error text. Redacted by NAME wherever they appear. The name may follow
+#: any non-alphanumeric (``client_secret``, ``x-api-key``, ``refresh_token``; not ``secretary`` or ``tokens``)
+#: and be quoted (``"api_key"``); the value may
+#: be a bare run (commas and semicolons included: a password may contain them), ``'single-quoted with spaces'`` or ``"double-quoted, with \\"escapes\\""``.
+_SECRET_NAME = (
+    r"(?:api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|id[_-]?token|token|secret"
+    r"|password|passwd|pwd|authorization|auth)"
+)
 _SECRET_ASSIGNMENT = re.compile(
-    r"(?i)\b(api[_-]?key|apikey|access[_-]?token|token|secret|password|passwd"
-    r"|authorization|auth)\b(\s*[=:]\s*)(?P<value>[^\s,;\"'}\]]+)"
+    r"(?i)(?<![A-Za-z0-9])(?P<name>[\"']?" + _SECRET_NAME + r"[\"']?)(?P<sep>\s*[=:]\s*)"
+    r"(?P<value>\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|(?:\\.|[^\s\"'}\]])+)"
 )
 
 #: A bare bearer/basic token, with no ``name=`` to key off.
@@ -94,10 +107,9 @@ def _safe_error_text(exc: BaseException) -> str:
     have been replaced -- truncation alone is not enough, because a credential in
     the first 1000 characters is still a credential.
 
-    Redaction is deliberately lossy. An operator who needs the exact text can read
-    the traceback from the logs, where it is already written with the same
-    redaction applied; storing the unredacted copy in the database to save them one
-    log line would defeat the point of the exercise.
+    Redaction is deliberately lossy, and so are the log lines that report a failure to record a failure:
+    they carry the exception class and this same redacted text, never a traceback (a traceback repeats the
+    raw message), so no sink holds a credential the database row does not.
     """
     return _redact(str(exc).strip())
 
@@ -105,7 +117,7 @@ def _safe_error_text(exc: BaseException) -> str:
 def _redact(raw: str) -> str:
     """The redaction rules, applied to any text about to be persisted."""
     # Userinfo first: a password may itself contain '?', which the query rule would otherwise cut at.
-    text = _URL_USERINFO.sub(lambda m: f"{m.group('scheme')}{_REDACTED}@", raw)
+    text = _URL_USERINFO.sub(lambda m: f"{m.group('scheme')}{_REDACTED}@", raw[:_MAX_REDACT_INPUT])
     text = _QUERY_STRING.sub(f"?{_REDACTED}", text)
     text = _EMAIL.sub(_REDACTED, text)
     text = _ABSOLUTE_PATH.sub("[path]", text)
@@ -113,7 +125,12 @@ def _redact(raw: str) -> str:
     # word "Bearer" as the *value* of "Authorization=", orphaning the token that
     # follows it into a message that then looks redacted and is not.
     text = _BEARER.sub(lambda m: f"{m.group(1)} {_REDACTED}", text)
-    return _SECRET_ASSIGNMENT.sub(lambda m: f"{m.group(1)}{m.group(2)}{_REDACTED}", text)
+    return _SECRET_ASSIGNMENT.sub(lambda m: f"{m.group('name')}{m.group('sep')}{_REDACTED}", text)
+
+
+def redact_text(raw: str) -> str:
+    """The shared redaction, for any text a command prints about a failure (not truncated)."""
+    return _redact(raw)
 
 
 class RunOutcome:
@@ -330,8 +347,12 @@ class RunRecorder:
         # from the failed row. Best effort -- it must never replace the error being reported.
         try:
             self._write_pending_manifest()
-        except Exception:
-            logger.exception("could not write the manifest of the evidence kept by a failing run")
+        except Exception as manifest_error:
+            logger.error(
+                "could not write the manifest of the evidence kept by a failing run: %s: %s",
+                type(manifest_error).__name__,
+                _safe_error_text(manifest_error),
+            )
         self._roll_back_and_record_failure(savepoint, exc)
 
     def _roll_back_and_record_failure(
@@ -347,11 +368,15 @@ class RunRecorder:
         """
         try:
             self._record_failure(savepoint, exc)
-        except Exception:
+        except Exception as recording_error:
             # Recording the failure must never replace the error the operator
             # needs. The session is left for the caller to roll back (the
             # FAILED_RUN_RECORDED marker is only set on success below).
-            logger.exception("could not record the failed ingestion run; original error follows")
+            logger.error(
+                "could not record the failed ingestion run: %s: %s",
+                type(recording_error).__name__,
+                _safe_error_text(recording_error),
+            )
 
     def _record_failure(self, savepoint: SessionTransaction | None, exc: BaseException) -> None:
         manifest = (

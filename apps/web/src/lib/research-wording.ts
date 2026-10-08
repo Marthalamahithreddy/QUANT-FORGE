@@ -32,10 +32,10 @@ export const POINT_IN_TIME_STATE_LABEL: Record<PointInTimeState, string> = {
 };
 
 export const ALIGNMENT_LABEL: Record<AlignmentStatus, string> = {
-  ALIGNED: "Aligned to stored sessions",
+  ALIGNED: "Aligned to exchange sessions",
   UNKNOWN_TIMING: "Timing not stated",
   INTRADAY_PRECISION_UNSUPPORTED: "Intraday timing unsupported",
-  NO_SESSION_DATA: "No stored sessions",
+  NO_SESSION_DATA: "No qualifying exchange session",
   NOT_POINT_IN_TIME_ELIGIBLE: "Withheld: not point-in-time eligible",
 };
 

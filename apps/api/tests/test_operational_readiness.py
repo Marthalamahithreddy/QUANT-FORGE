@@ -215,6 +215,27 @@ def test_a_down_redis_is_one_concise_line_without_a_traceback(
     assert "secret-host" not in record.getMessage()
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "auth failed password='Sup3rS3cret pw' for host",
+        'auth failed password="Sup3rS3cret pw" for host',
+        '{"api_key": "Sup3rS3cretKey99"}',
+        "client_secret=Sup3rS3cretKey99 rejected",
+    ],
+)
+def test_an_expected_outage_log_never_carries_the_error_text_whatever_it_contains(
+    caplog: pytest.LogCaptureFixture, message: str
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    check = ping_redis(client=_Raises(RedisConnectionError(message)))
+
+    assert check.detail == "ConnectionError"
+    (record,) = _records(caplog, "quantforge.cache.redis")
+    assert record.exc_info is None
+    assert "Sup3rS3cret" not in record.getMessage()
+
+
 def test_an_unexpected_programming_error_keeps_its_traceback(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
