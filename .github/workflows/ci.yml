@@ -1,0 +1,108 @@
+# QuantForge CI: offline checks only.
+#
+# No secrets, no provider credentials, no database and no deployment. Every test selected here is
+# fully mocked or metadata-only; the PostgreSQL `integration` suite and the Playwright browser suites
+# are deliberately NOT run (they need a database / browsers). Nothing here may call SEC, Finnhub,
+# Massive, EODHD or any other provider.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: the workflow can only read the repository contents.
+permissions:
+  contents: read
+
+# A newer push to the same ref supersedes an older, still-running run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: No credential files are tracked
+        run: |
+          set -eu
+          bad="$(git ls-files | grep -E '(^|/)\.env($|\.)' | grep -vE '\.example$' || true)"
+          if [ -n "$bad" ]; then
+            echo "::error::tracked environment file(s): $bad"
+            exit 1
+          fi
+
+  backend:
+    name: Backend (ruff, mypy, alembic graph, offline pytest)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.19"
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - name: Install dependencies (locked; Python 3.14 per pyproject)
+        run: uv sync --frozen --all-groups
+      - name: Ruff lint
+        run: uv run --frozen ruff check .
+      - name: Ruff format check
+        run: uv run --frozen ruff format --check .
+      - name: Mypy (strict)
+        run: uv run --frozen mypy
+      - name: Alembic revision graph is a single head (offline; no database)
+        run: |
+          set -eu
+          heads="$(uv run --frozen alembic heads)"
+          echo "$heads"
+          test "$(printf '%s\n' "$heads" | grep -c '(head)')" -eq 1
+      - name: Offline pytest (excludes the PostgreSQL integration marker)
+        run: uv run --frozen pytest -m "not integration" -q -p no:cacheprovider
+
+  frontend:
+    name: Frontend (eslint, tsc, vitest, contract check)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.19"
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - name: Install web dependencies (lockfile exact)
+        run: npm ci
+      - name: Install backend (needed only to export the OpenAPI schema offline)
+        run: uv sync --frozen --project ../api
+      - name: ESLint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Vitest
+        run: npm test
+      - name: OpenAPI contract is consistent (offline)
+        run: npm run contract:check
