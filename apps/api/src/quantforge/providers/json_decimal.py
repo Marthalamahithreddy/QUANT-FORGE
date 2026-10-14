@@ -34,10 +34,12 @@ represent them.
 from __future__ import annotations
 
 import json
+import re
 from decimal import Decimal
 from typing import Any, cast
 
 __all__ = [
+    "MAX_JSON_NESTING",
     "JsonValue",
     "decode_json_document",
     "reject_non_finite",
@@ -47,6 +49,41 @@ __all__ = [
 #: ``parse_float=Decimal``; this alias exists so downstream type checkers do not
 #: have to repeat it.
 JsonValue = None | bool | int | Decimal | str | list["JsonValue"] | dict[str, "JsonValue"]
+
+
+#: Deepest array/object nesting a provider body may have. Real provider documents are a handful of
+#: levels deep; the bound exists so a hostile body is refused the same way on every host.
+MAX_JSON_NESTING = 64
+
+# A string literal (so brackets inside text are not counted), or one structural bracket.
+_TOKEN = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*"|[\[\]{}]')
+
+
+def _exceeds_nesting(text: str, limit: int) -> bool:
+    """True when ``text`` nests arrays/objects deeper than ``limit`` (a scan, not a parse).
+
+    CPython's JSON scanner recurses once per level. Whether a very deep body raises
+    ``RecursionError`` or decodes depends on the interpreter's C-stack allowance, which differs
+    between hosts (on 3.14 it follows the process stack limit). Counting depth first makes the
+    refusal deterministic and keeps the decoder from consuming unbounded stack.
+
+    The scan runs on decoded TEXT, never raw bytes: ``json.loads`` also accepts UTF-16/32 input,
+    where an escaped quote is not the two bytes ``\\"`` and a byte-level scan would lose track of
+    string state. Strings are consumed whole, so a bracket inside one is never counted; for any
+    document the parser accepts the tokenisation is exact.
+    """
+    if text.count("[") + text.count("{") <= limit:
+        return False  # too few opening brackets to reach the limit, strings included
+    depth = 0
+    for token in _TOKEN.finditer(text):
+        first = token.group()[0]
+        if first in "[{":
+            depth += 1
+            if depth > limit:
+                return True
+        elif first in "]}":
+            depth -= 1
+    return False
 
 
 def reject_non_finite(literal: str) -> Any:
@@ -72,12 +109,23 @@ def decode_json_document(raw: bytes) -> JsonValue:
         ``Decimal`` built from its own source text.
 
     Raises:
-        ValueError: If the body is not valid JSON, or contains ``NaN``,
+        ValueError: If the body is not valid JSON, nests deeper than
+            ``MAX_JSON_NESTING``, or contains ``NaN``,
             ``Infinity`` or ``-Infinity``. Callers translate this into a
             :class:`~quantforge.providers.errors.ProviderResponseError`.
     """
     if not raw.strip():
         message = "empty body"
+        raise ValueError(message)
+    # Decode exactly as json.loads(bytes) would (encoding detection included), so the depth check
+    # and the parser always see the same characters.
+    try:
+        text = raw.decode(json.detect_encoding(raw), "surrogatepass")
+    except UnicodeDecodeError as exc:
+        message = "body is not decodable JSON text"
+        raise ValueError(message) from exc
+    if _exceeds_nesting(text, MAX_JSON_NESTING):
+        message = f"JSON nests deeper than {MAX_JSON_NESTING} levels"
         raise ValueError(message)
     # parse_float receives the literal substring, so the decimal is constructed
     # from the characters the provider sent rather than from a float round-trip.
@@ -86,7 +134,7 @@ def decode_json_document(raw: bytes) -> JsonValue:
     return cast(
         "JsonValue",
         json.loads(
-            raw,
+            text,
             parse_float=Decimal,
             parse_int=int,
             parse_constant=reject_non_finite,
