@@ -58,7 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     interactive = resolved.environment != "production"
     application = FastAPI(
         title="QuantForge API",
-        summary="Event-driven equity research and quantitative backtesting platform.",
+        summary="Read-only equity research API over provenance-tracked market data, SEC filings and financial facts.",
         version=resolved.app_version,
         debug=resolved.debug,
         docs_url="/docs" if interactive else None,

@@ -11,7 +11,7 @@ import { THEME_COOKIE, TINT_COOKIE, parseTheme, parseTint } from "@/lib/preferen
 
 export const metadata: Metadata = {
   title: { default: "QuantForge", template: "%s · QuantForge" },
-  description: "Event-driven equity research and quantitative backtesting.",
+  description: "Read-only equity research over provenance-tracked market data, SEC filings and financial facts.",
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {

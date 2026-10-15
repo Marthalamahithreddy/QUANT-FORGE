@@ -3456,7 +3456,7 @@
     }
   },
   "info": {
-    "summary": "Event-driven equity research and quantitative backtesting platform.",
+    "summary": "Read-only equity research API over provenance-tracked market data, SEC filings and financial facts.",
     "title": "QuantForge API",
     "version": "0.1.0"
   },

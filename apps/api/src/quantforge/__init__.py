@@ -1,8 +1,8 @@
-"""QuantForge API - event-driven equity research and quantitative backtesting platform.
+"""QuantForge API - read-only equity research API and ingestion CLI.
 
-This package is at the foundation milestone: configuration, database wiring and
-a health surface only. No market-data, financial-model, ingestion or backtesting
-logic exists yet, and no financial data is fabricated.
+Provenance-tracked market data, SEC filings and financial facts, plus an earnings
+event-study research engine. There is no order, fill, position, P&L or backtesting
+model, and no financial data is fabricated.
 """
 
 __version__ = "0.1.0"
