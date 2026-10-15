@@ -9,6 +9,13 @@ const contract = (name: string) => JSON.parse(readFileSync(join(process.cwd(), "
 const observation = contract("observation.json");
 const records = contract("records.json");
 
+/** The captured Companies responses (directory, each company's financials, the unknown-CIK 404). */
+export const companies = contract("companies.json") as {
+  directory: { items: { cik: string; name: string; tickers: string[] }[] };
+  financials: Record<string, { company: { name: string }; filings: { accession: string; form: string; metrics: { metric: string; current: { status: string; fact: { value: string } | null } }[] }[] }>;
+  unknown_company: { cik: string };
+};
+
 /** Captured identities the journeys navigate by. Read from the captures, never retyped. */
 export const DATA = {
   /** The event whose default observation refuses point-in-time and keeps the descriptive study. */

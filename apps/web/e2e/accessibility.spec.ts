@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import type { Page } from "@playwright/test";
 
-import { DATA, expect, settled, test } from "./support";
+import { DATA, companies, expect, settled, test } from "./support";
 
 /**
  * Automated checks in a REAL browser, including colour contrast, which jsdom cannot measure. They
@@ -30,8 +30,15 @@ const partial = DATA.record("partial_benchmark");
 const changed = DATA.record("manifest_changed");
 const resultChanged = DATA.record("result_changed");
 
+const cikOf = (name: string) => companies.directory.items.find((item) => item.name.includes(name))!.cik;
+
 const PAGES: [string, string][] = [
   ["Overview", "/"],
+  ["Companies with the Popular list", "/companies"],
+  ["Companies search results", "/companies?q=nvda"],
+  ["Company with full coverage", `/companies/${cikOf("Apple")}`],
+  ["Company with limited coverage", `/companies/${cikOf("Nvidia")}`],
+  ["Unknown company", `/companies/${companies.unknown_company.cik}`],
   ["Earnings list", "/earnings"],
   ["Earnings event", `/earnings/${DATA.event}`],
   ["Filings list", "/filings"],

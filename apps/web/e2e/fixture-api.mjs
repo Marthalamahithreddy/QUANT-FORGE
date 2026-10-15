@@ -2,7 +2,7 @@
  * A fixture-backed stand-in for the QuantForge API, for browser end-to-end tests ONLY.
  *
  * It serves the real backend responses captured under `tests/contract/` (earnings.json,
- * observation.json, vertical.json, records.json), byte for byte. Nothing is simulated, generated or
+ * observation.json, vertical.json, records.json, companies.json), byte for byte. Nothing is simulated, generated or
  * hand-edited: a request that no capture answers is refused with 501, so a test never silently passes
  * on an invented response. The only composition is the one a list needs: the earnings index is the
  * set of captured event records ordered newest event date first, and the benchmark index is the union
@@ -31,6 +31,7 @@ const earnings = load("earnings.json");
 const observation = load("observation.json");
 const vertical = load("vertical.json");
 const records = load("records.json");
+const companies = load("companies.json");
 
 // ── events: every captured event record, by id ────────────────────────────────────────────
 const events = new Map(); // id -> { status, body }
@@ -79,6 +80,14 @@ const benchmarks = (() => {
 const epsKey = (accession, periodClass, kind, cik) => `${accession}|${periodClass}|${kind}|${cik ?? ""}`;
 const epsAnswers = new Map(vertical.eps.map((entry) => [epsKey(entry.request.accession, entry.request.period_class, entry.request.eps_kind, entry.request.cik), entry.response]));
 
+// ── companies: the captured directory and each captured company's financials ──────────────
+// The directory search is the one composition a list needs: the captured full directory filtered the way
+// the API documents it (name substring, exact current ticker or CIK, case-insensitive), then paged.
+const matchesCompany = (item, q) => {
+  const needle = q.toLowerCase();
+  return item.name.toLowerCase().includes(needle) || item.tickers.some((t) => t.toLowerCase() === needle) || item.cik === q;
+};
+
 // ── records ───────────────────────────────────────────────────────────────────────────────
 const recordById = new Map(records.records.map((entry) => [entry.record_id, entry]));
 
@@ -118,6 +127,17 @@ function answer(pathname, query) {
     if (found) return found;
     if (!events.has(eventId)) return { status: 404, body: observation.unknown_event.body };
     return { status: 501, body: { detail: "E2E fixture: no captured response for this observation request." } };
+  }
+
+  if (pathname === "/api/v1/companies") {
+    const q = query.get("q");
+    return { status: 200, body: page(q ? companies.directory.items.filter((item) => matchesCompany(item, q)) : companies.directory.items, query) };
+  }
+  const company = /^\/api\/v1\/companies\/([^/]+)\/financials$/.exec(pathname);
+  if (company) {
+    const cik = decodeURIComponent(company[1]);
+    const stored = companies.financials[cik];
+    return stored ? { status: 200, body: stored } : { status: companies.unknown_company.status, body: companies.unknown_company.body };
   }
 
   if (pathname === "/api/v1/filings") {
