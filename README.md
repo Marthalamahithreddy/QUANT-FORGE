@@ -138,6 +138,9 @@ unknown CIK; refusals inside a response are `200` with a named status).
 - **Coverage is whatever is stored.** The Nike dataset holds five filings: Q3 FY2025, the FY2025 10-K, Q1 FY2026,
   Q2 FY2026 and Q3 FY2026. It is not a general multi-company dataset.
 
+> **Data boundary.** Descriptive accounting data from SEC FSDS. No point-in-time availability claim.
+> Not a trading signal. This holds for the Companies pages, the `/filings` pages and their EPS API.
+
 ## Architecture
 
 ```
