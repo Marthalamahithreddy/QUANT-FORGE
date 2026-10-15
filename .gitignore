@@ -1,6 +1,10 @@
-# ── Local toolchains (uv-installed Node, any vendored binaries) ───────────────
-# Node 24 LTS is installed here by scripts/bootstrap.sh|.ps1. Never commit.
+# ── Local toolchains ────────────────────────────────────────────────────────
+# An optional place for a locally installed toolchain (for example Node). Nothing in this
+# repository creates it. Never commit.
 /.tools/
+
+# ── Generated browser-automation snapshots and logs (Playwright MCP) ─────────
+/.playwright-mcp/
 
 # ── Operating system ────────────────────────────────────────────────────────
 .DS_Store

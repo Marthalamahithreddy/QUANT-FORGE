@@ -1,7 +1,7 @@
 [project]
 name = "quantforge-api"
 version = "0.1.0"
-description = "QuantForge API - event-driven equity research and quantitative backtesting platform"
+description = "QuantForge API - read-only equity research API and ingestion CLI over provenance-tracked market data, SEC filings and financial facts"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [

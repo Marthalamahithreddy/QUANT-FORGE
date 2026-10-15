@@ -40,7 +40,7 @@ authentication, or any write through the API. Put the API on a private network o
 | -------- | ------------ | -------------------------------------------------------- |
 | Python   | 3.14         | managed with `uv`; pinned in `apps/api/.python-version`   |
 | uv       | 0.12+        | dependency and environment manager                       |
-| Node.js  | 24 LTS       | project-local install in `.tools/`                       |
+| Node.js  | 24           | the version CI uses; install it yourself (the repository ships no installer) |
 | Docker   | any recent   | Docker Desktop or any Compose v2+ implementation         |
 
 ## Quick start (ordinary development)
@@ -312,6 +312,16 @@ PostgreSQL server is reachable. They create and drop their own throwaway databas
 never the development or validation database). Run `uv run pytest -m integration -q` deliberately, and use
 `-m "not integration"` otherwise. Release qualification and the read-only release smoke are in
 [`docs/operations-runbook.md`](docs/operations-runbook.md).
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| The web app says "Cannot reach the QuantForge API", or `curl localhost:8000/api/v1/health/ready` fails or returns `503` with the database `unavailable` | Docker or PostgreSQL is not running (liveness, `/health`, stays `200` even then) | `docker compose up -d`, then `docker compose ps` until both services are healthy |
+| `/api/v1/health/ready` returns `503` with a schema `mismatch` | The database is not at this version's Alembic head (`0014`). The API never migrates | From `apps/api`: `uv run alembic current`, then `uv run alembic upgrade head` against the database you mean to migrate. Read the `0014` downgrade caveat under [Migrations](#migrations) first |
+| `/companies` is empty, or a company says "No SEC financial data is stored for this company" | You are on the ordinary development database (`quantforge`), which has no financial facts and is not populated automatically | To see data, run the Nike demo against the **separate** `quantforge_validation` database ([View the Nike demo](#view-the-nike-demo)). That database must already exist; starting a server does not create or fill it. Otherwise ingest data with the [ingestion commands](#ingestion-at-a-glance) |
+| The web app still talks to the old API address after you changed `NEXT_PUBLIC_API_BASE_URL` | `next build` fixes the address into the build | Set the variable for the build: `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run build`, then `npm run start`. `npm run dev` reads it each time it starts |
+| `uv run pytest` talks to PostgreSQL and creates or drops databases | With no filter it also runs the `integration` tests whenever PostgreSQL is reachable | Use `uv run pytest -m "not integration" -q`; run `uv run pytest -m integration -q` only deliberately |
 
 ## Known limitations
 

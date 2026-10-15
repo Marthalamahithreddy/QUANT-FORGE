@@ -1,7 +1,8 @@
 # QuantForge API
 
-FastAPI backend for the QuantForge event-driven equity research and quantitative
-backtesting platform.
+FastAPI backend for QuantForge: a read-only equity research API and ingestion CLI over
+provenance-tracked market data, SEC filings and financial facts, including an earnings
+event-study research engine. It has no order, fill, position or P&L model.
 
 This package has completed the **infrastructure foundation** (configuration,
 PostgreSQL and Redis connectivity, migrations, health surface), the
