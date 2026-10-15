@@ -333,15 +333,15 @@ never the development or validation database). Run `uv run pytest -m integration
 - **Companies coverage:** only Nike has facts, for five periods; the fiscal Q4 and anything after Q3 FY2026 are not
   stored. Revenue and net income are single concepts, **not comprehensive accounting coverage** for every industry (for
   example noncontrolling-interest income, or total revenue for financials, is not shown).
-- **Amendments and size:** a 10-Q/A or 10-K/A is its own row and the trend does not de-duplicate an amended quarter. A
-  company page reads at most its 40 newest stored filings.
+- **Amendments and size:** a 10-Q/A or 10-K/A is its own row. The trend draws an amended quarter beside the original,
+  labelled with its form, and does not choose or merge them. A company page reads at most its 40 newest stored filings;
+  the API reports the company's total (`total_filings`) and the page says how many older filings are not shown.
 - **Not point-in-time:** FSDS facts and SEC acceptance times are descriptive provenance, not evidence of when a figure
   was available, so no current earnings row is point-in-time eligible.
-- **Verification gaps:** the two Companies SQL reads (directory search and per-company filing query) have no
-  database-level automated test, and no end-to-end test covers `/companies`; both were checked manually only. Under
-  `next dev`, the unknown-CIK page (and the older unknown-event page `/earnings/<id>`) stayed on its loading skeleton
-  in a browser although the server HTML held the correct content, while the dev server's hot-reload websocket also
-  reported errors; the cause is not established. On a production build both rendered correctly with no console errors.
+- **Verification gaps:** the Companies SQL reads are covered by integration tests against PostgreSQL
+  (`apps/api/tests/integration/test_api_companies.py`), but no browser end-to-end test covers `/companies`, because the
+  fixture API used by `npm run e2e` has no captured Companies responses. An unknown-CIK page returns HTTP 200 with the
+  not-found state (the page streams behind a loading skeleton), as the older unknown-event page does.
 - **Provider limits:** Massive's Benzinga earnings endpoint is entitlement-blocked (`403`), so Finnhub supplies the
   earnings calendar; the live Massive probes for splits and listing history are outstanding.
 
