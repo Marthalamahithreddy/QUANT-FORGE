@@ -106,3 +106,5 @@ jobs:
         run: npm test
       - name: OpenAPI contract is consistent (offline)
         run: npm run contract:check
+      - name: Production build
+        run: npm run build
