@@ -160,7 +160,9 @@ class ListParams(BaseModel):
 
     limit: int = Field(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT)
     offset: int = Field(0, ge=0, le=MAX_OFFSET)
-    ticker: str | None = Field(None, min_length=1, max_length=32, pattern=r"^\S(.*\S)?$")
+    ticker: str | None = Field(
+        None, min_length=1, max_length=32, pattern=r"^[^\s\x00]([^\x00]*[^\s\x00])?$"
+    )
     date_from: date | None = None
     date_to: date | None = None
 

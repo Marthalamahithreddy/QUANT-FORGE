@@ -59,6 +59,7 @@ class CompanyDirectoryQuery(BaseModel):
     q: str | None = Field(
         None,
         max_length=80,
+        pattern=r"^[^\x00]*$",  # PostgreSQL cannot compare a NUL: refuse it as a 422, never a 500
         description="Name substring, exact current ticker or CIK (all matched case-insensitively).",
     )
     limit: int = Field(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT)

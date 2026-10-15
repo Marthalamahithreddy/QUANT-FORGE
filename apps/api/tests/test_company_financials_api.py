@@ -129,7 +129,8 @@ def test_directory_returns_stored_companies_and_echoes_paging(client: TestClient
 
 
 @pytest.mark.parametrize(
-    "query", ["limit=0", "limit=201", "offset=-1", "q=a&q=b", "x=1", f"q={'a' * 81}"]
+    "query",
+    ["limit=0", "limit=201", "offset=-1", "q=a&q=b", "x=1", f"q={'a' * 81}", "q=%00", "q=a%00b"],
 )
 def test_directory_rejects_bad_parameters(client: TestClient, query: str) -> None:
     assert client.get(f"/api/v1/companies?{query}").status_code == 422

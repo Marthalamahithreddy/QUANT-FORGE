@@ -3537,6 +3537,7 @@
               "anyOf": [
                 {
                   "maxLength": 80,
+                  "pattern": "^[^\\x00]*$",
                   "type": "string"
                 },
                 {
@@ -3693,7 +3694,7 @@
                 {
                   "maxLength": 32,
                   "minLength": 1,
-                  "pattern": "^\\S(.*\\S)?$",
+                  "pattern": "^[^\\s\\x00]([^\\x00]*[^\\s\\x00])?$",
                   "type": "string"
                 },
                 {

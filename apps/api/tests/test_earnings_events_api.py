@@ -114,3 +114,11 @@ def test_database_outage_body_is_generic_and_leaks_nothing(path: str) -> None:
     assert response.json() == {"detail": "Database unavailable."}
     for leaked in (SECRET, "password", "SELECT", "OperationalError", "postgresql", "Traceback"):
         assert leaked not in response.text
+
+
+@pytest.mark.parametrize("ticker", ["%00", "NK%00E", "NKE%00"])
+def test_a_nul_byte_in_the_ticker_is_a_422_not_a_database_error(ticker: str) -> None:
+    """PostgreSQL cannot store or compare a NUL; it must be refused before any query (was a 500)."""
+    with _client_whose_database_must_not_be_touched() as client:
+        response = client.get(f"/api/v1/earnings-events?ticker={ticker}")
+    assert response.status_code == 422
