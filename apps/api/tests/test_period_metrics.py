@@ -17,6 +17,7 @@ from quantforge.financials.eps import EpsInputFact, EpsPeriodClass, EpsStatus
 from quantforge.financials.eps_change import EpsChangeStatus, PercentageUnavailableReason
 from quantforge.financials.period_metrics import (
     MONEY_TAG,
+    MoneyComparison,
     MoneyMetric,
     PointStatus,
     compare_money_metric,
@@ -58,7 +59,7 @@ def compare(
     *,
     ends: tuple[date, ...] = (END,),
     metric: MoneyMetric = MoneyMetric.REVENUE,
-):
+) -> MoneyComparison:
     return compare_money_metric(
         metric=metric,
         submission_period_ends=ends,
