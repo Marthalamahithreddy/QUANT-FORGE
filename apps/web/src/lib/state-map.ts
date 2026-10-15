@@ -23,6 +23,7 @@ import type {
   ForwardReturnStatus,
   ListingResolutionStatus,
   PercentageReason,
+  PointStatus,
   PitEligibility,
   PointInTimeState,
   RefusalScope,
@@ -68,6 +69,22 @@ export const COMPARATIVE_STATE: Record<ComparativeStatus, StateKind> = {
   COMPARATIVE_WRONG_UNIT: "REFUSED",
   COMPARATIVE_NULL_VALUE: "NOT_STATED",
   COMPARATIVE_AMBIGUOUS: "AMBIGUOUS",
+};
+
+/** The company-financials vocabulary: the union of the EPS current and comparative statuses. */
+export const POINT_STATE: Record<PointStatus, StateKind> = {
+  AVAILABLE: "VALUE",
+  NOT_INGESTED: "MISSING",
+  MISSING: "MISSING",
+  UNSUPPORTED_FORM_PERIOD: "REFUSED",
+  EXTENSION_ONLY: "REFUSED",
+  WRONG_UNIT: "REFUSED",
+  DIMENSIONAL_ONLY: "REFUSED",
+  COREG_ONLY: "REFUSED",
+  NULL_VALUE: "NOT_STATED",
+  AMBIGUOUS: "AMBIGUOUS",
+  PERIOD_MISMATCH: "REFUSED",
+  CURRENT_UNAVAILABLE: "UNAVAILABLE",
 };
 
 export const CHANGE_STATE: Record<ChangeStatus, StateKind> = {

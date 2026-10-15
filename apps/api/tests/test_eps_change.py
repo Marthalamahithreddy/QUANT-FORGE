@@ -522,6 +522,8 @@ def test_the_package_exports_resolve_lazily_and_nothing_else_imports_eps_change(
     ]
     assert set(offenders) <= {
         "api/v1/filing_eps.py",
+        "api/v1/companies.py",  # company financials: the same selectors, read-only (v0.1 slice)
+        "schemas/company_financials.py",
         "api/v1/filing_eps_presenter.py",
         "schemas/filing_eps.py",
         "observation/assembler.py",

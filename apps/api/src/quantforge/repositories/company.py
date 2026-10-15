@@ -9,13 +9,34 @@ visible and reviewable. A generic CRUD wrapper would hide the interesting part
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from quantforge.models.company import Company
+from quantforge.models.filing import SecFiling
+from quantforge.models.financial_fact import FinancialFactSubmission
+from quantforge.models.security import Listing, Security
 
-__all__ = ["CompanyRepository"]
+__all__ = ["CompanyDirectoryPage", "CompanyDirectoryRow", "CompanyRepository"]
+
+
+@dataclass(frozen=True, slots=True)
+class CompanyDirectoryRow:
+    """One company with a stored SEC CIK, its current tickers and its stored-filing counts."""
+
+    cik: str
+    name: str
+    tickers: tuple[str, ...]
+    stored_filings: int
+    filings_with_facts: int
+
+
+@dataclass(frozen=True, slots=True)
+class CompanyDirectoryPage:
+    rows: tuple[CompanyDirectoryRow, ...]
+    total: int
 
 
 class CompanyRepository:
@@ -93,3 +114,88 @@ class CompanyRepository:
             .offset(offset)
         )
         return list(self._session.scalars(statement))
+
+    def get_by_cik(self, cik: str) -> Company | None:
+        """The company stored under this exact ten-digit CIK (unique), or ``None``."""
+        return self._session.scalar(sa.select(Company).where(Company.cik == cik))
+
+    def current_tickers(self, company_id: uuid.UUID) -> tuple[str, ...]:
+        """Tickers of the company's open (``valid_to IS NULL``) listings, sorted and distinct."""
+        rows = self._session.scalars(
+            sa.select(Listing.ticker)
+            .join(Security, Security.id == Listing.security_id)
+            .where(Security.company_id == company_id, Listing.valid_to.is_(None))
+        )
+        return tuple(sorted(set(rows)))
+
+    def directory(self, *, query: str | None, limit: int, offset: int) -> CompanyDirectoryPage:
+        """Companies that have a stored CIK, by display name, optionally narrowed by ``query``.
+
+        ``query`` matches (OR): the exact CIK (digits are zero-padded to ten), a CURRENT ticker
+        (case-insensitive, exact) or a case-insensitive substring of the legal or display name. It
+        never reaches a provider. Counts are stored ``SecFiling`` rows and those with at least one
+        FSDS submission; they say nothing about what exists at the SEC.
+        """
+        match: sa.ColumnElement[bool] = sa.true()
+        if query:
+            text = query.strip()
+            escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            ticker_hit = (
+                sa.select(Security.company_id)
+                .join(Listing, Listing.security_id == Security.id)
+                .where(Listing.valid_to.is_(None), Listing.ticker == text.upper())
+            )
+            conditions: list[sa.ColumnElement[bool]] = [
+                Company.legal_name.ilike(f"%{escaped}%", escape="\\"),
+                Company.display_name.ilike(f"%{escaped}%", escape="\\"),
+                Company.id.in_(ticker_hit),
+            ]
+            if text.isdigit() and len(text) <= 10:  # noqa: PLR2004 - a CIK has ten digits
+                conditions.append(Company.cik == text.zfill(10))
+            match = sa.or_(*conditions)
+        base = sa.select(Company).where(Company.cik.is_not(None), match)
+        total = self._session.scalar(sa.select(sa.func.count()).select_from(base.subquery())) or 0
+        companies = list(
+            self._session.scalars(
+                base.order_by(Company.display_name, Company.id).limit(limit).offset(offset)
+            )
+        )
+        ids = [c.id for c in companies]
+        tickers: dict[uuid.UUID, set[str]] = {i: set() for i in ids}
+        stored: dict[uuid.UUID, int] = dict.fromkeys(ids, 0)
+        with_facts: dict[uuid.UUID, int] = dict.fromkeys(ids, 0)
+        if ids:
+            for company_id, ticker in self._session.execute(
+                sa.select(Security.company_id, Listing.ticker)
+                .join(Listing, Listing.security_id == Security.id)
+                .where(Security.company_id.in_(ids), Listing.valid_to.is_(None))
+            ):
+                tickers[company_id].add(ticker)
+            for company_id, count in self._session.execute(
+                sa.select(SecFiling.company_id, sa.func.count())
+                .where(SecFiling.company_id.in_(ids))
+                .group_by(SecFiling.company_id)
+            ):
+                stored[company_id] = count
+            for company_id, count in self._session.execute(
+                sa.select(SecFiling.company_id, sa.func.count(sa.distinct(SecFiling.id)))
+                .join(
+                    FinancialFactSubmission, FinancialFactSubmission.sec_filing_id == SecFiling.id
+                )
+                .where(SecFiling.company_id.in_(ids))
+                .group_by(SecFiling.company_id)
+            ):
+                with_facts[company_id] = count
+        return CompanyDirectoryPage(
+            rows=tuple(
+                CompanyDirectoryRow(
+                    cik=c.cik or "",
+                    name=c.display_name,
+                    tickers=tuple(sorted(tickers[c.id])),
+                    stored_filings=stored[c.id],
+                    filings_with_facts=with_facts[c.id],
+                )
+                for c in companies
+            ),
+            total=total,
+        )

@@ -20,6 +20,9 @@ export const API_EARNINGS_PATH = "/api/v1/earnings-events";
 /** Path of the read-only filings index; a filing's EPS is `{path}/{accession}/eps`. */
 export const API_FILINGS_PATH = "/api/v1/filings";
 
+/** Path of the read-only company directory; one company's financials are `{path}/{cik}/financials`. */
+export const API_COMPANIES_PATH = "/api/v1/companies";
+
 /** Path of the read-only research observation; one event is `{path}/{event_id}`. */
 export const API_OBSERVATIONS_PATH = "/api/v1/research/observations";
 
@@ -58,6 +61,7 @@ export interface AppEnv {
   readonly apiReadinessPath: string;
   readonly apiEarningsPath: string;
   readonly apiFilingsPath: string;
+  readonly apiCompaniesPath: string;
   readonly apiObservationsPath: string;
   readonly apiBenchmarksPath: string;
   readonly apiRecordsPath: string;
@@ -69,6 +73,7 @@ export const env: AppEnv = Object.freeze({
   apiReadinessPath: API_READINESS_PATH,
   apiEarningsPath: API_EARNINGS_PATH,
   apiFilingsPath: API_FILINGS_PATH,
+  apiCompaniesPath: API_COMPANIES_PATH,
   apiObservationsPath: API_OBSERVATIONS_PATH,
   apiBenchmarksPath: API_BENCHMARKS_PATH,
   apiRecordsPath: API_RECORDS_PATH,

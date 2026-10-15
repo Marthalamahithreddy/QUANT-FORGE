@@ -64,10 +64,12 @@ describe("the decimal boundary: no financial value becomes a JS number in the co
   const LAYER = [
     "lib/api/decode.ts",
     "lib/api/decoders/earnings.ts",
+    "lib/api/decoders/companies.ts",
     "lib/api/decoders/filings.ts",
     "lib/api/decoders/health.ts",
     "lib/api/schema.ts",
     "lib/api/client.ts",
+    "lib/api/companies.ts",
     "lib/api/earnings.ts",
     "lib/api/filings.ts",
     "lib/api/health.ts",
@@ -153,7 +155,7 @@ describe("the server boundary: the browser never reaches the API", () => {
 
   it("only modules under lib/api import the HTTP client", () => {
     const importers = files.filter((f) => /@\/lib\/api\/client/.test(read(f))).map(rel).sort();
-    expect(importers).toEqual(["lib/api/earnings.ts", "lib/api/filings.ts", "lib/api/health.ts", "lib/api/records.ts", "lib/api/research.ts"]);
+    expect(importers).toEqual(["lib/api/companies.ts", "lib/api/earnings.ts", "lib/api/filings.ts", "lib/api/health.ts", "lib/api/records.ts", "lib/api/research.ts"]);
   });
 
   it("fetch is called in exactly one place", () => {

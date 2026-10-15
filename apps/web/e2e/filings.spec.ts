@@ -22,10 +22,10 @@ test.describe("Filings", () => {
     await noPageOverflow(page);
   });
 
-  test("the navigation has no Companies page and no placeholder", async ({ page }) => {
+  test("the navigation lists only real pages and no placeholder", async ({ page }) => {
     await page.goto("/filings");
     const links = await page.getByRole("navigation", { name: "Primary" }).getByRole("link").allInnerTexts();
-    expect(links.slice(-5)).toEqual(["Overview", "Earnings", "Filings", "Research", "Saved research"]);
-    for (const text of links) expect(text).not.toMatch(/compan|backtest|coming soon|planned/i);
+    expect(links.slice(-6)).toEqual(["Overview", "Companies", "Earnings", "Filings", "Research", "Saved research"]);
+    for (const text of links) expect(text).not.toMatch(/backtest|coming soon|planned/i);
   });
 });

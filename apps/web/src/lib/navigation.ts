@@ -2,11 +2,11 @@
  * Primary navigation model (design spec section 5.2).
  *
  *   Overview
- *   Evidence   -> Earnings, Filings
+ *   Evidence   -> Companies, Earnings, Filings
  *   Research   -> Research, Saved research
  *
  * Every entry is a real route. There are no "planned" rows: a section that does not exist is not
- * shown (Companies and Backtests are described on Overview instead).
+ * shown (Backtests have no route and no entry).
  */
 
 export interface NavItem {
@@ -38,6 +38,11 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     id: "evidence",
     label: "Evidence",
     items: [
+      {
+        id: "companies",
+        label: "Companies",
+        href: "/companies",
+      },
       {
         id: "earnings",
         label: "Earnings",

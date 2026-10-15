@@ -403,6 +403,176 @@
         "title": "BenchmarkReturnStatus",
         "type": "string"
       },
+      "ChangeSection": {
+        "properties": {
+          "absolute": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "current - prior, exact.",
+            "title": "Absolute"
+          },
+          "ratio": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "(current - prior) / prior as a RATIO string (0.5 = +50%), positive prior only.",
+            "title": "Ratio"
+          },
+          "ratio_unavailable_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PercentageUnavailableReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/EpsChangeStatus"
+          },
+          "transition": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EpsTransition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "absolute",
+          "transition",
+          "ratio",
+          "ratio_unavailable_reason"
+        ],
+        "title": "ChangeSection",
+        "type": "object"
+      },
+      "CompanyDirectoryItem": {
+        "properties": {
+          "cik": {
+            "pattern": "^[0-9]{10}$",
+            "title": "Cik",
+            "type": "string"
+          },
+          "filings_with_financial_facts": {
+            "title": "Filings With Financial Facts",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "stored_filings": {
+            "description": "Stored filing rows; not every filing at the SEC.",
+            "title": "Stored Filings",
+            "type": "integer"
+          },
+          "tickers": {
+            "description": "Current tickers (open listings), sorted.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Tickers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cik",
+          "name",
+          "tickers",
+          "stored_filings",
+          "filings_with_financial_facts"
+        ],
+        "title": "CompanyDirectoryItem",
+        "type": "object"
+      },
+      "CompanyDirectoryPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CompanyDirectoryItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "CompanyDirectoryPage",
+        "type": "object"
+      },
+      "CompanyFinancialsResponse": {
+        "properties": {
+          "boundary_note": {
+            "default": "Descriptive accounting data from stored SEC FSDS facts. The prior-year figure is the comparative as presented in the same filing and may be restated. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.",
+            "title": "Boundary Note",
+            "type": "string"
+          },
+          "company": {
+            "$ref": "#/components/schemas/CompanySummary"
+          },
+          "descriptive_only": {
+            "const": true,
+            "default": true,
+            "title": "Descriptive Only",
+            "type": "boolean"
+          },
+          "filings": {
+            "items": {
+              "$ref": "#/components/schemas/FilingFinancialsSection"
+            },
+            "title": "Filings",
+            "type": "array"
+          },
+          "no_point_in_time_claim": {
+            "const": true,
+            "default": true,
+            "title": "No Point In Time Claim",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "company",
+          "descriptive_only",
+          "no_point_in_time_claim",
+          "boundary_note",
+          "filings"
+        ],
+        "title": "CompanyFinancialsResponse",
+        "type": "object"
+      },
       "CompanyRef": {
         "properties": {
           "cik": {
@@ -437,6 +607,33 @@
           "cik"
         ],
         "title": "CompanyRef",
+        "type": "object"
+      },
+      "CompanySummary": {
+        "properties": {
+          "cik": {
+            "pattern": "^[0-9]{10}$",
+            "title": "Cik",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tickers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tickers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cik",
+          "name",
+          "tickers"
+        ],
+        "title": "CompanySummary",
         "type": "object"
       },
       "ComparativeEpsSection": {
@@ -1267,6 +1464,60 @@
         "title": "FactEvidence",
         "type": "object"
       },
+      "FactSource": {
+        "description": "One stored fact exactly as selected; no ingestion or availability fields.",
+        "properties": {
+          "fact_id": {
+            "format": "uuid",
+            "title": "Fact Id",
+            "type": "string"
+          },
+          "period_end": {
+            "format": "date",
+            "title": "Period End",
+            "type": "string"
+          },
+          "qtrs": {
+            "title": "Qtrs",
+            "type": "integer"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          },
+          "taxonomy_version": {
+            "title": "Taxonomy Version",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Exact string; null if the source stated none.",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "fact_id",
+          "tag",
+          "taxonomy_version",
+          "unit",
+          "period_end",
+          "qtrs",
+          "value"
+        ],
+        "title": "FactSource",
+        "type": "object"
+      },
       "FilingEpsResponse": {
         "properties": {
           "accession": {
@@ -1342,6 +1593,117 @@
           "change"
         ],
         "title": "FilingEpsResponse",
+        "type": "object"
+      },
+      "FilingFinancialsSection": {
+        "properties": {
+          "accession": {
+            "pattern": "^[0-9]{10}-[0-9]{2}-[0-9]{6}$",
+            "title": "Accession",
+            "type": "string"
+          },
+          "filing_date": {
+            "format": "date",
+            "title": "Filing Date",
+            "type": "string"
+          },
+          "fiscal_period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fiscal Period"
+          },
+          "fiscal_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fiscal Year"
+          },
+          "form": {
+            "$ref": "#/components/schemas/SecFormType"
+          },
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricSection"
+            },
+            "title": "Metrics",
+            "type": "array"
+          },
+          "package_stored_at": {
+            "description": "When QuantForge stored the FSDS package (UTC): storage provenance only.",
+            "format": "date-time",
+            "title": "Package Stored At",
+            "type": "string"
+          },
+          "period_class": {
+            "$ref": "#/components/schemas/EpsPeriodClass"
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the filing's submissions disagree.",
+            "title": "Period End"
+          },
+          "report_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Date"
+          },
+          "source_artifact": {
+            "description": "The FSDS package the facts were stored from.",
+            "title": "Source Artifact",
+            "type": "string"
+          },
+          "source_artifact_sha256": {
+            "title": "Source Artifact Sha256",
+            "type": "string"
+          },
+          "source_url": {
+            "description": "Derived EDGAR filing-index link; never fetched here.",
+            "title": "Source Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "accession",
+          "form",
+          "period_class",
+          "period_end",
+          "fiscal_year",
+          "fiscal_period",
+          "filing_date",
+          "report_date",
+          "package_stored_at",
+          "source_artifact",
+          "source_artifact_sha256",
+          "source_url",
+          "metrics"
+        ],
+        "title": "FilingFinancialsSection",
         "type": "object"
       },
       "FilingIndexItem": {
@@ -1858,6 +2220,36 @@
         "title": "ListingResolutionStatus",
         "type": "string"
       },
+      "MetricSection": {
+        "properties": {
+          "change": {
+            "$ref": "#/components/schemas/ChangeSection"
+          },
+          "current": {
+            "$ref": "#/components/schemas/PointSection"
+          },
+          "metric": {
+            "enum": [
+              "REVENUE",
+              "NET_INCOME",
+              "EPS_DILUTED"
+            ],
+            "title": "Metric",
+            "type": "string"
+          },
+          "prior": {
+            "$ref": "#/components/schemas/PointSection"
+          }
+        },
+        "required": [
+          "metric",
+          "current",
+          "prior",
+          "change"
+        ],
+        "title": "MetricSection",
+        "type": "object"
+      },
       "ObservationParametersOut": {
         "description": "Every effective input, defaults included.",
         "properties": {
@@ -2002,6 +2394,54 @@
           "EVIDENCE_ELIGIBLE"
         ],
         "title": "PointInTimeState",
+        "type": "string"
+      },
+      "PointSection": {
+        "properties": {
+          "fact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FactSource"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present only for AVAILABLE and NULL_VALUE."
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PointStatus"
+          }
+        },
+        "required": [
+          "status",
+          "reason",
+          "fact"
+        ],
+        "title": "PointSection",
+        "type": "object"
+      },
+      "PointStatus": {
+        "description": "Why a figure is shown or why there is none. Each refusal names its own evidence.",
+        "enum": [
+          "AVAILABLE",
+          "NOT_INGESTED",
+          "UNSUPPORTED_FORM_PERIOD",
+          "MISSING",
+          "EXTENSION_ONLY",
+          "WRONG_UNIT",
+          "DIMENSIONAL_ONLY",
+          "COREG_ONLY",
+          "NULL_VALUE",
+          "AMBIGUOUS",
+          "PERIOD_MISMATCH",
+          "CURRENT_UNAVAILABLE"
+        ],
+        "title": "PointStatus",
         "type": "string"
       },
       "PriceBasis": {
@@ -3080,6 +3520,138 @@
         "summary": "Benchmarks a caller can explicitly select",
         "tags": [
           "benchmarks"
+        ]
+      }
+    },
+    "/api/v1/companies": {
+      "get": {
+        "description": "Stored companies that have a SEC CIK, by name. q matches a name substring, an exact current ticker or a CIK. Counts are of stored filings only, not of filings at the SEC.",
+        "operationId": "list_companies_api_v1_companies_get",
+        "parameters": [
+          {
+            "description": "Name substring, exact current ticker or CIK (all matched case-insensitively).",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 80,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Name substring, exact current ticker or CIK (all matched case-insensitively).",
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyDirectoryPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "The database is unavailable."
+          }
+        },
+        "summary": "Search stored companies",
+        "tags": [
+          "companies"
+        ]
+      }
+    },
+    "/api/v1/companies/{cik}/financials": {
+      "get": {
+        "description": "For each stored 10-Q/10-K-family filing with FSDS facts, newest period first: the current and prior-year (as presented in that filing) figure, the exact change and its ratio, with the source filing and package. Every refusal is returned as a status with HTTP 200.",
+        "operationId": "get_company_financials_api_v1_companies__cik__financials_get",
+        "parameters": [
+          {
+            "description": "Ten-digit zero-padded CIK.",
+            "in": "path",
+            "name": "cik",
+            "required": true,
+            "schema": {
+              "description": "Ten-digit zero-padded CIK.",
+              "pattern": "^[0-9]{10}$",
+              "title": "Cik",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyFinancialsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "No such company."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "The database is unavailable."
+          }
+        },
+        "summary": "Revenue, net income and diluted EPS per stored filing, with the prior-year comparative",
+        "tags": [
+          "companies"
         ]
       }
     },

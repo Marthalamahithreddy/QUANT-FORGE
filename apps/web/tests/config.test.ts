@@ -24,6 +24,7 @@ describe("navigation model", () => {
     expect(NAV_GROUPS.map((g) => g.label)).toEqual([null, "Evidence", "Research"]);
     expect(NAV_ITEMS.map((item) => item.label)).toEqual([
       "Overview",
+      "Companies",
       "Earnings",
       "Filings",
       "Research",
@@ -34,6 +35,7 @@ describe("navigation model", () => {
   it("gives every entry a real route and shows no planned or disabled entries", () => {
     expect(NAV_ITEMS.map((item) => item.href)).toEqual([
       "/",
+      "/companies",
       "/earnings",
       "/filings",
       "/research",
@@ -42,8 +44,8 @@ describe("navigation model", () => {
     expect(NAV_ITEMS.some((item) => "status" in item)).toBe(false);
   });
 
-  it("does not include Companies or Backtests", () => {
-    expect(NAV_ITEMS.map((item) => item.label)).not.toContain("Companies");
+  it("includes Companies but not Backtests", () => {
+    expect(NAV_ITEMS.map((item) => item.label)).toContain("Companies");
     expect(NAV_ITEMS.map((item) => item.label)).not.toContain("Backtests");
   });
 

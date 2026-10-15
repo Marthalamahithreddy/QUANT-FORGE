@@ -652,6 +652,8 @@ def test_the_result_and_input_types_carry_no_availability_or_signal_field() -> N
 
 ALLOWED_FINANCIALS_CONSUMERS = {
     "api/v1/filing_eps.py",
+    "api/v1/companies.py",  # company financials: the same selectors, read-only (v0.1 slice)
+    "schemas/company_financials.py",
     "api/v1/filing_eps_presenter.py",
     "schemas/filing_eps.py",
     "observation/assembler.py",

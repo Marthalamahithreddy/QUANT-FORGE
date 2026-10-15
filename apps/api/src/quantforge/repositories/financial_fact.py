@@ -21,6 +21,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
@@ -35,6 +36,7 @@ from quantforge.models.financial_fact import (
 )
 
 __all__ = [
+    "CompanyFilingFacts",
     "FactTrace",
     "FilingFactContext",
     "FilingIndexResult",
@@ -111,6 +113,28 @@ class FilingIndexRow:
     filing_date: date
     report_date: date | None
     fsds_period_end: date | None
+
+
+@dataclass(frozen=True, slots=True)
+class CompanyFilingFacts:
+    """One stored filing of a company with FSDS submissions, and where its facts were stored from.
+
+    ``fiscal_year`` / ``fiscal_period`` are the FSDS submission's own statements (``None`` when the
+    filing's submissions disagree). ``package_stored_at`` is when QuantForge stored the earliest
+    package carrying the filing: storage provenance only, never when a figure was known. The EDGAR
+    acceptance instant is deliberately NOT carried (``tests/test_accepted_at_firewall.py``).
+    """
+
+    sec_filing_id: uuid.UUID
+    accession_number: str
+    form: SecFormType
+    filing_date: date
+    report_date: date | None
+    package_stored_at: datetime
+    submission_period_ends: tuple[date, ...]
+    fiscal_year: int | None
+    fiscal_period: str | None
+    artifacts: tuple[tuple[str, str], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +228,63 @@ class FinancialFactRepository:
             ),
             total=total or 0,
         )
+
+    def company_filings_with_facts(
+        self, company_id: uuid.UUID, *, forms: tuple[SecFormType, ...]
+    ) -> list[CompanyFilingFacts]:
+        """Stored filings of one company, of the given forms, that have an FSDS submission.
+
+        Newest period first (latest stated submission period end, then filing date, then
+        accession), a total order. Nothing is chosen among filings: an amendment is its own row.
+        """
+        rows = self._session.execute(
+            sa.select(
+                SecFiling.id,
+                SecFiling.accession_number,
+                SecFiling.form,
+                SecFiling.filing_date,
+                SecFiling.report_date,
+                FinancialFactSubmission.period_end,
+                FinancialFactSubmission.fiscal_year,
+                FinancialFactSubmission.fiscal_period,
+                FinancialFactArtifact.artifact_name,
+                FinancialFactArtifact.sha256,
+                FinancialFactArtifact.ingested_at,
+            )
+            .join(FinancialFactSubmission, FinancialFactSubmission.sec_filing_id == SecFiling.id)
+            .join(
+                FinancialFactArtifact,
+                FinancialFactArtifact.id == FinancialFactSubmission.artifact_id,
+            )
+            .where(SecFiling.company_id == company_id, SecFiling.form.in_(forms))
+        ).all()
+        grouped: dict[uuid.UUID, list[Any]] = {}
+        for row in rows:
+            grouped.setdefault(row.id, []).append(row)
+        filings = []
+        for filing_id, group in grouped.items():
+            first = group[0]
+            years = {r.fiscal_year for r in group}
+            periods = {r.fiscal_period for r in group}
+            filings.append(
+                CompanyFilingFacts(
+                    sec_filing_id=filing_id,
+                    accession_number=first.accession_number,
+                    form=first.form,
+                    filing_date=first.filing_date,
+                    report_date=first.report_date,
+                    package_stored_at=min(r.ingested_at for r in group),
+                    submission_period_ends=tuple(sorted({r.period_end for r in group})),
+                    fiscal_year=next(iter(years)) if len(years) == 1 else None,
+                    fiscal_period=next(iter(periods)) if len(periods) == 1 else None,
+                    artifacts=tuple(sorted({(r.artifact_name, r.sha256) for r in group})),
+                )
+            )
+        filings.sort(
+            key=lambda f: (f.submission_period_ends[-1], f.filing_date, f.accession_number),
+            reverse=True,
+        )
+        return filings
 
     def filing_fact_contexts(
         self, accession_number: str, *, company_cik: str | None = None

@@ -27,6 +27,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/companies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search stored companies
+         * @description Stored companies that have a SEC CIK, by name. q matches a name substring, an exact current ticker or a CIK. Counts are of stored filings only, not of filings at the SEC.
+         */
+        get: operations["list_companies_api_v1_companies_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/companies/{cik}/financials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Revenue, net income and diluted EPS per stored filing, with the prior-year comparative
+         * @description For each stored 10-Q/10-K-family filing with FSDS facts, newest period first: the current and prior-year (as presented in that filing) figure, the exact change and its ratio, with the source filing and package. Every refusal is returned as a status with HTTP 200.
+         */
+        get: operations["get_company_financials_api_v1_companies__cik__financials_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/earnings-events": {
         parameters: {
             query?: never;
@@ -408,6 +448,75 @@ export interface components {
          * @enum {string}
          */
         BenchmarkReturnStatus: "AVAILABLE" | "NO_BENCHMARK" | "NO_STOCK_RETURN" | "MISSING_ANCHOR_PRICE" | "MISSING_TARGET_PRICE" | "INVALID_PRICE" | "AMBIGUOUS_BENCHMARK_PRICE_SOURCE";
+        /** ChangeSection */
+        ChangeSection: {
+            /**
+             * Absolute
+             * @description current - prior, exact.
+             */
+            absolute: string | null;
+            /**
+             * Ratio
+             * @description (current - prior) / prior as a RATIO string (0.5 = +50%), positive prior only.
+             */
+            ratio: string | null;
+            ratio_unavailable_reason: components["schemas"]["PercentageUnavailableReason"] | null;
+            status: components["schemas"]["EpsChangeStatus"];
+            transition: components["schemas"]["EpsTransition"] | null;
+        };
+        /** CompanyDirectoryItem */
+        CompanyDirectoryItem: {
+            /** Cik */
+            cik: string;
+            /** Filings With Financial Facts */
+            filings_with_financial_facts: number;
+            /** Name */
+            name: string;
+            /**
+             * Stored Filings
+             * @description Stored filing rows; not every filing at the SEC.
+             */
+            stored_filings: number;
+            /**
+             * Tickers
+             * @description Current tickers (open listings), sorted.
+             */
+            tickers: string[];
+        };
+        /** CompanyDirectoryPage */
+        CompanyDirectoryPage: {
+            /** Items */
+            items: components["schemas"]["CompanyDirectoryItem"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Total */
+            total: number;
+        };
+        /** CompanyFinancialsResponse */
+        CompanyFinancialsResponse: {
+            /**
+             * Boundary Note
+             * @default Descriptive accounting data from stored SEC FSDS facts. The prior-year figure is the comparative as presented in the same filing and may be restated. No point-in-time availability claim: nothing here says when a figure was known or that it was tradable.
+             */
+            boundary_note: string;
+            company: components["schemas"]["CompanySummary"];
+            /**
+             * Descriptive Only
+             * @default true
+             * @constant
+             */
+            descriptive_only: true;
+            /** Filings */
+            filings: components["schemas"]["FilingFinancialsSection"][];
+            /**
+             * No Point In Time Claim
+             * @default true
+             * @constant
+             */
+            no_point_in_time_claim: true;
+        };
         /** CompanyRef */
         CompanyRef: {
             /** Cik */
@@ -421,6 +530,15 @@ export interface components {
             id: string;
             /** Legal Name */
             legal_name: string;
+        };
+        /** CompanySummary */
+        CompanySummary: {
+            /** Cik */
+            cik: string;
+            /** Name */
+            name: string;
+            /** Tickers */
+            tickers: string[];
         };
         /** ComparativeEpsSection */
         ComparativeEpsSection: {
@@ -738,6 +856,35 @@ export interface components {
              */
             value: string | null;
         };
+        /**
+         * FactSource
+         * @description One stored fact exactly as selected; no ingestion or availability fields.
+         */
+        FactSource: {
+            /**
+             * Fact Id
+             * Format: uuid
+             */
+            fact_id: string;
+            /**
+             * Period End
+             * Format: date
+             */
+            period_end: string;
+            /** Qtrs */
+            qtrs: number;
+            /** Tag */
+            tag: string;
+            /** Taxonomy Version */
+            taxonomy_version: string;
+            /** Unit */
+            unit: string;
+            /**
+             * Value
+             * @description Exact string; null if the source stated none.
+             */
+            value: string | null;
+        };
         /** FilingEpsResponse */
         FilingEpsResponse: {
             /** Accession */
@@ -770,6 +917,49 @@ export interface components {
              */
             no_point_in_time_claim: true;
             period_class: components["schemas"]["EpsPeriodClass"];
+        };
+        /** FilingFinancialsSection */
+        FilingFinancialsSection: {
+            /** Accession */
+            accession: string;
+            /**
+             * Filing Date
+             * Format: date
+             */
+            filing_date: string;
+            /** Fiscal Period */
+            fiscal_period: string | null;
+            /** Fiscal Year */
+            fiscal_year: number | null;
+            form: components["schemas"]["SecFormType"];
+            /** Metrics */
+            metrics: components["schemas"]["MetricSection"][];
+            /**
+             * Package Stored At
+             * Format: date-time
+             * @description When QuantForge stored the FSDS package (UTC): storage provenance only.
+             */
+            package_stored_at: string;
+            period_class: components["schemas"]["EpsPeriodClass"];
+            /**
+             * Period End
+             * @description Null when the filing's submissions disagree.
+             */
+            period_end: string | null;
+            /** Report Date */
+            report_date: string | null;
+            /**
+             * Source Artifact
+             * @description The FSDS package the facts were stored from.
+             */
+            source_artifact: string;
+            /** Source Artifact Sha256 */
+            source_artifact_sha256: string;
+            /**
+             * Source Url
+             * @description Derived EDGAR filing-index link; never fetched here.
+             */
+            source_url: string;
         };
         /** FilingIndexItem */
         FilingIndexItem: {
@@ -960,6 +1150,17 @@ export interface components {
          * @enum {string}
          */
         ListingResolutionStatus: "RESOLVED" | "NO_LISTING_FOR_DATE" | "AMBIGUOUS_LISTING" | "CONFLICTING_HISTORY";
+        /** MetricSection */
+        MetricSection: {
+            change: components["schemas"]["ChangeSection"];
+            current: components["schemas"]["PointSection"];
+            /**
+             * Metric
+             * @enum {string}
+             */
+            metric: "REVENUE" | "NET_INCOME" | "EPS_DILUTED";
+            prior: components["schemas"]["PointSection"];
+        };
         /**
          * ObservationParametersOut
          * @description Every effective input, defaults included.
@@ -1007,6 +1208,20 @@ export interface components {
          * @enum {string}
          */
         PointInTimeState: "REFUSED" | "EVIDENCE_ELIGIBLE";
+        /** PointSection */
+        PointSection: {
+            /** @description Present only for AVAILABLE and NULL_VALUE. */
+            fact: components["schemas"]["FactSource"] | null;
+            /** Reason */
+            reason: string;
+            status: components["schemas"]["PointStatus"];
+        };
+        /**
+         * PointStatus
+         * @description Why a figure is shown or why there is none. Each refusal names its own evidence.
+         * @enum {string}
+         */
+        PointStatus: "AVAILABLE" | "NOT_INGESTED" | "UNSUPPORTED_FORM_PERIOD" | "MISSING" | "EXTENSION_ONLY" | "WRONG_UNIT" | "DIMENSIONAL_ONLY" | "COREG_ONLY" | "NULL_VALUE" | "AMBIGUOUS" | "PERIOD_MISMATCH" | "CURRENT_UNAVAILABLE";
         /**
          * PriceBasis
          * @description Which split-adjustment basis one stored price row is expressed in.
@@ -1498,6 +1713,93 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["BenchmarkIndexPage"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description The database is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_companies_api_v1_companies_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                /** @description Name substring, exact current ticker or CIK (all matched case-insensitively). */
+                q?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyDirectoryPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description The database is unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_company_financials_api_v1_companies__cik__financials_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Ten-digit zero-padded CIK. */
+                cik: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyFinancialsResponse"];
+                };
+            };
+            /** @description No such company. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

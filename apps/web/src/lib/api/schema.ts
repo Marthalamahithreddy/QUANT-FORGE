@@ -34,6 +34,14 @@ export type FilingIndexPage = Schemas["FilingIndexPage"];
 export type FilingEps = Schemas["FilingEpsResponse"];
 export type FactEvidence = Schemas["FactEvidence"];
 
+export type CompanyDirectoryItem = Schemas["CompanyDirectoryItem"];
+export type CompanyDirectoryPage = Schemas["CompanyDirectoryPage"];
+export type CompanyFinancials = Schemas["CompanyFinancialsResponse"];
+export type FilingFinancials = Schemas["FilingFinancialsSection"];
+export type MetricSection = Schemas["MetricSection"];
+export type PointSection = Schemas["PointSection"];
+export type FactSource = Schemas["FactSource"];
+
 export type BenchmarkItem = Schemas["BenchmarkIndexItem"];
 export type BenchmarkPage = Schemas["BenchmarkIndexPage"];
 
@@ -95,6 +103,25 @@ export const FILING_FORMS = enumList<Schemas["SecFormType"]>()([
   "8-K/A",
 ]);
 export type FilingForm = Schemas["SecFormType"];
+
+export const POINT_STATUSES = enumList<Schemas["PointStatus"]>()([
+  "AVAILABLE",
+  "NOT_INGESTED",
+  "UNSUPPORTED_FORM_PERIOD",
+  "MISSING",
+  "EXTENSION_ONLY",
+  "WRONG_UNIT",
+  "DIMENSIONAL_ONLY",
+  "COREG_ONLY",
+  "NULL_VALUE",
+  "AMBIGUOUS",
+  "PERIOD_MISMATCH",
+  "CURRENT_UNAVAILABLE",
+]);
+export type PointStatus = Schemas["PointStatus"];
+
+export const METRIC_IDS = enumList<MetricSection["metric"]>()(["REVENUE", "NET_INCOME", "EPS_DILUTED"]);
+export type MetricId = MetricSection["metric"];
 
 export const PERIOD_CLASSES = enumList<Schemas["EpsPeriodClass"]>()(["QUARTER", "ANNUAL"]);
 export type EpsPeriodClass = Schemas["EpsPeriodClass"];

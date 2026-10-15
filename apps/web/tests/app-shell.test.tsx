@@ -63,10 +63,10 @@ describe("AppShell structure", () => {
 });
 
 describe("navigation", () => {
-  it("groups entries as Overview, Evidence (Earnings, Filings), Research (Research, Saved research)", () => {
+  it("groups entries as Overview, Evidence (Companies, Earnings, Filings), Research (Research, Saved research)", () => {
     expect(NAV_GROUPS.map((g) => [g.label, g.items.map((i) => i.label)])).toEqual([
       [null, ["Overview"]],
-      ["Evidence", ["Earnings", "Filings"]],
+      ["Evidence", ["Companies", "Earnings", "Filings"]],
       ["Research", ["Research", "Saved research"]],
     ]);
     shell();
@@ -78,10 +78,9 @@ describe("navigation", () => {
     }
   });
 
-  it("has no Companies entry, no Backtests entry, and no Planned rows", () => {
+  it("has no Backtests entry and no Planned rows", () => {
     shell();
     const nav = screen.getByRole("navigation", { name: "Primary" });
-    expect(within(nav).queryByText(/Companies/)).toBeNull();
     expect(within(nav).queryByText(/Backtests/)).toBeNull();
     expect(screen.queryByText("Planned")).toBeNull();
     expect(nav.querySelectorAll("[aria-disabled]")).toHaveLength(0);

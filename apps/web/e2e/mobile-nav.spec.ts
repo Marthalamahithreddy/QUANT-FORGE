@@ -41,9 +41,9 @@ test.describe("Mobile navigation", () => {
     await expect(drawer.getByRole("radio", { name: "Light" })).toBeAttached();
 
     const links = await drawer.getByRole("navigation", { name: "Primary menu" }).getByRole("link").allInnerTexts();
-    // The product link first, then exactly the five real destinations: no placeholder, no Companies.
-    expect(links.slice(-5)).toEqual(["Overview", "Earnings", "Filings", "Research", "Saved research"]);
-    expect(links).toHaveLength(6);
+    // The product link first, then exactly the six real destinations: no placeholder.
+    expect(links.slice(-6)).toEqual(["Overview", "Companies", "Earnings", "Filings", "Research", "Saved research"]);
+    expect(links).toHaveLength(7);
 
     await drawer.getByRole("link", { name: "Saved research" }).click();
     await expect(page).toHaveURL("/research/saved");

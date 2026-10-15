@@ -107,6 +107,8 @@ describe("the committed snapshot", () => {
   it("describes the read-only API the frontend was designed against", () => {
     expect(Object.keys(snapshot.paths).sort()).toEqual([
       "/api/v1/benchmarks",
+      "/api/v1/companies",
+      "/api/v1/companies/{cik}/financials",
       "/api/v1/earnings-events",
       "/api/v1/earnings-events/{event_id}",
       "/api/v1/filings",
