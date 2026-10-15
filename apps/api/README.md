@@ -17,6 +17,10 @@ ingestion runs.
 
 ## Layout
 
+This tree shows the layout at the early steps; `src/quantforge/` now also holds `financials/`, `research/`, `signals/`,
+`backtest/`, `market/`, `identity/`, `observation/`, `reproducibility/` and `research_records/`. See the root
+[README](../../README.md#architecture) and [`docs/implementation-notes.md`](../../docs/implementation-notes.md).
+
 ```
 src/quantforge/
 ├── main.py            # application factory + connection lifecycle
@@ -306,6 +310,11 @@ serves liveness with both datastores stopped.
 | `GET /health`              | liveness; never touches a datastore                |
 | `GET /api/v1/health`       | the same contract, versioned                       |
 | `GET /api/v1/health/ready` | readiness; probes PostgreSQL and Redis, `503` if down |
+
+## Companies API
+
+`GET /api/v1/companies` and `GET /api/v1/companies/{cik}/financials` (read-only) are described, with the Nike
+validation-database workflow, in the root [README](../../README.md#companies) and ["View the Nike demo"](../../README.md#view-the-nike-demo).
 
 ## Commands
 

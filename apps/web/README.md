@@ -14,7 +14,11 @@ accessibility and responsive convergence, request budgets, dead-code removal).
   events, latest filings, recent saved research, and the API's own health and readiness. Each region is one bounded
   list read (five rows) in its own `Suspense` boundary, so a slow, empty or failed source never blanks another; none
   enriches a row, reads a detail endpoint or computes anything. There is no count, score or aggregate of its own.
-- **Routes** — Overview `/`, Earnings `/earnings` and `/earnings/[id]`, Filings `/filings` and
+- **Routes** — Overview `/`, Companies `/companies` and `/companies/[cik]` (company search and a revenue, net income
+  and diluted EPS history with filing evidence; what it shows and its limits are in the root
+  [README, "Companies"](../../README.md#companies); running it against the Nike demo data is in
+  [README, "View the Nike demo"](../../README.md#view-the-nike-demo)),
+  Earnings `/earnings` and `/earnings/[id]`, Filings `/filings` and
   `/filings/[accession]`, Research `/research` (an event finder) and the research workspace
   `/research/events/[eventId]` (11.1D), Saved Research `/research/saved` and `/research/saved/[recordId]` (11.1E).
 - **Shell** (`src/components/layout`) — rendered ONCE by the root layout, so navigation never remounts it. A
