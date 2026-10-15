@@ -38,12 +38,13 @@ const point = (value: string, periodEnd: string): Json => ({ status: "AVAILABLE"
 const refused = (status: string): Json => ({ status, reason: `test reason ${status}`, fact: null });
 const noChange: Json = { status: "INPUT_UNAVAILABLE", absolute: null, transition: null, ratio: null, ratio_unavailable_reason: null };
 
-function financials(metrics: Json[] = [], extra: Json[] = []): Json {
+function financials(metrics: Json[] = [], extra: Json[] = [], total?: number): Json {
   return {
     company: { cik: CIK, name: "Example Corp", tickers: ["EXM"] },
     descriptive_only: true,
     no_point_in_time_claim: true,
     boundary_note: "Descriptive accounting data. No point-in-time availability claim.",
+    total_filings: total ?? (metrics.length === 0 ? 0 : 1 + extra.length),
     filings: metrics.length === 0 ? [] : [filing(metrics), ...extra],
   };
 }
@@ -131,6 +132,11 @@ describe("the financials contract", () => {
     expect(decode(decodeCompanyFinancials, bad).ok).toBe(false);
   });
 
+  it("refuses a total smaller than the filings listed", () => {
+    expect(decode(decodeCompanyFinancials, financials([income()], [], 5)).ok).toBe(true);
+    expect(decode(decodeCompanyFinancials, financials([income()], [filing([income()], { accession: "0000111111-25-000002" })], 1)).ok).toBe(false);
+  });
+
   it("refuses a JSON number in place of an exact string, and a change with an unavailable input", () => {
     const number = financials([income()]);
     ((number.filings as Json[])[0]!.metrics as Json[])[0]!.current = { status: "AVAILABLE", reason: "r", fact: { ...fact("1", "2026-02-28"), value: 520000000 } };
@@ -193,6 +199,19 @@ describe("Company page", () => {
     expect(within(screen.getByRole("region", { name: "Revenue (customer contracts) by quarter" })).getByText(/Not drawn/)).toBeInTheDocument();
     expect(screen.getAllByRole("row").length).toBeGreaterThan(3);
     expect(screen.queryByText(/only one filing/i)).toBeNull();
+  });
+
+  it("says when older stored filings are not shown, and does not when the list is complete", async () => {
+    stub(jsonResponse(financials([income(), revenueRefused()], [], 45)));
+    await renderServer(await CompanyPage(props(CIK)));
+    expect(screen.getByText(/Newest 1 of 45 stored filings/)).toBeInTheDocument();
+    expect(screen.getByText(/44 older stored filings are not shown/)).toBeInTheDocument();
+
+    cleanup();
+    stub(jsonResponse(financials([income(), revenueRefused()])));
+    await renderServer(await CompanyPage(props(CIK)));
+    expect(screen.queryByText(/not shown/)).toBeNull();
+    expect(screen.queryByText(/Newest 1 of/)).toBeNull();
   });
 
   it("says plainly that no data is stored, and fetches nothing else", async () => {

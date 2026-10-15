@@ -561,6 +561,11 @@
             "default": true,
             "title": "No Point In Time Claim",
             "type": "boolean"
+          },
+          "total_filings": {
+            "description": "Stored 10-Q/10-K-family filings with FSDS facts. `filings` holds the newest 40 of them, so it is shorter than this when the company has more.",
+            "title": "Total Filings",
+            "type": "integer"
           }
         },
         "required": [
@@ -568,6 +573,7 @@
           "descriptive_only",
           "no_point_in_time_claim",
           "boundary_note",
+          "total_filings",
           "filings"
         ],
         "title": "CompanyFinancialsResponse",

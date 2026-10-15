@@ -17,7 +17,11 @@ from fastapi.testclient import TestClient
 
 from quantforge.core.config import Settings
 from quantforge.db.session import get_session
-from quantforge.financials.company_financials import FilingFinancials, MetricComparison
+from quantforge.financials.company_financials import (
+    CompanyHistory,
+    FilingFinancials,
+    MetricComparison,
+)
 from quantforge.financials.eps import EpsInputFact, EpsPeriodClass
 from quantforge.financials.eps_change import EpsChangeStatus
 from quantforge.financials.period_metrics import (
@@ -107,7 +111,8 @@ class _Repo:
 def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setattr("quantforge.api.v1.companies.CompanyRepository", _Repo)
     monkeypatch.setattr(
-        "quantforge.api.v1.companies.build_company_financials", lambda _s, _c: [_filing()]
+        "quantforge.api.v1.companies.build_company_financials",
+        lambda _s, _c: CompanyHistory((_filing(),), total_filings=45),
     )
     application = create_app(Settings(_env_file=None))
     application.dependency_overrides[get_session] = lambda: iter([None])
@@ -140,6 +145,8 @@ def test_financials_map_exact_values_refusals_and_provenance(client: TestClient)
     body = client.get(f"/api/v1/companies/{CIK}/financials").json()
     assert body["company"] == {"cik": CIK, "name": "Nike, Inc.", "tickers": ["NKE"]}
     assert body["descriptive_only"] is True and body["no_point_in_time_claim"] is True
+    # A shorter list than the company's total is reported, never silent.
+    assert len(body["filings"]) == 1 and body["total_filings"] == 45
     filing = body["filings"][0]
     assert filing["accession"] == ACC and filing["form"] == "10-Q"
     assert filing["period_end"] == "2026-02-28" and filing["fiscal_period"] == "Q3"

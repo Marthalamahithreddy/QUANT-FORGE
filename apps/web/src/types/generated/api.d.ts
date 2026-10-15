@@ -516,6 +516,11 @@ export interface components {
              * @constant
              */
             no_point_in_time_claim: true;
+            /**
+             * Total Filings
+             * @description Stored 10-Q/10-K-family filings with FSDS facts. `filings` holds the newest 40 of them, so it is shorter than this when the company has more.
+             */
+            total_filings: number;
         };
         /** CompanyRef */
         CompanyRef: {

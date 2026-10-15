@@ -147,14 +147,20 @@ const filing = object<FilingFinancials>({
 });
 
 /** `GET /api/v1/companies/{cik}/financials`. */
-export const decodeCompanyFinancials: Decoder<CompanyFinancials> = object<CompanyFinancials>({
-  company: object<CompanyFinancials["company"]>({
-    cik,
-    name: nonEmptyString,
-    tickers: arrayOf(nonEmptyString),
+export const decodeCompanyFinancials: Decoder<CompanyFinancials> = refine(
+  object<CompanyFinancials>({
+    company: object<CompanyFinancials["company"]>({
+      cik,
+      name: nonEmptyString,
+      tickers: arrayOf(nonEmptyString),
+    }),
+    descriptive_only: literal(true),
+    no_point_in_time_claim: literal(true),
+    boundary_note: nonEmptyString,
+    total_filings: nonNegativeInteger,
+    filings: arrayOf(filing),
   }),
-  descriptive_only: literal(true),
-  no_point_in_time_claim: literal(true),
-  boundary_note: nonEmptyString,
-  filings: arrayOf(filing),
-});
+  (value, path) => {
+    if (value.total_filings < value.filings.length) reject(`${path}.total_filings`, "a total of at least the filings listed");
+  },
+);

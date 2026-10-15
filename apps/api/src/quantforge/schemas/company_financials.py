@@ -18,6 +18,7 @@ from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from quantforge.financials.company_financials import MAX_FILINGS
 from quantforge.financials.eps import EpsPeriodClass
 from quantforge.financials.eps_change import (
     EpsChangeStatus,
@@ -149,4 +150,10 @@ class CompanyFinancialsResponse(BaseModel):
     descriptive_only: Literal[True] = True
     no_point_in_time_claim: Literal[True] = True
     boundary_note: str = BOUNDARY_NOTE
+    total_filings: int = Field(
+        description=(
+            "Stored 10-Q/10-K-family filings with FSDS facts. `filings` holds the newest "
+            f"{MAX_FILINGS} of them, so it is shorter than this when the company has more."
+        )
+    )
     filings: list[FilingFinancialsSection]

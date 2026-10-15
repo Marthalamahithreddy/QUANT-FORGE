@@ -42,7 +42,8 @@ export default async function CompanyPage({ params }: PageProps<"/companies/[cik
     );
   }
 
-  const { company, filings, boundary_note: boundary } = result.data;
+  const { company, filings, boundary_note: boundary, total_filings: total } = result.data;
+  const omitted = total - filings.length;
   const latest = filings[0];
   return (
     <PageContainer width="workspace">
@@ -87,13 +88,18 @@ export default async function CompanyPage({ params }: PageProps<"/companies/[cik
           ) : null}
           <Section
             title="Historical comparison"
-            note={`${filings.length} stored ${filings.length === 1 ? "filing" : "filings"} with financial facts`}
+            note={
+              omitted > 0
+                ? `Newest ${filings.length} of ${total} stored filings with financial facts`
+                : `${filings.length} stored ${filings.length === 1 ? "filing" : "filings"} with financial facts`
+            }
           >
             <HistoryTable filings={filings} />
             <p className="type-meta max-w-3xl">
               {filings.length === 1
                 ? "Only one filing's financial facts are stored for this company, so the history is a single period beside its prior-year comparative. A multi-period trend appears as more filings are ingested; nothing is interpolated."
                 : "Each row is one stored filing with the prior-year figure as presented in that same filing. Periods that are not stored are not filled in or interpolated."}
+              {omitted > 0 ? ` ${omitted} older stored ${omitted === 1 ? "filing is" : "filings are"} not shown.` : ""}
             </p>
           </Section>
           {filings.map((filing) => (

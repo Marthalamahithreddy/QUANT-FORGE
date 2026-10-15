@@ -40,10 +40,16 @@ from quantforge.repositories.financial_fact import CompanyFilingFacts, Financial
 
 __all__ = [
     "FILING_FORMS",
+    "MAX_FILINGS",
+    "CompanyHistory",
     "FilingFinancials",
     "MetricComparison",
     "build_company_financials",
 ]
+
+#: A company's page reads this many of its newest filings (each costs several queries). The total is
+#: always reported beside it so a shorter list is never mistaken for the whole history.
+MAX_FILINGS = 40
 
 #: The forms that have a defined period class. Anything else is not read.
 _PERIOD_CLASS: dict[SecFormType, EpsPeriodClass] = {
@@ -70,6 +76,14 @@ class FilingFinancials:
     filing: CompanyFilingFacts
     period_class: EpsPeriodClass
     comparisons: tuple[MetricComparison, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CompanyHistory:
+    """The newest ``MAX_FILINGS`` filings and how many filings the company has in all."""
+
+    filings: tuple[FilingFinancials, ...]
+    total_filings: int
 
 
 EPS_METRIC = "EPS_DILUTED"
@@ -160,10 +174,13 @@ def _filing_financials(
 
 
 def build_company_financials(
-    session: Session, company: Company, *, limit: int = 40
-) -> list[FilingFinancials]:
+    session: Session, company: Company, *, limit: int = MAX_FILINGS
+) -> CompanyHistory:
     """The financials of the company's newest ``limit`` stored 10-Q/10-K-family filings."""
     filings = FinancialFactRepository(session).company_filings_with_facts(
         company.id, forms=FILING_FORMS
     )
-    return [_filing_financials(session, company, filing) for filing in filings[:limit]]
+    return CompanyHistory(
+        filings=tuple(_filing_financials(session, company, f) for f in filings[:limit]),
+        total_filings=len(filings),
+    )

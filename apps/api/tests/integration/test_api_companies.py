@@ -27,6 +27,7 @@ from tests.integration.test_eps_extraction import (  # noqa: F401 - fixtures
 
 from quantforge.core.config import Settings
 from quantforge.db.session import get_session
+from quantforge.financials.company_financials import build_company_financials
 from quantforge.ingestion.financial_facts import FinancialFactIngestionService
 from quantforge.ingestion.raw_store import RawResponseStore
 from quantforge.main import create_app
@@ -112,6 +113,7 @@ def test_financials_select_the_quarter_not_the_ytd_and_pair_it_with_the_prior_ye
         ACC_10Q,
         ACC_10K,
     ]  # newest period first
+    assert body["total_filings"] == 3
     quarter = next(f for f in body["filings"] if f["accession"] == ACC_10Q)
     assert quarter["period_class"] == "QUARTER" and quarter["period_end"] == "2024-03-31"
     revenue, income, eps = quarter["metrics"]
@@ -202,3 +204,12 @@ def test_a_filing_in_two_packages_reports_one_package_with_its_own_stored_time(
     quarter = next(f for f in body["filings"] if f["accession"] == ACC_10Q)
     assert quarter["source_artifact"] == "2024q3"
     assert quarter["package_stored_at"] == "2026-10-03T12:00:00Z"
+
+
+def test_the_list_is_capped_and_the_total_says_so(db_session: Session, tmp_path: Path) -> None:
+    """Only the newest ``limit`` filings are read, and the company's full count is still reported."""
+    _ingest(db_session, tmp_path, _nums())
+    stored = db_session.query(Company).filter(Company.cik == CIK_MAIN).one()
+    history = build_company_financials(db_session, stored, limit=2)
+    assert [f.filing.accession_number for f in history.filings] == [ACC_10QA, ACC_10Q]
+    assert history.total_filings == 3

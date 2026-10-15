@@ -178,12 +178,13 @@ def get_company_financials(
                 status.HTTP_404_NOT_FOUND, detail="No company is stored under this CIK."
             )
         tickers = repository.current_tickers(company.id)
-        filings = build_company_financials(session, company)
+        history = build_company_financials(session, company)
     except (OperationalError, InterfaceError) as exc:
         raise database_unavailable(exc, what="Company financials read") from exc
     return CompanyFinancialsResponse(
         company=CompanySummary(cik=cik, name=company.display_name, tickers=list(tickers)),
-        filings=[_filing(cik, item) for item in filings],
+        total_filings=history.total_filings,
+        filings=[_filing(cik, item) for item in history.filings],
     )
 
 
