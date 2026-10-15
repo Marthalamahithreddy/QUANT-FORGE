@@ -74,7 +74,7 @@ export function FilingEvidence({ filing, cik }: { readonly filing: FilingFinanci
           <CopyValue value={filing.source_artifact_sha256} label="package SHA-256" />
         </KeyValue>
         <KeyValue label="On SEC EDGAR">
-          <a href={filing.source_url} rel="noopener noreferrer" target="_blank" className="text-accent underline-offset-2 hover:underline">
+          <a href={filing.source_url} rel="noopener noreferrer" target="_blank" className="text-accent underline underline-offset-2">
             Open the filing index on sec.gov
           </a>{" "}
           <span className="type-meta">(a link only: QuantForge did not fetch it)</span>
