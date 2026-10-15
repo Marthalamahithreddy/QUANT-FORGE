@@ -121,7 +121,9 @@ class CompanyFilingFacts:
 
     ``fiscal_year`` / ``fiscal_period`` are the FSDS submission's own statements (``None`` when the
     filing's submissions disagree). ``package_stored_at`` is when QuantForge stored the earliest
-    package carrying the filing: storage provenance only, never when a figure was known. The EDGAR
+    package carrying the filing: storage provenance only, never when a figure was known.
+    ``artifacts`` lists every carrying package as ``(name, sha256)`` with that SAME earliest package
+    first, so ``artifacts[0]`` and ``package_stored_at`` always describe one package. The EDGAR
     acceptance instant is deliberately NOT carried (``tests/test_accepted_at_firewall.py``).
     """
 
@@ -264,6 +266,7 @@ class FinancialFactRepository:
         filings = []
         for filing_id, group in grouped.items():
             first = group[0]
+            earliest = min(group, key=lambda r: (r.ingested_at, r.artifact_name, r.sha256))
             years = {r.fiscal_year for r in group}
             periods = {r.fiscal_period for r in group}
             filings.append(
@@ -273,11 +276,17 @@ class FinancialFactRepository:
                     form=first.form,
                     filing_date=first.filing_date,
                     report_date=first.report_date,
-                    package_stored_at=min(r.ingested_at for r in group),
+                    package_stored_at=earliest.ingested_at,
                     submission_period_ends=tuple(sorted({r.period_end for r in group})),
                     fiscal_year=next(iter(years)) if len(years) == 1 else None,
                     fiscal_period=next(iter(periods)) if len(periods) == 1 else None,
-                    artifacts=tuple(sorted({(r.artifact_name, r.sha256) for r in group})),
+                    artifacts=(
+                        (earliest.artifact_name, earliest.sha256),
+                        *sorted(
+                            {(r.artifact_name, r.sha256) for r in group}
+                            - {(earliest.artifact_name, earliest.sha256)}
+                        ),
+                    ),
                 )
             )
         filings.sort(

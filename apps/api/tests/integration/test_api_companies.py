@@ -7,6 +7,7 @@ query, ordering) and the real selectors over FSDS-shaped facts ingested through 
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -14,9 +15,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
-from tests.fsds_fixture import ACC_10K, ACC_10Q, ACC_10QA, CIK_MAIN, num_row
+from tests.fsds_fixture import ACC_10K, ACC_10Q, ACC_10QA, CIK_MAIN, build_package, num_row
 from tests.integration.test_eps_extraction import (  # noqa: F401 - fixtures
     GAAP,
+    NOW,
     _eps,
     _ingest,
     company,
@@ -25,6 +27,8 @@ from tests.integration.test_eps_extraction import (  # noqa: F401 - fixtures
 
 from quantforge.core.config import Settings
 from quantforge.db.session import get_session
+from quantforge.ingestion.financial_facts import FinancialFactIngestionService
+from quantforge.ingestion.raw_store import RawResponseStore
 from quantforge.main import create_app
 from quantforge.models.company import Company
 
@@ -170,3 +174,31 @@ def test_reading_writes_nothing(client: TestClient, db_session: Session, tmp_pat
     client.get(f"/api/v1/companies/{CIK_MAIN}/financials")
     client.get("/api/v1/companies", params={"q": "example"})
     assert not db_session.new and not db_session.dirty and not db_session.deleted
+
+
+def test_a_filing_in_two_packages_reports_one_package_with_its_own_stored_time(
+    client: TestClient, db_session: Session, tmp_path: Path
+) -> None:
+    """The artifact name/hash and ``package_stored_at`` must describe the SAME (earliest) package.
+
+    The earliest-stored package is named ``2024q3``, which sorts AFTER the later ``2024q2``: pairing
+    the alphabetically first name with the earliest time would mix two packages.
+    """
+    # The packages differ only by a fact of another period (a conflicting value would be refused).
+    for name, when, extra_period in (
+        ("2024q3", NOW, "20220331"),
+        ("2024q2", NOW + timedelta(days=1), "20210331"),
+    ):
+        package = build_package(
+            tmp_path / f"{name}.zip",
+            nums=[*_nums(), _money(ACC_10Q, REVENUE, extra_period, "1", "900.0000")],
+        )
+        FinancialFactIngestionService(
+            session=db_session, store=RawResponseStore(root=tmp_path / f"raw-{name}"), now=when
+        ).ingest_fsds_package(package, package_name=name, accessions=(ACC_10Q,))
+        db_session.commit()
+
+    body = client.get(f"/api/v1/companies/{CIK_MAIN}/financials").json()
+    quarter = next(f for f in body["filings"] if f["accession"] == ACC_10Q)
+    assert quarter["source_artifact"] == "2024q3"
+    assert quarter["package_stored_at"] == "2026-10-03T12:00:00Z"
