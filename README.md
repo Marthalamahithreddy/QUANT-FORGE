@@ -4,14 +4,14 @@ A local, read-only equity research workstation: provenance-tracked market data, 
 earnings event-study engine, and a Next.js interface to browse them. It is **not a trading system**. There is no
 strategy, order, fill, position or P&L model, and every API route is a `GET`.
 
+![Companies page: a curated Popular companies list with coverage labels](docs/images/companies-directory.png)
+
+*The Companies page: search by name, ticker or CIK, and a curated, non-ranked list of the demonstration companies, each
+labelled with how much of revenue, net income and diluted EPS is stored ([how to run it](#view-the-demo-data)).*
+
 ![Nike company page: revenue, net income and diluted EPS cards with a quarterly trend](docs/images/nike-financials.png)
 
-*A company page: the most recent stored filing beside its prior year, and the stored quarters as a trend. This is the
-Nike demonstration dataset ([how to run it](#view-the-nike-demo)).*
-
-![Companies directory searching for "nke"](docs/images/companies-directory.png)
-
-*Search stored companies by name, ticker or CIK.*
+*A company page (Nike): the most recent stored filing beside its prior year, and the stored quarters as a trend.*
 
 ![Historical comparison table and the filing evidence behind each figure](docs/images/nike-evidence.png)
 
@@ -20,8 +20,9 @@ SHA-256 (the exact stored facts follow below it on the page).*
 
 ## What it does today
 
-- **Companies** (`/companies`): search stored companies and open one for revenue, net income and diluted EPS by
-  period, each with the filing, the SEC data-set package and the exact stored facts behind it.
+- **Companies** (`/companies`): a curated **Popular companies** list (not a ranking and not live data), search over
+  stored companies, and a page per company with revenue, net income and diluted EPS by period, each with the filing,
+  the SEC data-set package and the exact stored facts behind it. The demonstration dataset holds ten companies.
 - **Earnings, Filings and Research**: earnings events, the FSDS-backed filings index with per-filing EPS (current,
   comparative as presented, change), a research workspace (event alignment, EPS surprise, forward and abnormal
   returns) and immutable, verifiable saved research records.
@@ -78,14 +79,14 @@ curl -s localhost:8000/api/v1/health/ready # readiness: database reachable AND s
 An empty database is served honestly: every page says nothing is stored. **Companies will be empty** (it lists only
 companies stored by reference ingestion), and a company without financial facts shows "No SEC financial data is stored
 for this company". That is expected, not a fault. Data arrives only through the [ingestion commands](#ingestion-at-a-glance),
-which need provider keys or a local SEC data-set ZIP. Nothing copies the Nike demo data into this database.
+which need provider keys or a local SEC data-set ZIP. Nothing copies the demonstration data into this database.
 
-## View the Nike demo
+## View the demo data
 
-The only populated example is **Nike**, in a separate **`quantforge_validation`** database. It must **already exist**,
-at revision `0014`, holding the previously ingested records. Starting the server does not create or populate it, and
-there is no supported from-scratch rebuild that avoids ingesting SEC data. With the Docker services up
-(`docker compose up -d`), from the repository root:
+The populated example is **ten companies** (see [Supported companies](#supported-companies)) in a separate
+**`quantforge_validation`** database. It must **already exist**, at revision `0014`, holding the previously ingested
+records. Starting the server does not create or populate it, and there is no supported from-scratch rebuild that avoids
+ingesting SEC data. With the Docker services up (`docker compose up -d`), from the repository root:
 
 ```bash
 # Terminal 1: the real API against the validation database (read-only; 127.0.0.1:8000, or pass another port)
@@ -98,13 +99,11 @@ npm install
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run dev
 ```
 
-Open <http://localhost:3000/companies?q=nke>, then the Nike link (`/companies/0000320187`). `serve.py` takes its
-connection from the application's default local settings with only the database name replaced, and prints no
-credential. For a production build set the same variable for both steps, because the address is fixed into a build:
-`NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run build`, then the same prefix on `npm run start`.
-
-The demo depends on facts stored earlier from the SEC Financial Statement Data Sets packages `2025q2`, `2025q3`,
-`2025q4` and `2026q2`. Those names are provenance only, not instructions to fetch anything.
+Open <http://localhost:3000/companies>: the Popular companies list, then any company (for example Nike,
+`/companies/0000320187`), or search `nke`. `serve.py` takes its connection from the application's default local settings
+with only the database name replaced, and prints no credential. For a production build set the same variable for both
+steps, because the address is fixed into a build: `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run build`, then
+the same prefix on `npm run start`.
 
 ## Companies
 
@@ -135,8 +134,51 @@ unknown CIK; refusals inside a response are `200` with a named status).
   fetched by QuantForge**. "Stored by QuantForge" is storage time. Filing and report dates are source metadata. The SEC
   acceptance time is not shown and, like these dates, is not when a figure became available: the page makes no
   point-in-time claim.
-- **Coverage is whatever is stored.** The Nike dataset holds five filings: Q3 FY2025, the FY2025 10-K, Q1 FY2026,
-  Q2 FY2026 and Q3 FY2026. It is not a general multi-company dataset.
+- **Coverage is whatever is stored.** Each of the ten demonstration companies holds six filings (see below). The
+  **Popular companies** list on `/companies` is a fixed, hand-curated list of identities: it is **not** live trending
+  data, a ranking or a recommendation. QuantForge has **no live market data**: no prices, volumes, quotes or sentiment
+  feed supply the Companies pages, and every figure is read from stored SEC filings. Each card states whether the
+  newest stored filing has **full coverage** (revenue, net income and diluted EPS all available), **limited coverage**
+  (some are named refusals) or none. A company that is not stored is shown as unavailable, never filled in. Private
+  companies file no 10-K or 10-Q reports with the SEC and so cannot appear.
+
+### Supported companies
+
+Stored from the SEC Financial Statement Data Sets packages `2025q2`, `2025q3`, `2025q4`, `2026q1`, `2026q2` and
+`2026q3` (company identity from the Massive reference endpoint, filing identity from the SEC submissions API). "Q" is
+10-Q filings and "K" is 10-K filings. Periods are the company's own fiscal labels.
+
+| Ticker | CIK | Stored filings | Fiscal periods | Newest filing |
+|---|---|---|---|---|
+| AAPL | 0000320193 | 6 (5Q, 1K) | Q2 FY2025 to Q3 FY2026 | Full coverage |
+| AMD | 0000002488 | 6 (5Q, 1K) | Q1 FY2025 to Q2 FY2026 | Full coverage |
+| AMZN | 0001018724 | 6 (5Q, 1K) | Q1 FY2025 to Q2 FY2026 | Full coverage |
+| GOOGL | 0001652044 | 6 (5Q, 1K) | Q1 FY2025 to Q2 FY2026 | **Limited**: revenue is stored for Q1 FY2025 only; later filings report it under a different concept, shown as `MISSING` |
+| META | 0001326801 | 6 (5Q, 1K) | Q1 FY2025 to Q2 FY2026 | Full coverage |
+| MSFT | 0000789019 | 6 (4Q, 2K) | Q3 FY2025 to FY2026 | Full coverage |
+| NKE | 0000320187 | 6 (4Q, 2K) | Q3 FY2025 to FY2026 | Full coverage |
+| NVDA | 0001045810 | 6 (5Q, 1K) | Q1 FY2026 to Q2 FY2027 | **Limited**: revenue is not stored under the single concept in any filing, shown as `MISSING` |
+| PLTR | 0001321655 | 6 (5Q, 1K) | Q1 FY2025 to Q2 FY2026 | Full coverage |
+| TSLA | 0001318605 | 6 (5Q, 1K) | Q1 FY2025 to Q2 FY2026 | Full coverage |
+
+Broadcom (CIK 1730168) was evaluated and not stored: its filings have no `NetIncomeLoss` fact under the single concept, so
+the page would show no net income. A fiscal fourth quarter appears only through the 10-K and is never derived.
+
+### Adding or refreshing a company
+
+Run from `apps/api`, against the database selected by `QF_DATABASE_URL` (the demo uses `quantforge_validation`). Each
+step is idempotent; an identical fact is skipped, and a conflicting one is refused, never overwritten.
+
+```bash
+uv run quantforge ingestion reference AAPL            # company identity (Massive; needs QF_MASSIVE_API_KEY, rate-limited)
+uv run quantforge ingestion sec-filings 0000320193    # filing identity (needs QF_SEC_USER_AGENT, the SEC's fair-access identity)
+# Download a quarterly Financial Statement Data Sets ZIP from the SEC (declare your User-Agent; at most 10 requests/second),
+# then store the facts of the named company from that LOCAL file (no network):
+uv run quantforge ingestion sec-fsds 2026q3.zip --cik 0000320193
+```
+
+To refresh, repeat `sec-filings` for new filing identities and `sec-fsds` with each newly published quarterly package.
+A company is never created from SEC data; `reference` must come first.
 
 > **Data boundary.** Descriptive accounting data from SEC FSDS. No point-in-time availability claim.
 > Not a trading signal. This holds for the Companies pages, the `/filings` pages and their EPS API.
@@ -322,7 +364,7 @@ never the development or validation database). Run `uv run pytest -m integration
 |---|---|---|
 | The web app says "Cannot reach the QuantForge API", or `curl localhost:8000/api/v1/health/ready` fails or returns `503` with the database `unavailable` | Docker or PostgreSQL is not running (liveness, `/health`, stays `200` even then) | `docker compose up -d`, then `docker compose ps` until both services are healthy |
 | `/api/v1/health/ready` returns `503` with a schema `mismatch` | The database is not at this version's Alembic head (`0014`). The API never migrates | From `apps/api`: `uv run alembic current`, then `uv run alembic upgrade head` against the database you mean to migrate. Read the `0014` downgrade caveat under [Migrations](#migrations) first |
-| `/companies` is empty, or a company says "No SEC financial data is stored for this company" | You are on the ordinary development database (`quantforge`), which has no financial facts and is not populated automatically | To see data, run the Nike demo against the **separate** `quantforge_validation` database ([View the Nike demo](#view-the-nike-demo)). That database must already exist; starting a server does not create or fill it. Otherwise ingest data with the [ingestion commands](#ingestion-at-a-glance) |
+| `/companies` is empty, or a company says "No SEC financial data is stored for this company" | You are on the ordinary development database (`quantforge`), which has no financial facts and is not populated automatically | To see data, run the demo against the **separate** `quantforge_validation` database ([View the demo data](#view-the-demo-data)). That database must already exist; starting a server does not create or fill it. Otherwise ingest data with the [ingestion commands](#ingestion-at-a-glance) |
 | The web app still talks to the old API address after you changed `NEXT_PUBLIC_API_BASE_URL` | `next build` fixes the address into the build | Set the variable for the build: `NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run build`, then `npm run start`. `npm run dev` reads it each time it starts |
 | `uv run pytest` talks to PostgreSQL and creates or drops databases | With no filter it also runs the `integration` tests whenever PostgreSQL is reachable | Use `uv run pytest -m "not integration" -q`; run `uv run pytest -m integration -q` only deliberately |
 
@@ -330,18 +372,23 @@ never the development or validation database). Run `uv run pytest -m integration
 
 - **Scope:** research and display only. No trading, orders, fills, P&L or authentication, and the release candidate
   (`v0.1.0-rc.1`) is not a production deployment.
-- **Companies coverage:** only Nike has facts, for five periods; the fiscal Q4 and anything after Q3 FY2026 are not
-  stored. Revenue and net income are single concepts, **not comprehensive accounting coverage** for every industry (for
-  example noncontrolling-interest income, or total revenue for financials, is not shown).
+- **Companies coverage:** ten companies with six filings each, about eighteen months, from six quarterly packages;
+  older history and anything after those packages is not stored. Revenue and net income are single concepts, **not
+  comprehensive accounting coverage** for every industry (for example noncontrolling-interest income is not shown, and
+  a company that reports revenue under a different concept, such as NVIDIA or, after Q1 FY2025, Alphabet, shows
+  `MISSING` for revenue). Company names are the reference provider's (for example "Meta Platforms, Inc. Class A Common
+  Stock"), not the SEC registrant names. The Popular list is static and not market data.
 - **Amendments and size:** a 10-Q/A or 10-K/A is its own row. The trend draws an amended quarter beside the original,
   labelled with its form, and does not choose or merge them. A company page reads at most its 40 newest stored filings;
   the API reports the company's total (`total_filings`) and the page says how many older filings are not shown.
 - **Not point-in-time:** FSDS facts and SEC acceptance times are descriptive provenance, not evidence of when a figure
   was available, so no current earnings row is point-in-time eligible.
-- **Verification gaps:** the Companies SQL reads are covered by integration tests against PostgreSQL
-  (`apps/api/tests/integration/test_api_companies.py`), but no browser end-to-end test covers `/companies`, because the
-  fixture API used by `npm run e2e` has no captured Companies responses. An unknown-CIK page returns HTTP 200 with the
-  not-found state (the page streams behind a loading skeleton), as the older unknown-event page does.
+- **Verification scope:** the Companies SQL reads are covered by integration tests against PostgreSQL
+  (`apps/api/tests/integration/test_api_companies.py`), and `/companies` by fixture-backed browser tests
+  (`apps/web/e2e/companies.spec.ts`) that replay real captured API responses
+  (`apps/web/tests/contract/companies.json`, recaptured with `node scripts/capture-companies.mjs <api-url>`). Those tests
+  do not exercise a live database. An unknown-CIK page returns HTTP 200 with the not-found state (the page streams
+  behind a loading skeleton), as the older unknown-event page does.
 - **Provider limits:** Massive's Benzinga earnings endpoint is entitlement-blocked (`403`), so Finnhub supplies the
   earnings calendar; the live Massive probes for splits and listing history are outstanding.
 

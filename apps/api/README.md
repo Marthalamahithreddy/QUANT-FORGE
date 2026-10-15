@@ -314,8 +314,8 @@ serves liveness with both datastores stopped.
 
 ## Companies API
 
-`GET /api/v1/companies` and `GET /api/v1/companies/{cik}/financials` (read-only) are described, with the Nike
-validation-database workflow, in the root [README](../../README.md#companies) and ["View the Nike demo"](../../README.md#view-the-nike-demo).
+`GET /api/v1/companies` and `GET /api/v1/companies/{cik}/financials` (read-only) are described, with the demonstration
+validation-database workflow, in the root [README](../../README.md#companies) and ["View the demo data"](../../README.md#view-the-demo-data).
 
 ## Commands
 

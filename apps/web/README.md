@@ -16,8 +16,8 @@ accessibility and responsive convergence, request budgets, dead-code removal).
   enriches a row, reads a detail endpoint or computes anything. There is no count, score or aggregate of its own.
 - **Routes** — Overview `/`, Companies `/companies` and `/companies/[cik]` (company search and a revenue, net income
   and diluted EPS history with filing evidence; what it shows and its limits are in the root
-  [README, "Companies"](../../README.md#companies); running it against the Nike demo data is in
-  [README, "View the Nike demo"](../../README.md#view-the-nike-demo)),
+  [README, "Companies"](../../README.md#companies); running it against the demonstration data is in
+  [README, "View the demo data"](../../README.md#view-the-demo-data)),
   Earnings `/earnings` and `/earnings/[id]`, Filings `/filings` and
   `/filings/[accession]`, Research `/research` (an event finder) and the research workspace
   `/research/events/[eventId]` (11.1D), Saved Research `/research/saved` and `/research/saved/[recordId]` (11.1E).
