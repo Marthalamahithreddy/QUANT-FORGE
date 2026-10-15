@@ -2,7 +2,7 @@ import { Figure } from "@/components/companies/figure";
 import type { FilingFinancials, MetricId } from "@/lib/api/schema";
 import { METRIC_IDS } from "@/lib/api/schema";
 import { barPercents } from "@/lib/bar-widths";
-import { METRIC_LABEL, METRIC_UNIT, fiscalLabel } from "@/lib/companies-view";
+import { METRIC_LABEL, METRIC_UNIT, quarterLabel } from "@/lib/companies-view";
 
 interface Bar {
   readonly key: string;
@@ -20,8 +20,13 @@ function quarterBars(filings: readonly FilingFinancials[], metric: MetricId): { 
   const quarters = filings
     .filter((filing) => filing.period_class === "QUARTER")
     .slice()
-    .sort((a, b) => (a.period_end ?? "").localeCompare(b.period_end ?? ""));
-  const all = quarters.map((filing) => ({ key: `${filing.accession}-${metric}`, label: fiscalLabel(filing), filing, metric }));
+    .sort(
+      (a, b) =>
+        (a.period_end ?? "").localeCompare(b.period_end ?? "") ||
+        a.filing_date.localeCompare(b.filing_date) ||
+        a.accession.localeCompare(b.accession),
+    );
+  const all = quarters.map((filing) => ({ key: `${filing.accession}-${metric}`, label: quarterLabel(filing), filing, metric }));
   const available = (bar: Bar) => bar.filing.metrics.find((m) => m.metric === metric)?.current.status === "AVAILABLE";
   return { bars: all.filter(available), skipped: all.filter((bar) => !available(bar)) };
 }

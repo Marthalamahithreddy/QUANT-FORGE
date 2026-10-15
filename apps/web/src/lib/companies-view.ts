@@ -91,6 +91,14 @@ export function fiscalLabel(filing: Pick<FilingFinancials, "fiscal_period" | "fi
   return filing.period_end ?? "Period not stated";
 }
 
+/**
+ * A quarter's label in the trend. An amendment names its form, so an original 10-Q and its 10-Q/A for
+ * the same quarter are never two identical-looking bars.
+ */
+export function quarterLabel(filing: Parameters<typeof fiscalLabel>[0] & Pick<FilingFinancials, "form">): string {
+  return filing.form === "10-Q" ? fiscalLabel(filing) : `${fiscalLabel(filing)} · ${filing.form}`;
+}
+
 export const PERIOD_CLASS_NOUN = { QUARTER: "quarter", ANNUAL: "fiscal year" } as const;
 
 export interface CompaniesListState {

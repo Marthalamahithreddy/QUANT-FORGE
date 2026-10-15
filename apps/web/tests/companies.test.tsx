@@ -201,6 +201,21 @@ describe("Company page", () => {
     expect(screen.queryByText(/only one filing/i)).toBeNull();
   });
 
+  it("names an amendment in the trend so it is never a second identical quarter", async () => {
+    const amendment = filing([{ ...income(), current: point("530000000.0000", "2026-02-28") }], {
+      accession: "0000111111-26-000009",
+      form: "10-Q/A",
+      filing_date: "2026-05-01",
+      source_url: "https://www.sec.gov/Archives/edgar/data/111111/000011111126000009/0000111111-26-000009-index.htm",
+    });
+    stub(jsonResponse(financials([income(), revenueRefused()], [amendment])));
+    await renderServer(await CompanyPage(props(CIK)));
+    const trend = screen.getByRole("region", { name: "Net income (parent) by quarter" });
+    const labels = within(trend).getAllByText(/FY2026/).map((node) => node.textContent);
+    // The original first (earlier filing date), the amendment named; both remain visible.
+    expect(labels).toEqual(["Q3 FY2026 · ended 2026-02-28", "Q3 FY2026 · 10-Q/A · ended 2026-02-28"]);
+  });
+
   it("says when older stored filings are not shown, and does not when the list is complete", async () => {
     stub(jsonResponse(financials([income(), revenueRefused()], [], 45)));
     await renderServer(await CompanyPage(props(CIK)));
