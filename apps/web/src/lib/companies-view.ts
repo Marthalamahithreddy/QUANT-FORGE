@@ -99,6 +99,28 @@ export function quarterLabel(filing: Parameters<typeof fiscalLabel>[0] & Pick<Fi
   return filing.form === "10-Q" ? fiscalLabel(filing) : `${fiscalLabel(filing)} · ${filing.form}`;
 }
 
+/** How much of the three metrics the newest stored filing has: all of them, some, or none. */
+export type Coverage = "FULL" | "LIMITED" | "NONE";
+
+export interface CoverageSummary {
+  readonly coverage: Coverage;
+  readonly available: readonly MetricId[];
+  readonly unavailable: readonly MetricId[];
+}
+
+/**
+ * Coverage of a company's newest stored filing (the API orders filings newest period first): FULL when
+ * revenue, net income and diluted EPS are all AVAILABLE, LIMITED when only some are, NONE when none
+ * is (or no filing with facts is stored). A refused figure is counted as unavailable, never as zero.
+ */
+export function coverageOf(newest: Pick<FilingFinancials, "metrics"> | undefined): CoverageSummary {
+  if (newest === undefined) return { coverage: "NONE", available: [], unavailable: [] };
+  const available = newest.metrics.filter((m) => m.current.status === "AVAILABLE").map((m) => m.metric);
+  const unavailable = newest.metrics.filter((m) => m.current.status !== "AVAILABLE").map((m) => m.metric);
+  const coverage: Coverage = unavailable.length === 0 && available.length > 0 ? "FULL" : available.length > 0 ? "LIMITED" : "NONE";
+  return { coverage, available, unavailable };
+}
+
 export const PERIOD_CLASS_NOUN = { QUARTER: "quarter", ANNUAL: "fiscal year" } as const;
 
 export interface CompaniesListState {

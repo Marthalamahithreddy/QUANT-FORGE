@@ -3,10 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import CompaniesPage from "@/app/companies/page";
 import CompanyPage from "@/app/companies/[cik]/page";
+import { PopularCompanies } from "@/components/companies/popular";
 import { decodeCompanyFinancials } from "@/lib/api/decoders/companies";
 import { decode } from "@/lib/api/decode";
 import { barPercents } from "@/lib/bar-widths";
-import { fiscalLabel, inMillions, parseCompaniesList } from "@/lib/companies-view";
+import { coverageOf, fiscalLabel, inMillions, parseCompaniesList } from "@/lib/companies-view";
+import { POPULAR_COMPANIES } from "@/lib/popular-companies";
 import { jsonResponse } from "./fixtures";
 import { renderServer } from "./render-server";
 
@@ -265,5 +267,71 @@ describe("Companies page", () => {
     stub(jsonResponse(page([])));
     await renderServer(await CompaniesPage({ searchParams: Promise.resolve({ q: "zzz" }), params: Promise.resolve({}) } as never));
     expect(screen.getByText("No stored company matches this search")).toBeInTheDocument();
+  });
+});
+
+
+describe("coverage", () => {
+  const section = (metric: string, status: string) => ({ metric, current: { status }, prior: { status: "AVAILABLE" } }) as never;
+  const all = (statuses: [string, string, string]) => ({ metrics: [section("REVENUE", statuses[0]), section("NET_INCOME", statuses[1]), section("EPS_DILUTED", statuses[2])] });
+
+  it("is FULL only when all three figures are available, LIMITED when some are, NONE otherwise", () => {
+    expect(coverageOf(all(["AVAILABLE", "AVAILABLE", "AVAILABLE"])).coverage).toBe("FULL");
+    expect(coverageOf(all(["MISSING", "AVAILABLE", "AVAILABLE"]))).toMatchObject({ coverage: "LIMITED", unavailable: ["REVENUE"] });
+    expect(coverageOf(all(["MISSING", "WRONG_UNIT", "AMBIGUOUS"])).coverage).toBe("NONE");
+    expect(coverageOf(undefined).coverage).toBe("NONE");
+  });
+});
+
+describe("Popular companies", () => {
+  const [first, second, third] = POPULAR_COMPANIES;
+  const stored = (cik: string, name: string, metrics: Json[]): Json => ({ ...financials(metrics), company: { cik, name, tickers: ["TST"] } });
+  const eps = (): Json => ({ ...income(), metric: "EPS_DILUTED" });
+  const reply = (cik: string): Response => {
+    if (cik === first!.cik) return jsonResponse(stored(cik, "Full Corp", [income(), { ...income(), metric: "REVENUE" }, eps()]));
+    if (cik === second!.cik) return jsonResponse(stored(cik, "Limited Corp", [income(), { ...revenueRefused(), current: refused("MISSING") }, eps()]));
+    if (cik === third!.cik) return jsonResponse(financials([]) && { ...financials([]), company: { cik, name: "Empty Corp", tickers: [] } });
+    return jsonResponse({ detail: "No company is stored under this CIK." }, 404);
+  };
+
+  it("shows each stored company with its coverage, an unstored one as unavailable, and writes no figure itself", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => Promise.resolve(reply(/companies\/(\d{10})\/financials/.exec(url)![1]!))),
+    );
+    await renderServer(await PopularCompanies());
+
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(POPULAR_COMPANIES.length);
+    expect(screen.getByRole("article", { name: "Full Corp" })).toHaveAttribute("data-coverage", "FULL");
+    const limited = screen.getByRole("article", { name: "Limited Corp" });
+    expect(limited).toHaveAttribute("data-coverage", "LIMITED");
+    expect(within(limited).getByText("Limited coverage")).toBeInTheDocument();
+    expect(limited.querySelector('[data-state="MISSING"]')).not.toBeNull();
+    expect(screen.getByRole("article", { name: "Empty Corp" })).toHaveAttribute("data-coverage", "NONE");
+    // The remaining entries are not stored: named by ticker, with no figure and no invented name.
+    const absent = screen.getByRole("article", { name: POPULAR_COMPANIES[3]!.ticker });
+    expect(absent).toHaveAttribute("data-coverage", "UNAVAILABLE");
+    expect(absent.querySelector("[data-exact]")).toBeNull();
+    expect(within(absent).getByText(/Not stored in this workspace/)).toBeInTheDocument();
+    expect(screen.queryByText(/trending/i)).toBeNull();
+  });
+
+  it("says so when none of the featured companies is stored, and never turns an outage into 'not stored'", async () => {
+    stub(jsonResponse({ detail: "x" }, 404));
+    await renderServer(await PopularCompanies());
+    expect(screen.getByText(/None of the featured companies has stored financial data/)).toBeInTheDocument();
+
+    cleanup();
+    stub(new TypeError("connection refused"));
+    await renderServer(await PopularCompanies());
+    expect(screen.getAllByText(/could not be read from the API/).length).toBe(POPULAR_COMPANIES.length);
+    expect(screen.queryByText(/Not stored in this workspace/)).toBeNull();
+  });
+
+  it("is an identity list only: unique ten-digit CIKs, no figures, alphabetical by ticker", () => {
+    expect(new Set(POPULAR_COMPANIES.map((c) => c.cik)).size).toBe(POPULAR_COMPANIES.length);
+    for (const entry of POPULAR_COMPANIES) expect(entry.cik).toMatch(/^\d{10}$/);
+    expect(POPULAR_COMPANIES.map((c) => c.ticker)).toEqual([...POPULAR_COMPANIES.map((c) => c.ticker)].sort());
+    expect(Object.keys(POPULAR_COMPANIES[0]!).sort()).toEqual(["cik", "ticker"]);
   });
 });
